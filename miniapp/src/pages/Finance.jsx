@@ -12,7 +12,7 @@ import {
 import { Bar } from 'react-chartjs-2';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatDate } from '../utils/format.js';
+import { formatMoney, formatDate, toInputDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
@@ -32,6 +32,7 @@ export default function Finance() {
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [editingTx, setEditingTx] = useState(null);
   const [deleting, setDeleting] = useState(null);
 
   const load = async () => {
@@ -151,7 +152,7 @@ export default function Finance() {
             <div className="empty">{t('common.noData')}</div>
           ) : (
             transactions.map((tx) => (
-              <div key={tx._id} className="list-item" onClick={() => setDeleting(tx)}>
+              <div key={tx._id} className="list-item" onClick={() => setEditingTx(tx)}>
                 <div className="row-between">
                   <div>
                     <div className="title">
@@ -193,6 +194,21 @@ export default function Finance() {
           onClose={() => setAdding(false)}
           onDone={() => {
             setAdding(false);
+            load();
+          }}
+        />
+      )}
+
+      {editingTx && (
+        <EditTransactionModal
+          tx={editingTx}
+          onClose={() => setEditingTx(null)}
+          onDelete={(tx) => {
+            setEditingTx(null);
+            setDeleting(tx);
+          }}
+          onDone={() => {
+            setEditingTx(null);
             load();
           }}
         />
@@ -296,6 +312,61 @@ function AddTransactionModal({ onClose, onDone }) {
       <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
       <button className="btn btn-primary btn-block" onClick={submit} disabled={busy || !amount}>
         {busy ? '...' : t('common.save')}
+      </button>
+    </Modal>
+  );
+}
+
+// Tranzaksiyani tahrirlash (summa, izoh, kategoriya, sana) + o'chirish.
+function EditTransactionModal({ tx, onClose, onDelete, onDone }) {
+  const { t } = useApp();
+  const [amount, setAmount] = useState(tx.amount);
+  const [note, setNote] = useState(tx.note || '');
+  const [category, setCategory] = useState(tx.category || 'boshqa');
+  const [date, setDate] = useState(toInputDateTime(tx.date));
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put(`/finance/transactions/${tx._id}`, {
+        amount: Number(amount),
+        note,
+        category: tx.type === 'expense' ? category : undefined,
+        date: new Date(date).toISOString(),
+      });
+      onDone();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={t('common.edit')} onClose={onClose}>
+      <label className="label">{t('common.amount')}</label>
+      <input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+      {tx.type === 'expense' && (
+        <>
+          <label className="label">{t('finance.category')}</label>
+          <select className="select" value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="yoqilg'i">{t("category.yoqilg'i")}</option>
+            <option value="ta'mirlash">{t("category.ta'mirlash")}</option>
+            <option value="oziq-ovqat">{t('category.oziq-ovqat')}</option>
+            <option value="boshqa">{t('category.boshqa')}</option>
+          </select>
+        </>
+      )}
+      <label className="label">{t('common.date')}</label>
+      <input className="input" type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
+      <label className="label">{t('common.notes')}</label>
+      <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
+      <button className="btn btn-primary btn-block mb-8" onClick={save} disabled={busy || !amount}>
+        {busy ? '...' : t('common.save')}
+      </button>
+      <button className="btn btn-danger btn-block" onClick={() => onDelete(tx)} disabled={busy}>
+        🗑 {t('common.delete')}
       </button>
     </Modal>
   );

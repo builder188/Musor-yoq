@@ -11,12 +11,33 @@ export default function Home() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Tezkor qidiruv (ism / telefon / manzil).
+  const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [searching, setSearching] = useState(false);
+
   // AI chat holati.
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
   const [selected, setSelected] = useState(null);
   const chatEndRef = useRef(null);
+
+  const runSearch = async () => {
+    const q = search.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    setSearching(true);
+    try {
+      setSearchResults(await api.get(`/services?search=${encodeURIComponent(q)}`));
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  };
 
   useEffect(() => {
     api
@@ -75,6 +96,42 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Tezkor qidiruv: ism / telefon / manzil */}
+      <div className="search-box">
+        <input
+          className="input"
+          placeholder={`${t('common.search')} (${t('common.name')}, ${t('common.phone')}, ${t('common.location')})`}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+        />
+        <button className="btn btn-primary" onClick={runSearch}>
+          🔍
+        </button>
+      </div>
+      {searchResults !== null && (
+        <div className="card">
+          <div className="row-between mb-8">
+            <strong>{t('home.noResults') && searchResults.length === 0 ? t('home.noResults') : `${searchResults.length} ta`}</strong>
+            <button className="btn btn-sm" onClick={() => { setSearch(''); setSearchResults(null); }}>
+              ✕
+            </button>
+          </div>
+          {searching ? (
+            <Spinner />
+          ) : (
+            searchResults.slice(0, 20).map((s) => (
+              <div key={s._id} className="list-item" onClick={() => setSelected(s)}>
+                <div className="title">{s.clientName}</div>
+                <div className="sub">
+                  {formatDate(s.serviceDateTime)} · {s.location?.text || '—'} · {formatMoney(s.price)}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* AI chat paneli */}
       <div className="card ai-panel">

@@ -21,12 +21,27 @@ export default function Services() {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const [completing, setCompleting] = useState(null);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [searchText, setSearchText] = useState('');
 
-  const load = async () => {
+  // override bilan chaqirilsa o'sha qiymatlar, aks holda joriy holat ishlatiladi.
+  const load = async (override) => {
+    const f = {
+      status: override?.status ?? filterStatus,
+      from: override?.dateFrom ?? dateFrom,
+      to: override?.dateTo ?? dateTo,
+      search: override?.searchText ?? searchText,
+    };
     setLoading(true);
     try {
-      const q = filterStatus ? `?status=${filterStatus}` : '';
-      setServices(await api.get(`/services${q}`));
+      const params = new URLSearchParams();
+      if (f.status) params.set('status', f.status);
+      if (f.from) params.set('dateFrom', new Date(f.from).toISOString());
+      if (f.to) params.set('dateTo', new Date(`${f.to}T23:59:59`).toISOString());
+      if (f.search.trim()) params.set('search', f.search.trim());
+      const qs = params.toString();
+      setServices(await api.get(`/services${qs ? `?${qs}` : ''}`));
     } catch {
       /* ignore */
     } finally {
@@ -91,6 +106,44 @@ export default function Services() {
               </button>
             ))}
           </div>
+
+          {/* Sana oralig'i + mijoz bo'yicha filtr */}
+          <div className="card" style={{ padding: 12 }}>
+            <div className="btn-row mb-8">
+              <div style={{ flex: 1 }}>
+                <label className="label">{t('common.date')} (dan)</label>
+                <input className="input" type="date" style={{ marginBottom: 0 }} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label className="label">{t('common.date')} (gacha)</label>
+                <input className="input" type="date" style={{ marginBottom: 0 }} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </div>
+            </div>
+            <input
+              className="input"
+              placeholder={`${t('clients.title')} / ${t('common.phone')} / ${t('common.location')}`}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && load()}
+            />
+            <div className="btn-row">
+              <button
+                className="btn btn-block"
+                onClick={() => {
+                  setDateFrom('');
+                  setDateTo('');
+                  setSearchText('');
+                  load({ dateFrom: '', dateTo: '', searchText: '' });
+                }}
+              >
+                {t('common.cancel')}
+              </button>
+              <button className="btn btn-primary btn-block" onClick={() => load()}>
+                🔍 {t('common.search').replace('...', '')}
+              </button>
+            </div>
+          </div>
+
           {services.length === 0 ? (
             <div className="empty">{t('services.noServices')}</div>
           ) : (
