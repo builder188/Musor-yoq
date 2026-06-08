@@ -21,6 +21,12 @@ Mini App (5 sahifa). Real MongoDB'ga qarshi integratsiya testlari o'tdi.
 - ✅ API: routes, initData dev-bypass, 1990 o'chirish kodi gate.
 - ✅ Mini App `npm run build` muvaffaqiyatli (52 modul).
 
+## GitHub repo (eslab qoling)
+- Remote: `origin` → **https://github.com/builder188/Musor-yoq.git** (branch: `main`)
+- Hammasi lokal commit qilingan. Push qilish uchun `builder188` akkaunti huquqi kerak
+  (bu kompyuterdagi git `xusniddin531` bilan kirgan — collaborator qo'shish yoki PAT kerak).
+- Push: `git push -u origin main`
+
 ## Keyingi aniq qadam (egasi uchun)
 1. `backend/.env` ni to'ldirish: `BOT_TOKEN`, `OWNER_TELEGRAM_ID`, `MONGODB_URI`, `GEMINI_API_KEY`.
 2. `cd backend && npm install && npm run dev` → botni Telegramda sinash.
