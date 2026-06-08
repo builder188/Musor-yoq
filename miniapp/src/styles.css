@@ -1,0 +1,290 @@
+/* Musir Yo'q Mini App — global uslublar va mavzu (light/dark). */
+
+:root {
+  --bg: #f2f3f5;
+  --card: #ffffff;
+  --text: #1a1a1a;
+  --text-muted: #8a8f98;
+  --border: #e4e6ea;
+  --primary: #2f8f4e;
+  --primary-soft: #e3f3e9;
+  --danger: #e0484d;
+  --danger-soft: #fbe7e8;
+  --warning: #e9a23b;
+  --warning-soft: #fbf0db;
+  --blue: #3a86ff;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --radius: 14px;
+}
+
+[data-theme='dark'] {
+  --bg: #15171a;
+  --card: #1f2226;
+  --text: #f0f1f3;
+  --text-muted: #8a8f98;
+  --border: #2c2f34;
+  --primary: #3fa862;
+  --primary-soft: #1d3327;
+  --danger: #f0595e;
+  --danger-soft: #3a2122;
+  --warning: #e9a23b;
+  --warning-soft: #352a18;
+  --blue: #4d92ff;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 12px 12px 80px;
+  min-height: 100vh;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 8px 4px 16px;
+}
+
+/* Kartalar */
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Statistik kartalar */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.stat {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+.stat-label {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* Tugmalar */
+.btn {
+  border: none;
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  transition: opacity 0.15s;
+}
+.btn:active { opacity: 0.7; }
+.btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+.btn-block { width: 100%; }
+.btn-sm { padding: 7px 12px; font-size: 13px; }
+.btn-row { display: flex; gap: 8px; }
+
+/* Inputlar */
+.input, .select, textarea.input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  margin-bottom: 10px;
+  font-family: inherit;
+}
+.input:focus, .select:focus { outline: 2px solid var(--primary-soft); border-color: var(--primary); }
+.label { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; display: block; }
+
+/* Qidiruv */
+.search-box {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.search-box .input { margin-bottom: 0; }
+
+/* Belgilar (badge) */
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-debt { background: var(--danger-soft); color: var(--danger); }
+.badge-pending { background: var(--warning-soft); color: var(--warning); }
+.badge-done { background: var(--primary-soft); color: var(--primary); }
+.badge-cancelled { background: var(--danger-soft); color: var(--danger); }
+
+/* Pastki navigatsiya */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  max-width: 640px;
+  margin: 0 auto;
+  z-index: 50;
+}
+.nav-item {
+  flex: 1;
+  text-align: center;
+  padding: 8px 0 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+.nav-item .icon { font-size: 20px; display: block; margin-bottom: 2px; }
+.nav-item.active { color: var(--primary); }
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--card);
+  border-radius: 18px 18px 0 0;
+  width: 100%;
+  max-width: 640px;
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 18px 16px 28px;
+  animation: slideUp 0.2s ease;
+}
+@keyframes slideUp { from { transform: translateY(40px); opacity: 0.6; } to { transform: translateY(0); opacity: 1; } }
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.modal-title { font-size: 18px; font-weight: 700; }
+.modal-close { background: none; border: none; font-size: 22px; color: var(--text-muted); cursor: pointer; }
+
+/* Segment toggle */
+.segment {
+  display: flex;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 12px;
+  gap: 3px;
+}
+.segment button {
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.segment button.active { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
+
+/* Kanban */
+.kanban { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; }
+.kanban-col { min-width: 80%; flex-shrink: 0; }
+.kanban-col h3 { font-size: 14px; margin: 0 0 8px 4px; }
+
+/* Ro'yxat elementi */
+.list-item {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+.list-item .title { font-weight: 600; }
+.list-item .sub { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+
+/* AI chat */
+.ai-panel { margin-top: 8px; }
+.ai-messages { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.ai-bubble {
+  padding: 10px 12px;
+  border-radius: 12px;
+  max-width: 85%;
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+.ai-bubble.user { background: var(--primary); color: #fff; align-self: flex-end; }
+.ai-bubble.bot { background: var(--bg); color: var(--text); align-self: flex-start; }
+.thinking { display: inline-flex; gap: 4px; }
+.thinking span {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted);
+  animation: blink 1.2s infinite both;
+}
+.thinking span:nth-child(2) { animation-delay: 0.2s; }
+.thinking span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+
+/* Yordamchi */
+.row-between { display: flex; justify-content: space-between; align-items: center; }
+.muted { color: var(--text-muted); }
+.mb-8 { margin-bottom: 8px; }
+.mt-12 { margin-top: 12px; }
+.text-income { color: var(--primary); font-weight: 600; }
+.text-expense { color: var(--danger); font-weight: 600; }
+.center { text-align: center; }
+.empty { text-align: center; color: var(--text-muted); padding: 30px 0; }
+.section-title { font-size: 15px; font-weight: 700; margin: 16px 4px 8px; }
+.spinner {
+  width: 28px; height: 28px; border: 3px solid var(--border);
+  border-top-color: var(--primary); border-radius: 50%;
+  animation: spin 0.7s linear infinite; margin: 30px auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-banner { background: var(--danger-soft); color: var(--danger); padding: 10px; border-radius: 10px; margin-bottom: 12px; font-size: 13px; }

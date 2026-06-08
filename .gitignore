@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Muhit fayllari — MAXFIY, hech qachon push qilinmasin!
+.env
+.env.local
+**/.env
+**/.env.local
+
+# Build natijalari
+dist/
+**/dist/
+build/
+
+# Loglar va vaqtinchalik fayllar
+*.log
+npm-debug.log*
+tmp/
+.cache/
+
+# OS / muharrir
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
