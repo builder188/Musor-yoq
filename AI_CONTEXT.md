@@ -54,8 +54,15 @@ miniapp/src/
 ## Known issues / TODO (ixtiyoriy yaxshilashlar)
 - PDFKit standart shrift kirill (ruscha) matnni qo'llamaydi — ruscha PDF uchun TTF shrift kerak.
 - Ruscha tarjimalar to'liq emas (uz ga fallback).
-- Bulk delete oldidan PDF eksport taklifi UIda alohida bog'lanmagan (Sozlamalardagi hisobotdan olinadi).
 - Avtomatik testlar repo'da saqlanmadi (vaqtinchalik yozildi, ishlatib o'chirildi).
+
+## Spec qamrovi (to'liq)
+- Bot: ovoz/matn/rasm/lokatsiya · 7 niyat · bittalab savol · tasdiq xulosasi ✅
+- Eslatmalar: standart (1kun+1soat+aniq vaqt) + **maxsus override** ("2 soat oldin eslat" -> 120 daq) + tugmalar ✅
+- Mini App: 5 sahifa to'liq ✅
+- Moliya: 5 qoida (daromad bajarilganda, narx tahriri, qisman to'lov, qo'lda daromad, xarajat kategoriyalari) ✅
+- O'chirish: 1990 kod, soft-delete, 30 kun tiklash, tungi cron, bulk (clients/services/finance/all),
+  **bulk oldidan PDF eksport taklifi** ✅
 
 ## Notes for another AI
 - Biznes mantiqni `services/` da o'zgartiring — bot va API ikkalasi shu yerdan foydalanadi.

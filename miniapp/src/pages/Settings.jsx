@@ -132,6 +132,7 @@ export default function Settings() {
         <ConfirmDeleteModal
           title={t('settings.dangerZone')}
           message={`${t(`settings.delete${cap(bulkTarget)}`)} — ${t('common.confirm')}?`}
+          onExport={() => downloadReport('all')}
           onClose={() => setBulkTarget(null)}
           onConfirm={async (code) => {
             await api.post('/system/bulk-delete', { target: bulkTarget, confirmationCode: code });

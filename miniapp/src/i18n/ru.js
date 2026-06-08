@@ -114,6 +114,7 @@ export default {
     daysBefore: 'дн. до',
     reports: 'Отчёты',
     exportPdf: 'Скачать PDF',
+    beforeDelete: 'перед удалением',
     dangerZone: 'Опасная зона',
     deleteData: 'Удалить данные',
     fullReset: 'Полный сброс',

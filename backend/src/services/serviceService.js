@@ -32,8 +32,10 @@ export async function createService(data) {
           lng: data.location?.lng ?? null,
         };
 
-  // Kelajakdagi ishlar uchun eslatmalar.
-  const reminders = isFuture ? await computeReminders(serviceDateTime) : [];
+  // Kelajakdagi ishlar uchun eslatmalar. Maxsus vaqt aytilgan bo'lsa — standartni almashtiramiz.
+  const customOffsets =
+    Number(data.reminderOffsetMinutes) > 0 ? [Math.round(Number(data.reminderOffsetMinutes))] : null;
+  const reminders = isFuture ? await computeReminders(serviceDateTime, customOffsets) : [];
 
   const service = await Service.create({
     clientId: client._id,

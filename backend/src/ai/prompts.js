@@ -29,6 +29,9 @@ QOIDALAR:
 - To'lov turi: faqat "naqd", "karta" yoki "o'tkazma".
 - Xarajat kategoriyasi: "yoqilg'i", "ta'mirlash", "oziq-ovqat" yoki "boshqa".
 - Agar xabar o'tgan zamonda bo'lsa (masalan "bordim", "oldim") -> isHistorical=true.
+- Agar foydalanuvchi maxsus eslatma vaqtini aytsa ("2 soat oldin eslat", "1 kun oldin eslat",
+  "30 daqiqa oldin") -> uni daqiqaga aylantirib reminderOffsetMinutes ga yoz
+  (30 daqiqa=30, 2 soat=120, 1 kun=1440). Aytmasa -> qo'shma.
 - Topa olmagan maydonni JSON ga umuman qo'shma yoki null qil. Hech narsa o'ylab topma.
 - "reply" maydoniga faqat qisqa o'zbekcha izoh yoz (kerak bo'lsa), aks holda bo'sh qoldir.
 
@@ -44,6 +47,7 @@ JAVOB FAQAT shu JSON sxemasida bo'lsin (boshqa matn yo'q):
     "paymentMethod": "naqd|karta|o'tkazma?",
     "notes": "string?",
     "isHistorical": false,
+    "reminderOffsetMinutes": 0,
     "amount": 0,
     "category": "yoqilg'i|ta'mirlash|oziq-ovqat|boshqa?",
     "incomeSource": "string?",

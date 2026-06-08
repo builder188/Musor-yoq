@@ -113,6 +113,7 @@ export default {
     daysBefore: 'kun oldin',
     reports: 'Hisobotlar',
     exportPdf: 'PDF yuklab olish',
+    beforeDelete: "o'chirishdan oldin",
     dangerZone: 'Xavfli zona',
     deleteData: 'Ma\'lumotlarni o\'chirish',
     fullReset: 'To\'liq tozalash',
