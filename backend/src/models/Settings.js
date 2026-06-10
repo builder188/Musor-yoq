@@ -1,29 +1,30 @@
-// Sozlamalar — yagona (singleton) hujjat.
+// Sozlamalar — har bir Telegram foydalanuvchi (egasi) uchun bitta hujjat.
 import mongoose from 'mongoose';
-import env, { ownerId } from '../config/env.js';
+import env from '../config/env.js';
 
 const settingsSchema = new mongoose.Schema(
   {
-    // Singletonni belgilash uchun doimiy kalit.
-    key: { type: String, default: 'global', unique: true },
+    telegramUserId: { type: String, unique: true, required: true },
 
     language: { type: String, enum: ['uz', 'ru'], default: 'uz' },
     theme: { type: String, enum: ['light', 'dark'], default: 'light' },
 
-    // Eslatma ofsetlari (daqiqada, xizmatdan oldin). Standart: 1 kun, 1 soat, aniq vaqt.
-    reminderOffsetsMinutes: { type: [Number], default: [1440, 60, 0] },
-
-    timezone: { type: String, default: env.TZ },
-    ownerTelegramId: { type: Number, default: () => ownerId() },
+    // Standart eslatma vaqtlari (xizmatdan necha daqiqa oldin).
+    // Standart: 1 kun (1440), 1 soat (60) va aniq vaqtida (0).
+    defaultReminders: {
+      type: [{ minutesBefore: Number }],
+      default: [{ minutesBefore: 1440 }, { minutesBefore: 60 }, { minutesBefore: 0 }],
+    },
   },
   { timestamps: true }
 );
 
-// Sozlamalarni olish (bo'lmasa — yaratish).
+// Egasining sozlamalarini olish (bo'lmasa — yaratish).
 settingsSchema.statics.getSingleton = async function getSingleton() {
-  let doc = await this.findOne({ key: 'global' });
+  const telegramUserId = String(env.OWNER_TELEGRAM_ID);
+  let doc = await this.findOne({ telegramUserId });
   if (!doc) {
-    doc = await this.create({ key: 'global' });
+    doc = await this.create({ telegramUserId });
   }
   return doc;
 };

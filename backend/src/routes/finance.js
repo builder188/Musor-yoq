@@ -61,11 +61,13 @@ router.put(
 );
 
 // DELETE /api/finance/transactions/:id — tasdiqlash kodi kerak.
+// Tranzaksiya topilmasa, qarz to'lovi (debt_payments) sifatida o'chiriladi.
 router.delete(
   '/transactions/:id',
   asyncHandler(async (req, res) => {
     const code = req.body?.confirmationCode || req.query.code;
-    const tx = await softDeleteOne('transaction', req.params.id, code);
+    let tx = await softDeleteOne('transaction', req.params.id, code);
+    if (!tx) tx = await softDeleteOne('debt_payment', req.params.id, code);
     res.json({ ok: true, transaction: tx });
   })
 );

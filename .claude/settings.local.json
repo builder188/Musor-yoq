@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git -C \"C:/Users/faxri/Desktop/musor yoq\" status)"
+      "Bash(git -C \"C:/Users/faxri/Desktop/musor yoq\" status)",
+      "Bash(curl -s --max-time 5 http://localhost:3000/api/health)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'docs: record exact schema in AI_CONTEXT *)"
     ]
   }
 }

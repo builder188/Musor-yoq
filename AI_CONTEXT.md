@@ -48,6 +48,16 @@ miniapp/src/
   images[], reminders[{minutesBefore, scheduledAt, sent, sentAt}], incomeTransactionId, soft-delete.
   Indekslar: clientId, status, serviceDateTime, isDeleted.
 
+- **Transaction**: type('income'|'expense'), amount, category?, serviceId?, clientId?, paymentMethod, note,
+  date, soft-delete. Indekslar: type, date, serviceId, isDeleted. Qarz to'lovi BU YERDA EMAS.
+- **DebtPayment** (`debt_payments`): clientId(req), clientName(denorm), serviceId?, amount(req), note,
+  date(req), soft-delete. Indekslar: clientId, date. recordPayment shu yerga yozadi.
+- **Settings**: telegramUserId(String, unique, req), language, theme,
+  defaultReminders[{minutesBefore}] (standart: 1440/60/0).
+- **Hisob qoidasi**: summary daromadi faqat income tranzaksiyalardan — qarz to'lovi daromadga
+  qo'shilmaydi (xizmat bajarilganda to'liq narx yozilgan, ikki marta sanalmasin).
+  listTransactions ikkala kolleksiyani birlashtiradi (debt_payment'ga type belgisi qo'yiladi).
+
 ## Important decisions / assumptions
 - **Daromad tan olinishi:** faqat `bajarildi` xizmat daromad tranzaksiyasini yaratadi.
 - **Qarz modeli:** bajarilganda to'lanmagan qism `client.totalDebt` ga qo'shiladi; to'lov kamaytiradi.

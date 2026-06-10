@@ -18,16 +18,17 @@ router.put(
   '/',
   asyncHandler(async (req, res) => {
     const settings = await Settings.getSingleton();
-    const { language, theme, reminderOffsetsMinutes, timezone } = req.body;
+    const { language, theme, defaultReminders } = req.body;
     if (language !== undefined) settings.language = language;
     if (theme !== undefined) settings.theme = theme;
-    if (Array.isArray(reminderOffsetsMinutes)) {
-      settings.reminderOffsetsMinutes = reminderOffsetsMinutes
-        .map((n) => Math.max(0, parseInt(n, 10) || 0))
+    if (Array.isArray(defaultReminders)) {
+      // [{minutesBefore}] yoki oddiy sonlar massivini qabul qilamiz.
+      const minutes = defaultReminders
+        .map((r) => Math.max(0, parseInt(r?.minutesBefore ?? r, 10) || 0))
         .filter((n, i, arr) => arr.indexOf(n) === i)
         .sort((a, b) => b - a);
+      settings.defaultReminders = minutes.map((m) => ({ minutesBefore: m }));
     }
-    if (timezone !== undefined) settings.timezone = timezone;
     await settings.save();
     res.json(settings);
   })

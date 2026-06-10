@@ -6,7 +6,9 @@ import Settings from '../models/Settings.js';
 // Qaytadi: [{ minutesBefore, scheduledAt, sent, sentAt }]
 export async function computeReminders(serviceDateTime, customOffsets = null) {
   const settings = await Settings.getSingleton();
-  const offsets = customOffsets || settings.reminderOffsetsMinutes || [1440, 60, 0];
+  const offsets =
+    customOffsets || (settings.defaultReminders || []).map((r) => r.minutesBefore);
+  if (offsets.length === 0) offsets.push(1440, 60, 0);
 
   const target = new Date(serviceDateTime).getTime();
   const nowMs = Date.now();

@@ -12,11 +12,14 @@ export default function Settings() {
   const [showRestore, setShowRestore] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
 
-  const offsets = settings?.reminderOffsetsMinutes || [];
+  // Sozlamalardagi [{minutesBefore}] ro'yxatini oddiy sonlarga aylantirib ishlatamiz.
+  const offsets = (settings?.defaultReminders || []).map((r) => r.minutesBefore);
 
   const updateOffsets = async (next) => {
     const cleaned = Array.from(new Set(next.filter((n) => n >= 0))).sort((a, b) => b - a);
-    const s = await api.put('/settings', { reminderOffsetsMinutes: cleaned });
+    const s = await api.put('/settings', {
+      defaultReminders: cleaned.map((m) => ({ minutesBefore: m })),
+    });
     setSettings(s);
   };
 
@@ -189,7 +192,7 @@ function RestoreModal({ t, onClose }) {
     try {
       setData(await api.get('/system/deleted'));
     } catch {
-      setData({ clients: [], services: [], transactions: [] });
+      setData({ clients: [], services: [], transactions: [], debtPayments: [] });
     }
   };
 
@@ -234,9 +237,16 @@ function RestoreModal({ t, onClose }) {
             type="transaction"
             render={(tx) => `${tx.type} · ${tx.amount}`}
           />
-          {data.clients.length === 0 && data.services.length === 0 && data.transactions.length === 0 && (
-            <div className="empty">{t('common.noData')}</div>
-          )}
+          <Section
+            title={t('finance.debts')}
+            items={data.debtPayments}
+            type="debt_payment"
+            render={(p) => `${p.clientName || ''} · ${p.amount}`}
+          />
+          {data.clients.length === 0 &&
+            data.services.length === 0 &&
+            data.transactions.length === 0 &&
+            (data.debtPayments || []).length === 0 && <div className="empty">{t('common.noData')}</div>}
         </>
       )}
     </Modal>
