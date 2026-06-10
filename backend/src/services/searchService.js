@@ -14,7 +14,7 @@ export async function searchServices({ text = '', dateFrom = null, dateTo = null
   const filter = { ...notDeleted };
   if (text) {
     const rx = new RegExp(escapeRegex(text), 'i');
-    filter.$or = [{ clientName: rx }, { clientPhone: rx }, { 'location.text': rx }, { notes: rx }];
+    filter.$or = [{ clientName: rx }, { clientPhone: rx }, { 'location.address': rx }, { notes: rx }];
   }
   if (dateFrom || dateTo) {
     filter.serviceDateTime = {};

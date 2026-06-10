@@ -26,7 +26,7 @@ Har bir xabarni QUYIDAGI 7 NIYATDAN biriga ajrat (yoki UNKNOWN):
 QOIDALAR:
 - Telefon raqamini +998XXXXXXXXX ko'rinishiga keltir.
 - Narxni songa aylantir: "400 ming" -> 400000, "1.5 mln" -> 1500000.
-- To'lov turi: faqat "naqd", "karta" yoki "o'tkazma".
+- To'lov turi: faqat "naqd", "karta" yoki "otkazma" (apostrofsiz).
 - Xarajat kategoriyasi: "yoqilg'i", "ta'mirlash", "oziq-ovqat" yoki "boshqa".
 - Agar xabar o'tgan zamonda bo'lsa (masalan "bordim", "oldim") -> isHistorical=true.
 - Agar foydalanuvchi maxsus eslatma vaqtini aytsa ("2 soat oldin eslat", "1 kun oldin eslat",
@@ -44,7 +44,7 @@ JAVOB FAQAT shu JSON sxemasida bo'lsin (boshqa matn yo'q):
     "location": "string?",
     "serviceDateTime": "ISO8601?",
     "price": 0,
-    "paymentMethod": "naqd|karta|o'tkazma?",
+    "paymentMethod": "naqd|karta|otkazma?",
     "notes": "string?",
     "isHistorical": false,
     "reminderOffsetMinutes": 0,

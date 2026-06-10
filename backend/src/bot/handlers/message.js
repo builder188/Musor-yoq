@@ -20,7 +20,7 @@ export function registerMessageHandler(bot) {
     if (conv.pendingIntent && conv.awaitingField === 'location') {
       conv.collected = {
         ...conv.collected,
-        location: { text: 'Lokatsiya (xaritada)', lat: latitude, lng: longitude },
+        location: { address: 'Lokatsiya (xaritada)', coordinates: { lat: latitude, lng: longitude } },
       };
       conv.markModified('collected');
       // Keyingi maydonni so'rash yoki yakunlash uchun agent orqali davom etamiz.

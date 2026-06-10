@@ -125,7 +125,7 @@ export default function Home() {
               <div key={s._id} className="list-item" onClick={() => setSelected(s)}>
                 <div className="title">{s.clientName}</div>
                 <div className="sub">
-                  {formatDate(s.serviceDateTime)} · {s.location?.text || '—'} · {formatMoney(s.price)}
+                  {formatDate(s.serviceDateTime)} · {s.location?.address || '—'} · {formatMoney(s.price)}
                 </div>
               </div>
             ))
@@ -150,7 +150,7 @@ export default function Home() {
                     <div key={s._id} className="list-item" onClick={() => setSelected(s)}>
                       <div className="title">{s.clientName}</div>
                       <div className="sub">
-                        {formatDate(s.serviceDateTime)} · {s.location?.text || '—'} ·{' '}
+                        {formatDate(s.serviceDateTime)} · {s.location?.address || '—'} ·{' '}
                         {formatMoney(s.price)}
                       </div>
                     </div>

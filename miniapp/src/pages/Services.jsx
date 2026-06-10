@@ -224,7 +224,7 @@ function ServiceCard({ s, t, onClick }) {
         <span className={`badge badge-${badgeOf(s.status)}`}>{t(`status.${s.status}`)}</span>
       </div>
       <div className="sub">
-        {formatDate(s.serviceDateTime)} · {s.location?.text || '—'}
+        {formatDate(s.serviceDateTime)} · {s.location?.address || '—'}
       </div>
       <div className="sub">{formatMoney(s.price)}</div>
     </div>
@@ -291,7 +291,7 @@ function ServiceFormModal({ service, onClose, onSaved }) {
   const [form, setForm] = useState({
     clientName: service?.clientName || '',
     clientPhone: service?.clientPhone || '',
-    location: service?.location?.text || '',
+    location: service?.location?.address || '',
     serviceDateTime: toInputDateTime(service?.serviceDateTime),
     price: service?.price || '',
     paymentMethod: service?.paymentMethod || 'naqd',
@@ -334,7 +334,7 @@ function ServiceFormModal({ service, onClose, onSaved }) {
       <select className="select" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
         <option value="naqd">{t('payment.naqd')}</option>
         <option value="karta">{t('payment.karta')}</option>
-        <option value="o'tkazma">{t("payment.o'tkazma")}</option>
+        <option value="otkazma">{t('payment.otkazma')}</option>
       </select>
       <label className="label">{t('common.notes')}</label>
       <textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />

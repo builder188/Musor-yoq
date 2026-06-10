@@ -1,6 +1,5 @@
 // Xizmat (musor olib ketish ishi) modeli.
 import mongoose from 'mongoose';
-import { softDeleteFields } from './softDelete.js';
 
 export const SERVICE_STATUS = {
   PENDING: 'kutilmoqda',
@@ -8,34 +7,58 @@ export const SERVICE_STATUS = {
   CANCELLED: 'bekor_qilindi',
 };
 
-export const PAYMENT_METHODS = ['naqd', 'karta', "o'tkazma"];
+export const PAYMENT_METHODS = ['naqd', 'karta', 'otkazma'];
+
+export const PAYMENT_STATUS = {
+  UNPAID: 'tolanmagan',
+  PAID: 'tolangan',
+  PARTIAL: 'qisman',
+};
 
 const reminderSchema = new mongoose.Schema(
   {
-    at: { type: Date, required: true },
+    minutesBefore: { type: Number, required: true },
+    scheduledAt: { type: Date, required: true },
     sent: { type: Boolean, default: false },
-    // Qaysi ofset (daqiqada) — log/diagnostika uchun.
-    offsetMinutes: { type: Number, default: 0 },
+    sentAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const imageSchema = new mongoose.Schema(
+  {
+    url: { type: String },
+    type: { type: String },
   },
   { _id: false }
 );
 
 const serviceSchema = new mongoose.Schema(
   {
-    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', index: true },
-    // Tezkor ko'rsatish uchun mijoz ma'lumotlari nusxasi.
-    clientName: { type: String, required: true, trim: true },
-    clientPhone: { type: String, required: true, trim: true },
+    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true, index: true },
+    // Tezkorlik uchun nusxa (denormalizatsiya).
+    clientName: { type: String },
+    clientPhone: { type: String },
 
     location: {
-      text: { type: String, default: '' },
-      lat: { type: Number, default: null },
-      lng: { type: Number, default: null },
+      address: { type: String, required: true },
+      coordinates: {
+        lat: { type: Number, default: null },
+        lng: { type: Number, default: null },
+      },
     },
 
     serviceDateTime: { type: Date, required: true, index: true },
+    isHistorical: { type: Boolean, default: false },
+
     price: { type: Number, required: true },
-    paymentMethod: { type: String, enum: PAYMENT_METHODS, required: true },
+    paymentMethod: { type: String, enum: PAYMENT_METHODS },
+    paymentStatus: {
+      type: String,
+      enum: Object.values(PAYMENT_STATUS),
+      default: PAYMENT_STATUS.UNPAID,
+    },
+    paidAmount: { type: Number, default: 0 },
 
     status: {
       type: String,
@@ -43,25 +66,21 @@ const serviceSchema = new mongoose.Schema(
       default: SERVICE_STATUS.PENDING,
       index: true,
     },
+    completedAt: { type: Date, default: null },
 
-    notes: { type: String, default: '' },
-    // Xabarda o'tgan zamon ishlatilgan bo'lsa true (tarixiy yozuv).
-    isHistorical: { type: Boolean, default: false },
-    // Mijoz shu xizmat uchun to'lagan summa (qisman to'lovlar uchun).
-    paidAmount: { type: Number, default: 0 },
-
+    notes: { type: String },
+    images: { type: [imageSchema], default: [] },
     reminders: { type: [reminderSchema], default: [] },
 
-    // Xizmat "bajarildi" bo'lganda yaratilgan daromad tranzaksiyasi.
-    incomeTransactionId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Transaction',
-      default: null,
-    },
+    incomeTransactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', default: null },
 
-    ...softDeleteFields,
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
+
+// Indekslar: clientId, status, serviceDateTime (yuqorida), isDeleted.
+serviceSchema.index({ isDeleted: 1 });
 
 export default mongoose.model('Service', serviceSchema);

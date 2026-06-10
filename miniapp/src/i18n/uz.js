@@ -130,7 +130,7 @@ export default {
   payment: {
     naqd: 'Naqd',
     karta: 'Karta',
-    "o'tkazma": "O'tkazma",
+    otkazma: "O'tkazma",
   },
 
   category: {

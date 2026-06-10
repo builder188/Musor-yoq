@@ -3,6 +3,7 @@ import Settings from '../models/Settings.js';
 
 // Xizmat vaqtidan oldingi ofsetlar asosida eslatma vaqtlarini hisoblaydi.
 // Faqat kelajakdagi (hozirdan keyingi) eslatmalar qaytariladi.
+// Qaytadi: [{ minutesBefore, scheduledAt, sent, sentAt }]
 export async function computeReminders(serviceDateTime, customOffsets = null) {
   const settings = await Settings.getSingleton();
   const offsets = customOffsets || settings.reminderOffsetsMinutes || [1440, 60, 0];
@@ -11,18 +12,22 @@ export async function computeReminders(serviceDateTime, customOffsets = null) {
   const nowMs = Date.now();
 
   const reminders = [];
-  for (const offsetMinutes of offsets) {
-    const at = new Date(target - offsetMinutes * 60 * 1000);
-    if (at.getTime() > nowMs) {
-      reminders.push({ at, sent: false, offsetMinutes });
+  for (const minutesBefore of offsets) {
+    const scheduledAt = new Date(target - minutesBefore * 60 * 1000);
+    if (scheduledAt.getTime() > nowMs) {
+      reminders.push({ minutesBefore, scheduledAt, sent: false, sentAt: null });
     }
   }
-  // Vaqt bo'yicha tartiblash.
-  reminders.sort((a, b) => a.at - b.at);
+  reminders.sort((a, b) => a.scheduledAt - b.scheduledAt);
   return reminders;
 }
 
 // 30 daqiqaga kechiktirish — yangi bitta eslatma qo'shadi.
 export function snoozeReminder(minutes = 30) {
-  return { at: new Date(Date.now() + minutes * 60 * 1000), sent: false, offsetMinutes: -minutes };
+  return {
+    minutesBefore: minutes,
+    scheduledAt: new Date(Date.now() + minutes * 60 * 1000),
+    sent: false,
+    sentAt: null,
+  };
 }

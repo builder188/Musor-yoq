@@ -3,36 +3,49 @@
 //  - Daromad faqat xizmat "bajarildi" bo'lganda yoziladi.
 //  - Bajarilgandan keyin narx tahrirlansa — bog'langan daromad va mijoz qarzi qayta hisoblanadi.
 //  - To'lanmagan qism mijoz qarziga (totalDebt) qo'shiladi.
-import Service, { SERVICE_STATUS } from '../models/Service.js';
+import Service, { SERVICE_STATUS, PAYMENT_STATUS } from '../models/Service.js';
 import Client from '../models/Client.js';
 import Transaction, { TX_TYPES } from '../models/Transaction.js';
-import { notDeleted } from '../models/softDelete.js';
 import { findOrCreateClient } from './clientService.js';
 import { computeReminders } from './reminderService.js';
 
+const notDeleted = { isDeleted: { $ne: true } };
+
+// Manzilni { address, coordinates } shakliga keltirish (matn yoki obyekt).
+function normalizeLocation(loc) {
+  if (!loc) return { address: '', coordinates: { lat: null, lng: null } };
+  if (typeof loc === 'string') return { address: loc, coordinates: { lat: null, lng: null } };
+  return {
+    address: loc.address || loc.text || '',
+    coordinates: {
+      lat: loc.coordinates?.lat ?? loc.lat ?? null,
+      lng: loc.coordinates?.lng ?? loc.lng ?? null,
+    },
+  };
+}
+
+// To'lov holatini paidAmount va narxdan aniqlaydi.
+function resolvePaymentStatus(paidAmount, price) {
+  if (paidAmount >= price && price > 0) return PAYMENT_STATUS.PAID;
+  if (paidAmount > 0) return PAYMENT_STATUS.PARTIAL;
+  return PAYMENT_STATUS.UNPAID;
+}
+
 // Yangi xizmat yaratish.
-// data: { clientName, clientPhone, location, serviceDateTime, price, paymentMethod, notes, isHistorical }
 export async function createService(data) {
+  const location = normalizeLocation(data.location);
+
   const client = await findOrCreateClient({
     name: data.clientName,
     phone: data.clientPhone,
-    location: typeof data.location === 'string' ? data.location : data.location?.text,
+    location: location.address,
+    coordinates: location.coordinates,
   });
 
   const serviceDateTime = new Date(data.serviceDateTime);
   const isFuture = serviceDateTime.getTime() > Date.now();
 
-  // Manzilni normallashtirish (matn yoki koordinata).
-  const location =
-    typeof data.location === 'string'
-      ? { text: data.location, lat: null, lng: null }
-      : {
-          text: data.location?.text || '',
-          lat: data.location?.lat ?? null,
-          lng: data.location?.lng ?? null,
-        };
-
-  // Kelajakdagi ishlar uchun eslatmalar. Maxsus vaqt aytilgan bo'lsa — standartni almashtiramiz.
+  // Maxsus eslatma vaqti aytilgan bo'lsa — standartni almashtiradi.
   const customOffsets =
     Number(data.reminderOffsetMinutes) > 0 ? [Math.round(Number(data.reminderOffsetMinutes))] : null;
   const reminders = isFuture ? await computeReminders(serviceDateTime, customOffsets) : [];
@@ -48,15 +61,14 @@ export async function createService(data) {
     notes: data.notes || '',
     isHistorical: !!data.isHistorical,
     status: SERVICE_STATUS.PENDING,
+    paymentStatus: PAYMENT_STATUS.UNPAID,
     reminders,
   });
 
-  // Tarixiy (o'tgan zamonda aytilgan) ish — bajarilgan deb hisoblaymiz va to'langan deb olamiz.
-  // Bu taxmin: o'tgan ish odatda allaqachon bajarilgan va to'lovi olingan.
+  // Tarixiy (o'tgan zamonda aytilgan) ish — bajarilgan va to'langan deb hisoblaymiz.
   if (data.isHistorical && !isFuture) {
     return completeService(service._id, { markPaid: true });
   }
-
   return service;
 }
 
@@ -68,16 +80,14 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
   if (newPrice !== null && newPrice !== undefined) {
     service.price = Math.round(Number(newPrice));
   }
-
-  // Allaqachon bajarilgan bo'lsa — qayta yozmaymiz (idempotent).
-  if (service.status === SERVICE_STATUS.DONE) {
-    return service;
-  }
+  if (service.status === SERVICE_STATUS.DONE) return service; // idempotent
 
   service.status = SERVICE_STATUS.DONE;
+  service.completedAt = new Date();
   if (markPaid) service.paidAmount = service.price;
+  service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
 
-  // Daromad tranzaksiyasini yaratamiz (to'liq narx — xizmat bajarilgani uchun daromad).
+  // Daromad tranzaksiyasi (to'liq narx — xizmat bajarilgani uchun).
   const tx = await Transaction.create({
     type: TX_TYPES.INCOME,
     amount: service.price,
@@ -90,19 +100,15 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
   service.incomeTransactionId = tx._id;
   await service.save();
 
-  // Mijoz agregatlari.
-  const client = await Client.findById(service.clientId);
-  if (client) {
-    client.totalSpent = (client.totalSpent || 0) + service.price;
-    const unpaid = service.price - (service.paidAmount || 0);
-    if (unpaid > 0) client.totalDebt = (client.totalDebt || 0) + unpaid;
-    await client.save();
+  // To'lanmagan qism mijoz qarziga qo'shiladi.
+  const unpaid = service.price - (service.paidAmount || 0);
+  if (unpaid > 0) {
+    await Client.findByIdAndUpdate(service.clientId, { $inc: { totalDebt: unpaid } });
   }
-
   return service;
 }
 
-// Xizmatni bekor qilish. Bajarilgan bo'lsa — daromadni ham qaytaramiz.
+// Xizmatni bekor qilish. Bajarilgan bo'lsa — daromadni qaytaramiz.
 export async function cancelService(serviceId) {
   const service = await Service.findOne({ _id: serviceId, ...notDeleted });
   if (!service) throw new Error('Xizmat topilmadi');
@@ -111,6 +117,7 @@ export async function cancelService(serviceId) {
     await reverseIncome(service);
   }
   service.status = SERVICE_STATUS.CANCELLED;
+  service.completedAt = null;
   await service.save();
   return service;
 }
@@ -125,12 +132,7 @@ export async function editService(serviceId, data) {
 
   if (data.clientName !== undefined) service.clientName = data.clientName;
   if (data.clientPhone !== undefined) service.clientPhone = data.clientPhone;
-  if (data.location !== undefined) {
-    service.location =
-      typeof data.location === 'string'
-        ? { text: data.location, lat: null, lng: null }
-        : { ...service.location, ...data.location };
-  }
+  if (data.location !== undefined) service.location = normalizeLocation(data.location);
   if (data.serviceDateTime !== undefined) {
     service.serviceDateTime = new Date(data.serviceDateTime);
     if (service.status === SERVICE_STATUS.PENDING) {
@@ -147,12 +149,8 @@ export async function editService(serviceId, data) {
     if (service.incomeTransactionId) {
       await Transaction.findByIdAndUpdate(service.incomeTransactionId, { amount: service.price });
     }
-    const client = await Client.findById(service.clientId);
-    if (client) {
-      client.totalSpent = (client.totalSpent || 0) + delta;
-      client.totalDebt = Math.max(0, (client.totalDebt || 0) + delta);
-      await client.save();
-    }
+    await Client.findByIdAndUpdate(service.clientId, { $inc: { totalDebt: delta } });
+    service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
   }
 
   await service.save();
@@ -167,12 +165,13 @@ async function reverseIncome(service) {
       deletedAt: new Date(),
     });
   }
-  const client = await Client.findById(service.clientId);
-  if (client) {
-    client.totalSpent = Math.max(0, (client.totalSpent || 0) - service.price);
-    const unpaid = service.price - (service.paidAmount || 0);
-    if (unpaid > 0) client.totalDebt = Math.max(0, (client.totalDebt || 0) - unpaid);
-    await client.save();
+  const unpaid = service.price - (service.paidAmount || 0);
+  if (unpaid > 0) {
+    const client = await Client.findById(service.clientId);
+    if (client) {
+      client.totalDebt = Math.max(0, (client.totalDebt || 0) - unpaid);
+      await client.save();
+    }
   }
   service.incomeTransactionId = null;
 }
@@ -196,7 +195,7 @@ export async function listServices({
   }
   if (search) {
     const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    filter.$or = [{ clientName: rx }, { clientPhone: rx }, { 'location.text': rx }, { notes: rx }];
+    filter.$or = [{ clientName: rx }, { clientPhone: rx }, { 'location.address': rx }, { notes: rx }];
   }
   return Service.find(filter).sort({ serviceDateTime: -1 }).limit(limit).lean();
 }

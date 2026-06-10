@@ -131,7 +131,7 @@ export default {
   payment: {
     naqd: 'Наличные',
     karta: 'Карта',
-    "o'tkazma": 'Перевод',
+    otkazma: 'Перевод',
   },
 
   category: {

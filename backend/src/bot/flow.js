@@ -29,10 +29,10 @@ export function isEntryIntent(intent) {
 // To'lov turini normallashtirish (apostrof variantlari).
 export function normalizePaymentMethod(value) {
   if (!value) return null;
-  const v = String(value).toLowerCase().replace(/[`'‘’]/g, "'");
+  const v = String(value).toLowerCase().replace(/[`'‘’]/g, '');
   if (v.includes('naqd')) return 'naqd';
   if (v.includes('karta') || v.includes('plastik')) return 'karta';
-  if (v.includes('tkazma') || v.includes('perevod') || v.includes('o\'tkaz')) return "o'tkazma";
+  if (v.includes('tkazma') || v.includes('perevod')) return 'otkazma';
   return null;
 }
 

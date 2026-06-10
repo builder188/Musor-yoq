@@ -21,19 +21,19 @@ async function fireDueReminders(bot) {
   const services = await Service.find({
     ...notDeleted,
     status: SERVICE_STATUS.PENDING,
-    reminders: { $elemMatch: { sent: false, at: { $lte: nowDate } } },
+    reminders: { $elemMatch: { sent: false, scheduledAt: { $lte: nowDate } } },
   });
 
   for (const service of services) {
     let changed = false;
     for (const reminder of service.reminders) {
-      if (reminder.sent || reminder.at > nowDate) continue;
+      if (reminder.sent || reminder.scheduledAt > nowDate) continue;
 
       const text = [
         '🔔 Eslatma!',
         `👤 ${service.clientName}`,
         `📞 ${formatPhone(service.clientPhone)}`,
-        `📍 ${service.location?.text || '—'}`,
+        `📍 ${service.location?.address || '—'}`,
         `🗓 ${formatDateTime(service.serviceDateTime)}`,
         `💵 ${formatMoney(service.price)}`,
       ].join('\n');
@@ -43,6 +43,7 @@ async function fireDueReminders(bot) {
           reply_markup: reminderKeyboard(service._id.toString()),
         });
         reminder.sent = true;
+        reminder.sentAt = new Date();
         changed = true;
       } catch (err) {
         console.error('Eslatma yuborishda xato:', err.message);

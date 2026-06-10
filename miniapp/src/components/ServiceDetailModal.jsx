@@ -21,7 +21,7 @@ export default function ServiceDetailModal({ service, onClose, onComplete, onCan
       </div>
       <div className="card">
         <Row label={t('common.phone')} value={formatPhone(service.clientPhone)} />
-        <Row label={t('common.location')} value={service.location?.text || '—'} />
+        <Row label={t('common.location')} value={service.location?.address || '—'} />
         <Row label={t('common.date')} value={formatDateTime(service.serviceDateTime)} />
         <Row label={t('common.price')} value={formatMoney(service.price)} />
         <Row label={t('common.paymentMethod')} value={t(`payment.${service.paymentMethod}`)} />

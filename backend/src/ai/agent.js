@@ -22,7 +22,7 @@ function serviceSummary(service) {
     '✅ Xizmat saqlandi:',
     `👤 Mijoz: ${service.clientName}`,
     `📞 Tel: ${formatPhone(service.clientPhone)}`,
-    `📍 Manzil: ${service.location?.text || '—'}`,
+    `📍 Manzil: ${service.location?.address || '—'}`,
     `🗓 Vaqt: ${formatDateTime(service.serviceDateTime)}`,
     `💵 Narx: ${formatMoney(service.price)}`,
     `💳 To'lov: ${service.paymentMethod}`,
@@ -37,7 +37,7 @@ function serviceListLine(s, i) {
   const status =
     s.status === SERVICE_STATUS.DONE ? '🟢' : s.status === SERVICE_STATUS.CANCELLED ? '🔴' : '🟡';
   return `${i + 1}. ${status} ${formatDate(s.serviceDateTime)} — ${s.clientName}, ${
-    s.location?.text || '—'
+    s.location?.address || '—'
   }, ${formatMoney(s.price)}`;
 }
 

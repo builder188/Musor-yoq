@@ -1,23 +1,34 @@
-// Mijoz modeli. Telefon raqami bo'yicha noyob aniqlanadi.
+// Mijoz modeli. Telefon raqami bo'yicha noyob (unique).
 import mongoose from 'mongoose';
-import { softDeleteFields } from './softDelete.js';
+
+const locationSchema = new mongoose.Schema(
+  {
+    address: { type: String, default: '' },
+    coordinates: {
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null },
+    },
+  },
+  { _id: false }
+);
 
 const clientSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    // Normalizatsiya qilingan +998XXXXXXXXX ko'rinishida saqlanadi.
-    phone: { type: String, required: true, trim: true, index: true },
-    location: { type: String, default: '' },
-    // Mijozning umumiy qarzi (so'mda).
+    // Normalizatsiya qilingan +998XXXXXXXXX, noyob.
+    phone: { type: String, required: true, unique: true },
+    // Mijozning bir nechta manzillari (xizmatlardan avtomatik to'planadi).
+    locations: { type: [locationSchema], default: [] },
+    // Mijozning umumiy qarzi — doimo yangilanib turadi.
     totalDebt: { type: Number, default: 0 },
-    // Mijoz umrida to'lagan/xizmat qiymati jami (bajarilgan xizmatlar bo'yicha).
-    totalSpent: { type: Number, default: 0 },
-    notes: { type: String, default: '' },
-    ...softDeleteFields,
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
-clientSchema.index({ name: 'text', phone: 'text', location: 'text' });
+// Indekslar: phone (unique — yuqorida), isDeleted, totalDebt.
+clientSchema.index({ isDeleted: 1 });
+clientSchema.index({ totalDebt: -1 });
 
 export default mongoose.model('Client', clientSchema);

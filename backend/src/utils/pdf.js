@@ -47,7 +47,7 @@ export function createReportDoc(data) {
     doc.moveDown(0.5);
     doc.fontSize(10);
     for (const s of data.services) {
-      doc.text(`${formatDateTime(s.serviceDateTime)}   ${s.clientName}   ${s.location?.text || '—'}   ${formatMoney(s.price)}   [${s.status}]`);
+      doc.text(`${formatDateTime(s.serviceDateTime)}   ${s.clientName}   ${s.location?.address || '—'}   ${formatMoney(s.price)}   [${s.status}]`);
     }
     doc.moveDown(1);
   }

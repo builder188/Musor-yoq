@@ -79,10 +79,14 @@ export default function Clients() {
               <span className="muted">{t('common.phone')}</span>
               <span>{formatPhone(detail.phone)}</span>
             </div>
-            {detail.location && (
-              <div className="card-row" style={{ padding: '4px 0' }}>
+            {detail.locations && detail.locations.length > 0 && (
+              <div className="card-row" style={{ padding: '4px 0', alignItems: 'flex-start' }}>
                 <span className="muted">{t('common.location')}</span>
-                <span>{detail.location}</span>
+                <span style={{ textAlign: 'right' }}>
+                  {detail.locations.map((l, i) => (
+                    <div key={i}>{l.address}</div>
+                  ))}
+                </span>
               </div>
             )}
             <div className="card-row" style={{ padding: '4px 0' }}>
@@ -108,7 +112,7 @@ export default function Clients() {
                   <span className={`badge badge-${badgeOf(s.status)}`}>{t(`status.${s.status}`)}</span>
                 </div>
                 <div className="sub">
-                  {s.location?.text || '—'} · {formatMoney(s.price)}
+                  {s.location?.address || '—'} · {formatMoney(s.price)}
                 </div>
               </div>
             ))
@@ -165,8 +169,6 @@ function EditClientModal({ client, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: client.name || '',
     phone: client.phone || '',
-    location: client.location || '',
-    notes: client.notes || '',
   });
   const [busy, setBusy] = useState(false);
 
@@ -188,10 +190,6 @@ function EditClientModal({ client, onClose, onSaved }) {
       <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
       <label className="label">{t('common.phone')}</label>
       <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-      <label className="label">{t('common.location')}</label>
-      <input className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-      <label className="label">{t('common.notes')}</label>
-      <textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
         {busy ? '...' : t('common.save')}
       </button>
