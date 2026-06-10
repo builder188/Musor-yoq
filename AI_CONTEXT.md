@@ -38,6 +38,16 @@ miniapp/src/
   qarshi integratsiya testi (moliya qoidalari + API + 1990 kod gate) — hammasi o'tdi.
 - Hujjatlar: README.md (setup/deploy), CLAUDE.md yangilandi.
 
+## Schema (aniq spec bo'yicha, 2026-06-08 migratsiya)
+- **Client**: name, phone (unique, +998...), locations[{address, coordinates{lat,lng}}],
+  totalDebt (doimo yangilanadi), soft-delete. Indekslar: phone(unique), isDeleted, totalDebt.
+  totalSpent saqlanmaydi — bajarilgan xizmatlardan hisoblanadi (getClientDetail).
+- **Service**: clientId(req), clientName/clientPhone (denorm), location{address(req), coordinates},
+  serviceDateTime, isHistorical, price, paymentMethod('naqd'|'karta'|'otkazma' — apostrofsiz!),
+  paymentStatus('tolanmagan'|'tolangan'|'qisman'), paidAmount, status, completedAt, notes,
+  images[], reminders[{minutesBefore, scheduledAt, sent, sentAt}], incomeTransactionId, soft-delete.
+  Indekslar: clientId, status, serviceDateTime, isDeleted.
+
 ## Important decisions / assumptions
 - **Daromad tan olinishi:** faqat `bajarildi` xizmat daromad tranzaksiyasini yaratadi.
 - **Qarz modeli:** bajarilganda to'lanmagan qism `client.totalDebt` ga qo'shiladi; to'lov kamaytiradi.
