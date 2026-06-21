@@ -2,6 +2,14 @@
 
 > Oxirgi yangilanish: 2026-06-21.
 
+## 2026-06-21 Railway Mongo parts fix
+- Yangi pasted loglar o'qildi: deploy so'nggi `XATO` xabarini chiqarayotganiga qarab `316297d` ishlayapti, lekin Mongo env hali topilmayapti.
+- `backend/src/config/env.js` kengaytirildi: `MONGO_PUBLIC_URL`, `MONGODB_URL`, `MONGODB_PRIVATE_URL`, `MONGODB_PUBLIC_URL` aliaslari qo'shildi.
+- To'liq Mongo URL bo'lmasa, `MONGOUSER`/`MONGOPASSWORD`/`MONGOHOST`/`MONGOPORT`/`MONGODATABASE` va shunga yaqin env nomlaridan connection string avtomatik yig'iladi.
+- `backend/.env.example` va `README.md` yangi qo'llab-quvvatlanadigan Railway Mongo variantlari bilan yangilandi.
+- Tekshiruv: `node --check backend/src/config/env.js`, `node --check backend/src/index.js`, runtime full-URL alias testi, runtime parts-to-URL testi, va root `npm run build` OK.
+- Agar bundan keyin ham Railway log `MONGODB_URI` missing desa, kod tomondan emas: Railway Variables ichida Mongo qiymatlari app servicega ulanmagan. User Railway UI'da MongoDB service qo'shib/link qilib, app service Variables'da `MONGODB_URI=${{MongoDB.MONGO_URL}}` yoki haqiqiy Mongo URL kiritishi kerak.
+
 ## 2026-06-21 Railway MONGODB_URI runtime fix
 - Pasted Railway log tahlil qilindi: konteyner start bo'lmoqda, lekin backend `MONGODB_URI` topilmagani uchun `validateEnv()` ichida chiqib ketyapti.
 - `backend/src/config/env.js` Mongo connection stringni `MONGODB_URI`, `MONGO_URL`, `MONGO_PRIVATE_URL`, yoki mongodb bilan boshlanadigan `DATABASE_URL` dan oladi.

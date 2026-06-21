@@ -98,7 +98,7 @@ npm run dev                   # http://localhost:5173
 |---|---|---|
 | `BOT_TOKEN` | @BotFather bergan token | `123456:AAE...` |
 | `OWNER_TELEGRAM_ID` | Sizning Telegram ID | `123456789` |
-| `MONGODB_URI` | MongoDB ulanish manzili. Kod `MONGO_URL`, `MONGO_PRIVATE_URL` yoki mongodb bilan boshlanadigan `DATABASE_URL` ni ham qabul qiladi. | `mongodb://127.0.0.1:27017/musiryoq` |
+| `MONGODB_URI` | MongoDB ulanish manzili. Kod `MONGO_URL`, `MONGO_PRIVATE_URL`, `MONGO_PUBLIC_URL`, mongodb bilan boshlanadigan `DATABASE_URL`, yoki Railway `MONGOUSER`/`MONGOPASSWORD`/`MONGOHOST`/`MONGOPORT`/`MONGODATABASE` qismlarini ham qabul qiladi. | `mongodb://127.0.0.1:27017/musiryoq` |
 | `GEMINI_API_KEY` | Google Gemini API key | `AIza...` |
 | `GEMINI_MODEL` | Model nomi (ixtiyoriy) | `gemini-1.5-flash` |
 | `NODE_ENV` | `development` / `production` | `development` |
@@ -122,7 +122,7 @@ npm run dev                   # http://localhost:5173
 ## ☁️ Railway'ga deploy
 
 1. GitHub repo'ni Railway'ga ulang va service root'ini repo rootida qoldiring.
-2. **MongoDB** plugin qo'shing -> `MONGODB_URI` ni kiriting. Agar Railway integratsiyasi `MONGO_URL`, `MONGO_PRIVATE_URL` yoki mongodb bilan boshlanadigan `DATABASE_URL` bersa, backend uni ham avtomatik ishlatadi.
+2. **MongoDB** plugin qo'shing -> `MONGODB_URI` ni kiriting. Agar Railway integratsiyasi `MONGO_URL`, `MONGO_PRIVATE_URL`, `MONGO_PUBLIC_URL`, yoki bo'lak `MONGOUSER`/`MONGOPASSWORD`/`MONGOHOST`/`MONGOPORT`/`MONGODATABASE` qiymatlarini bersa, backend ularni ham avtomatik ishlatadi.
 3. Muhit o'zgaruvchilarini Railway'da kiriting (yuqoridagi jadval).
 4. Production uchun:
    - `NODE_ENV=production`

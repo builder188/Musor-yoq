@@ -1,5 +1,13 @@
 # AI_CONTEXT.md
 
+## 2026-06-21 Railway Mongo env parts fix
+- Yangi Railway loglarda so'nggi commit ishlayotgani tasdiqlandi, lekin `MONGODB_URI` hali ham topilmagan. Bu deploy environmentda to'liq Mongo URL yo'q yoki servicega ulanmaganini bildiradi.
+- Kod tomondan qo'shimcha qamrov berildi: `env.js` endi `MONGO_PUBLIC_URL`, `MONGODB_URL`, `MONGODB_PRIVATE_URL`, `MONGODB_PUBLIC_URL` aliaslarini ham tekshiradi.
+- Agar to'liq URL bo'lmasa, `MONGOUSER`/`MONGOPASSWORD`/`MONGOHOST`/`MONGOPORT`/`MONGODATABASE` (va yaqin variantlari) dan `mongodb://...` URL avtomatik yig'iladi.
+- `.env.example` va `README.md` shu Railway Mongo variable variantlari bilan yangilandi.
+- Verification: `node --check` (`env.js`, `index.js`) OK; runtime testlarda to'liq `MONGO_URL` ustuvor ishladi va bo'lak `MONGO*` envlardan URL yig'ildi; root `npm run build` OK.
+- Agar keyingi log ham `MONGODB_URI` missing desa, Railway projectda MongoDB service app servicega ulanmagan yoki Variables bo'limida umuman Mongo qiymatlari yo'q; buni Railway UI'da user qo'shishi kerak.
+
 ## 2026-06-21 Railway Mongo env alias fix
 - Railway runtime logidagi crash sababi: backend faqat `MONGODB_URI` ni o'qigan, lekin deploy muhitida Mongo ulanishi boshqa Railway/Mongo alias nomi bilan berilishi mumkin.
 - `backend/src/config/env.js` endi `MONGODB_URI`, `MONGO_URL`, `MONGO_PRIVATE_URL`, va `mongodb://` yoki `mongodb+srv://` bilan boshlanadigan `DATABASE_URL` dan birinchisini qabul qiladi.
