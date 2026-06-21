@@ -234,6 +234,9 @@ miniapp/src/
 - 2026-06-21: Railway deploy xatosi tuzatildi. Root papkada `package.json` yo'qligi sabab Railpack app turini
   aniqlay olmagan; root workspace manifest qo'shildi. `npm run build` Mini App'ni build qiladi, `npm run start`
   backend service'ni ishga tushiradi.
+- 2026-06-21: Railway builddagi Rollup optional dependency xatosi tuzatildi. Root `package-lock.json` ga
+  `miniapp/node_modules/@rollup/rollup-linux-x64-gnu` entry qo'shildi; Linux dry-run `npm ci` endi shu paketni
+  o'rnatishini ko'rsatadi.
 
 ## Known issues / TODO (ixtiyoriy yaxshilashlar)
 - PDFKit standart shrift kirill (ruscha) matnni qo'llamaydi — ruscha PDF uchun TTF shrift kerak.

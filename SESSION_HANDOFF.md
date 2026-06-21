@@ -132,3 +132,6 @@
 - Root `package-lock.json` yaratildi (`npm install` workspace dependency graph uchun).
 - README Railway bo'limi root deploy oqimiga moslandi.
 - Tekshiruv: `npm run build` OK; `node --check backend/src/index.js` OK.
+- Keyingi Railway build xatosi: Rollup Linux native optional package (`@rollup/rollup-linux-x64-gnu`) root lockfile'da yo'q edi, shuning uchun `vite build` Linux builderda modulni topolmadi.
+- Root `package-lock.json` ga `miniapp/node_modules/@rollup/rollup-linux-x64-gnu` qo'shildi.
+- Self-check: `npm ci` OK; `npm run build` OK; `node --check backend/src/index.js` OK; Linux dry-run (`npm_config_platform=linux`, `npm_config_arch=x64`, `npm ci --dry-run --ignore-scripts`) `add @rollup/rollup-linux-x64-gnu 4.61.1` ko'rsatdi.
