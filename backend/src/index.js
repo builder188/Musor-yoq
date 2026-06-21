@@ -1,30 +1,93 @@
-// Musir Yo'q — backend kirish nuqtasi.
-// Tartib: env tekshiruvi -> MongoDB -> Express API -> Telegram bot -> cron.
+// Musir Yo'q backend entrypoint.
+// Express starts first so deploy health checks can report configuration issues.
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import { webhookCallback } from 'grammy';
 
-import env, { validateEnv, isProd } from './config/env.js';
+import env, { getEnvIssues } from './config/env.js';
 import { connectDB } from './db/connect.js';
 import apiRouter from './routes/index.js';
 import { attachReportBot } from './routes/reports.js';
-import { bot } from './bot/bot.js';
 import { startReminderCron } from './cron/reminders.js';
 import { startCleanupCron } from './cron/cleanup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEBHOOK_PATH = '/telegram/webhook';
 
-async function main() {
-  validateEnv();
+const runtime = {
+  ready: false,
+  db: false,
+  bot: false,
+  mode: env.BOT_MODE,
+  errors: [],
+  warnings: [],
+  startedAt: new Date().toISOString(),
+};
+
+function healthPayload() {
+  return {
+    ok: runtime.ready,
+    service: 'musir-yoq',
+    mode: runtime.mode,
+    db: runtime.db,
+    bot: runtime.bot,
+    errors: runtime.errors,
+    warnings: runtime.warnings,
+    startedAt: runtime.startedAt,
+  };
+}
+
+function unavailable(req, res) {
+  res.status(503).json({
+    error: 'Server konfiguratsiyasi yoki MongoDB ulanishi tayyor emas',
+    health: healthPayload(),
+  });
+}
+
+async function startRuntime(app) {
+  const envIssues = getEnvIssues();
+  runtime.errors = envIssues.errors;
+  runtime.warnings = envIssues.warnings;
+
+  if (!envIssues.ok) {
+    console.error('\nXATO: Konfiguratsiya tayyor emas, server diagnostika rejimida ishlayapti:');
+    for (const error of envIssues.errors) console.error(`   - ${error}`);
+    for (const warning of envIssues.warnings) console.warn(`   - ${warning}`);
+    console.error('Railway Variables bo\'limida kerakli qiymatlarni kiriting.\n');
+    return;
+  }
+
   await connectDB();
+  runtime.db = true;
+
+  const { bot } = await import('./bot/bot.js');
   attachReportBot(bot);
 
+  if (env.BOT_MODE === 'webhook') {
+    app.use(WEBHOOK_PATH, webhookCallback(bot, 'express'));
+    const url = `https://${env.RAILWAY_STATIC_URL}${WEBHOOK_PATH}`;
+    await bot.api.setWebhook(url, { drop_pending_updates: true });
+    console.log(`Bot webhook rejimida: ${url}`);
+  } else {
+    await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+    bot.start({
+      onStart: (info) => console.log(`Bot polling rejimida: @${info.username}`),
+    });
+  }
+
+  startReminderCron(bot);
+  startCleanupCron();
+  runtime.bot = true;
+  runtime.ready = true;
+  console.log('Backend tayyor');
+}
+
+async function main() {
   const app = express();
   app.use(express.json({ limit: '5mb' }));
 
-  // Oddiy CORS (Mini App boshqa domendan chaqirishi mumkin).
+  // Simple CORS for Telegram Mini App and browser checks.
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Headers', 'Content-Type, X-Telegram-Init-Data');
@@ -33,16 +96,14 @@ async function main() {
     next();
   });
 
-  // --- Telegram bot ---
-  if (env.BOT_MODE === 'webhook') {
-    app.use(WEBHOOK_PATH, webhookCallback(bot, 'express'));
-  }
+  app.get(['/health', '/api/health', '/api/v1/health'], (req, res) => {
+    res.json(healthPayload());
+  });
 
-  // --- API ---
-  app.use('/api', apiRouter);
-  app.use('/api/v1', apiRouter);
+  // API calls get clear diagnostics until DB/bot startup is complete.
+  app.use('/api/v1', (req, res, next) => (runtime.ready ? apiRouter(req, res, next) : unavailable(req, res)));
+  app.use('/api', (req, res, next) => (runtime.ready ? apiRouter(req, res, next) : unavailable(req, res)));
 
-  // --- Mini App statik fayllari (production) ---
   const miniappDist = path.resolve(__dirname, '../../miniapp/dist');
   app.use(express.static(miniappDist));
   app.get('*', (req, res, next) => {
@@ -52,34 +113,22 @@ async function main() {
     });
   });
 
-  // Xatolarni qayta ishlash.
   app.use((err, req, res, next) => {
     console.error('API xatosi:', err.message);
     res.status(err.status || 500).json({ error: err.message || 'Server xatosi' });
   });
 
   app.listen(env.PORT, () => {
-    console.log(`🚀 Server ishlayapti: http://localhost:${env.PORT}`);
+    console.log(`Server ishlayapti: http://localhost:${env.PORT}`);
   });
 
-  // Botni ishga tushirish.
-  if (env.BOT_MODE === 'webhook') {
-    const url = `https://${env.RAILWAY_STATIC_URL}${WEBHOOK_PATH}`;
-    await bot.api.setWebhook(url, { drop_pending_updates: true });
-    console.log(`🤖 Bot webhook rejimida: ${url}`);
-  } else {
-    await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-    bot.start({
-      onStart: (info) => console.log(`🤖 Bot polling rejimida: @${info.username}`),
-    });
-  }
-
-  // Cron joblar.
-  startReminderCron(bot);
-  startCleanupCron();
+  startRuntime(app).catch((err) => {
+    runtime.ready = false;
+    runtime.errors = [err.message || 'Runtime start xatosi'];
+    console.error('Runtime start xatosi:', err);
+  });
 }
 
-// Toza yopilish.
 process.on('SIGINT', () => {
   console.log('\nTo\'xtatilmoqda...');
   process.exit(0);
@@ -87,6 +136,6 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => process.exit(0));
 
 main().catch((err) => {
-  console.error('❌ Ishga tushirishda xato:', err);
+  console.error('Ishga tushirishda xato:', err);
   process.exit(1);
 });

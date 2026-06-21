@@ -105,7 +105,7 @@ npm run dev                   # http://localhost:5173
 | `PORT` | Server porti | `3000` |
 | `TZ` | Vaqt mintaqasi | `Asia/Tashkent` |
 | `BOT_MODE` | `polling` (dev) / `webhook` (prod) | `polling` |
-| `RAILWAY_STATIC_URL` | Webhook uchun public domen | `app.up.railway.app` |
+| `RAILWAY_STATIC_URL` | Webhook uchun public domen. `RAILWAY_PUBLIC_DOMAIN`, `RAILWAY_PUBLIC_URL`, `PUBLIC_URL`, `APP_URL` ham qabul qilinadi. | `app.up.railway.app` |
 | `MINIAPP_URL` | Bot tugmasi ochadigan URL | `https://app.up.railway.app` |
 | `CONFIRM_DELETE_CODE` | O'chirish tasdiq kodi | `1990` |
 | `AUTH_DEV_BYPASS` | Dev'da initData tekshiruvini o'chirish | `0` |
@@ -131,6 +131,10 @@ npm run dev                   # http://localhost:5173
 5. Railway root `package.json` orqali avtomatik ishlaydi:
    - build: `npm run build` → `miniapp/dist`
    - start: `npm run start` → backend server
+
+Deploydan keyin `https://<domain>/health` ni oching. `ok:false` va `MONGODB_URI` xatosi chiqsa,
+app service MongoDB service bilan ulanmagan: Variables bo'limida `MONGODB_URI=${{MongoDB.MONGO_URL}}`
+yoki Atlas/Railway Mongo URL ni qo'lda kiriting.
 
 > Eslatma: bitta Railway service'da backend `/` da Mini App'ni, `/api` da API'ni xizmat qiladi.
 

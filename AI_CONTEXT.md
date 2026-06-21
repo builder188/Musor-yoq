@@ -1,5 +1,16 @@
 # AI_CONTEXT.md
 
+## 2026-06-21 Railway diagnostics/degraded startup
+- Uchinchi Railway loglar yana `MONGODB_URI` missing ekanini ko'rsatdi. Bu endi kod alias muammosi emas: runtime environmentda Mongo variable umuman yo'q yoki app servicega link qilinmagan.
+- `backend/src/index.js` qayta ishlanib, Express server env/DB tayyor bo'lmasa ham crash-loop qilmaydigan diagnostika rejimida start qiladi.
+- `/health`, `/api/health`, `/api/v1/health` authsiz liveness/diagnostics qaytaradi: `ok`, `db`, `bot`, `errors`, `warnings`, `mode`, `startedAt`.
+- API route'lar readiness gate orqali o'tadi: runtime tayyor bo'lmasa 503 va health payload qaytaradi; tayyor bo'lsa router ishlaydi.
+- Bot moduli endi faqat env validatsiya va Mongo ulanishdan keyin dynamic import qilinadi, token/env xatolari import vaqtida appni yiqitmaydi.
+- `/api/v1` mount tartibi latent bug sifatida tuzatildi: endi `/api/v1` `/api`dan oldin mount qilinadi.
+- `env.js` Railway domain aliaslarini qo'llab-quvvatlaydi (`RAILWAY_PUBLIC_DOMAIN`, `RAILWAY_PUBLIC_URL`, `PUBLIC_URL`, `APP_URL`) va productionda domain bor bo'lsa default `BOT_MODE=webhook` qiladi.
+- Verification: `node --check` (`env.js`, `index.js`, `bot.js`) OK; missing-Mongo smoke test `/health` `ok:false` bilan qaytdi va process crash qilmadi; root `npm run build` OK.
+- User action still required: Railway Variables ichida MongoDB URL kiritilishi yoki MongoDB service app servicega reference bilan ulanishi kerak (`MONGODB_URI=${{MongoDB.MONGO_URL}}` yoki real URL).
+
 ## 2026-06-21 Railway Mongo env parts fix
 - Yangi Railway loglarda so'nggi commit ishlayotgani tasdiqlandi, lekin `MONGODB_URI` hali ham topilmagan. Bu deploy environmentda to'liq Mongo URL yo'q yoki servicega ulanmaganini bildiradi.
 - Kod tomondan qo'shimcha qamrov berildi: `env.js` endi `MONGO_PUBLIC_URL`, `MONGODB_URL`, `MONGODB_PRIVATE_URL`, `MONGODB_PUBLIC_URL` aliaslarini ham tekshiradi.

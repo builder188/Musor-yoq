@@ -2,6 +2,16 @@
 
 > Oxirgi yangilanish: 2026-06-21.
 
+## 2026-06-21 Railway diagnostika startup fix
+- Yangi loglar o'qildi: `MONGODB_URI` hali ham yo'q. So'nggi kod xabarlari logda ko'ringani uchun bu code alias emas, Railway Variables/link muammosi.
+- `backend/src/index.js` endi env/DB tayyor bo'lmasa process exit qilmaydi: Express start bo'ladi, `/health` authsiz diagnostika qaytaradi, API esa tayyor bo'lmaguncha 503 beradi.
+- `startRuntime()` env check -> Mongo connect -> bot dynamic import -> webhook/polling -> cron tartibida ishlaydi. Bot static import olib tashlandi, shuning uchun env yetishmasa import vaqtida crash bo'lmaydi.
+- `/api/v1` mount tartibi tuzatildi: `/api/v1` `/api`dan oldin gate qilinadi.
+- `env.js` `RAILWAY_PUBLIC_DOMAIN`, `RAILWAY_PUBLIC_URL`, `PUBLIC_URL`, `APP_URL` ni public domain sifatida qabul qiladi; production + domain bo'lsa default `BOT_MODE=webhook`.
+- README va `.env.example` Railway domain aliaslari va `/health` troubleshooting bilan yangilandi.
+- Tekshiruv: `node --check backend/src/config/env.js`, `node --check backend/src/index.js`, `node --check backend/src/bot/bot.js`, missing-Mongo `/health` smoke test, va `npm run build` OK.
+- User bajarishi kerak bo'lgan ish: Railway app service Variables bo'limida Mongo qiymatini ulash. Eng oson variant `MONGODB_URI=${{MongoDB.MONGO_URL}}` yoki Atlas/Railway real Mongo URL.
+
 ## 2026-06-21 Railway Mongo parts fix
 - Yangi pasted loglar o'qildi: deploy so'nggi `XATO` xabarini chiqarayotganiga qarab `316297d` ishlayapti, lekin Mongo env hali topilmayapti.
 - `backend/src/config/env.js` kengaytirildi: `MONGO_PUBLIC_URL`, `MONGODB_URL`, `MONGODB_PRIVATE_URL`, `MONGODB_PUBLIC_URL` aliaslari qo'shildi.

@@ -1,5 +1,4 @@
 // Central environment loader and validator.
-// The app exits with a clear message when required variables are missing.
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -53,6 +52,21 @@ function firstMongoUri() {
   return mongoUriFromParts();
 }
 
+function publicDomain() {
+  const value = optional('RAILWAY_STATIC_URL', 'RAILWAY_PUBLIC_DOMAIN', 'RAILWAY_PUBLIC_URL', 'PUBLIC_URL', 'APP_URL');
+  if (!value) return '';
+  return value.replace(/^https?:\/\//i, '').replace(/\/+$/g, '');
+}
+
+function botMode() {
+  const explicit = process.env.BOT_MODE?.trim().toLowerCase();
+  if (explicit) return explicit;
+  if ((process.env.NODE_ENV?.trim() || 'development') === 'production' && publicDomain()) {
+    return 'webhook';
+  }
+  return 'polling';
+}
+
 const env = {
   BOT_TOKEN: required('BOT_TOKEN'),
   OWNER_TELEGRAM_ID: required('OWNER_TELEGRAM_ID'),
@@ -64,8 +78,8 @@ const env = {
   PORT: parseInt(process.env.PORT, 10) || 3000,
   TZ: process.env.TZ?.trim() || 'Asia/Tashkent',
 
-  BOT_MODE: (process.env.BOT_MODE?.trim() || 'polling').toLowerCase(),
-  RAILWAY_STATIC_URL: process.env.RAILWAY_STATIC_URL?.trim() || '',
+  BOT_MODE: botMode(),
+  RAILWAY_STATIC_URL: publicDomain(),
   MINIAPP_URL: process.env.MINIAPP_URL?.trim() || '',
 
   CONFIRM_DELETE_CODE: process.env.CONFIRM_DELETE_CODE?.trim() || '1990',
@@ -75,27 +89,45 @@ const env = {
 // Keep node-cron and Date calculations in the configured timezone.
 process.env.TZ = env.TZ;
 
-export function validateEnv() {
+export function getEnvIssues() {
   const missing = [];
   for (const key of ['BOT_TOKEN', 'OWNER_TELEGRAM_ID', 'MONGODB_URI', 'GEMINI_API_KEY']) {
     if (!env[key]) missing.push(key);
   }
 
+  const errors = [];
+  const warnings = [];
+
   if (missing.length > 0) {
-    console.error('\nXATO: Majburiy muhit o\'zgaruvchilari topilmadi:');
-    for (const key of missing) console.error(`   - ${key}`);
+    errors.push(`Majburiy muhit o'zgaruvchilari topilmadi: ${missing.join(', ')}`);
     if (missing.includes('MONGODB_URI')) {
-      console.error('   MongoDB uchun MONGODB_URI, MONGO_URL, MONGO_PRIVATE_URL, MONGO_PUBLIC_URL yoki mongodb:// bilan boshlanadigan DATABASE_URL qabul qilinadi.');
-      console.error('   Agar Railway Mongo faqat bo\'lak qiymatlar bersa, MONGOUSER, MONGOPASSWORD, MONGOHOST, MONGOPORT, MONGODATABASE ham qabul qilinadi.');
+      errors.push('MongoDB uchun MONGODB_URI, MONGO_URL, MONGO_PRIVATE_URL, MONGO_PUBLIC_URL yoki mongodb:// bilan boshlanadigan DATABASE_URL qabul qilinadi.');
+      errors.push('Agar Railway Mongo faqat bo\'lak qiymatlar bersa, MONGOUSER, MONGOPASSWORD, MONGOHOST, MONGOPORT, MONGODATABASE ham qabul qilinadi.');
     }
-    console.error('\nbackend/.env.example faylidan nusxa olib, .env ni to\'ldiring yoki Railway Variables bo\'limida qiymatlarni kiriting.\n');
-    process.exit(1);
   }
 
-  if (env.BOT_MODE === 'webhook' && !env.RAILWAY_STATIC_URL) {
-    console.error('\nXATO: BOT_MODE=webhook bo\'lsa, RAILWAY_STATIC_URL ham kerak.\n');
-    process.exit(1);
+  if (!['polling', 'webhook'].includes(env.BOT_MODE)) {
+    errors.push(`BOT_MODE faqat polling yoki webhook bo'lishi mumkin. Hozir: ${env.BOT_MODE}`);
   }
+  if (env.BOT_MODE === 'webhook' && !env.RAILWAY_STATIC_URL) {
+    errors.push('BOT_MODE=webhook bo\'lsa, RAILWAY_STATIC_URL yoki RAILWAY_PUBLIC_DOMAIN kerak.');
+  }
+  if (env.NODE_ENV === 'production' && env.BOT_MODE === 'polling') {
+    warnings.push('Production uchun BOT_MODE=webhook tavsiya qilinadi.');
+  }
+
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+export function validateEnv() {
+  const issues = getEnvIssues();
+  if (issues.ok) return true;
+
+  console.error('\nXATO: Konfiguratsiya tayyor emas:');
+  for (const error of issues.errors) console.error(`   - ${error}`);
+  for (const warning of issues.warnings) console.warn(`   - ${warning}`);
+  console.error('\nbackend/.env.example faylidan nusxa olib, .env ni to\'ldiring yoki Railway Variables bo\'limida qiymatlarni kiriting.\n');
+  process.exit(1);
 }
 
 export const isProd = () => env.NODE_ENV === 'production';
