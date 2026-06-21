@@ -24,3 +24,6 @@ tmp/
 Thumbs.db
 .idea/
 .vscode/
+
+# Playwright MCP sessiya artefaktlari (test loglari/snapshotlar)
+.playwright-mcp/

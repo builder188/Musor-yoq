@@ -38,4 +38,44 @@ router.post(
   })
 );
 
+router.post(
+  '/search',
+  asyncHandler(async (req, res) => {
+    const message = (req.body?.message || req.body?.query || '').trim();
+    if (!message) return res.status(400).json({ error: 'Xabar bo\'sh' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    sendSse(res, 'progress', { text: 'Qidirmoqda...' });
+    const understanding = await understandText(message);
+
+    sendSse(res, 'progress', { text: 'Tahlil qilmoqda...' });
+    let results = [];
+    if (understanding.intent === 'SEARCH_QUERY') {
+      results = await searchServices({
+        text: understanding.fields?.searchText || message,
+        dateFrom: understanding.fields?.dateFrom || null,
+        dateTo: understanding.fields?.dateTo || null,
+        limit: 30,
+      });
+    }
+
+    const agentRes = await runAgent({ understanding, rawText: message, mode: 'query' });
+    sendSse(res, 'result', {
+      reply: agentRes.text,
+      intent: understanding.intent,
+      results,
+    });
+    res.end();
+  })
+);
+
+function sendSse(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
 export default router;

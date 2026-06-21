@@ -1,12 +1,12 @@
-// Pastki navigatsiya paneli.
 import { useApp } from '../store/AppContext.jsx';
 import { haptic } from '../telegram.js';
 
 const TABS = [
   { id: 'home', icon: '🏠' },
   { id: 'clients', icon: '👥' },
-  { id: 'services', icon: '🗑' },
+  { id: 'services', icon: '🗑️' },
   { id: 'finance', icon: '💰' },
+  { id: 'reports', icon: '📊' },
   { id: 'settings', icon: '⚙️' },
 ];
 

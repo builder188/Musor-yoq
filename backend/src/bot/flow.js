@@ -1,32 +1,29 @@
-// Yetishmayotgan maydonlarni bittalab to'ldirish mantig'i (slot-filling).
+// Slot-filling helpers for missing fields.
 import { normalizePhone } from '../utils/phone.js';
 import { parseMoney } from '../utils/money.js';
 import { PAYMENT_METHODS } from '../models/Service.js';
 
-// Kiritish niyatlari uchun majburiy maydonlar (ustuvorlik tartibida).
 export const ENTRY_REQUIRED = {
   SERVICE_ENTRY: ['clientPhone', 'clientName', 'location', 'serviceDateTime', 'price', 'paymentMethod'],
   EXPENSE_ENTRY: ['amount'],
   INCOME_ENTRY: ['amount'],
 };
 
-// Har bir maydon uchun o'zbekcha savol.
 export const QUESTIONS = {
-  clientPhone: "📞 Mijozning telefon raqamini yuboring (masalan: +998 90 123 45 67).",
-  clientName: "👤 Mijozning ismi nima?",
-  location: "📍 Manzilni yozing yoki lokatsiya yuboring.",
-  serviceDateTime: "🗓 Xizmat qachon bo'ladi? (masalan: ertaga soat 10:00)",
-  price: "💵 Narxi qancha? (masalan: 400 ming)",
-  paymentMethod: "💳 To'lov turi qanday? (naqd / karta / o'tkazma)",
-  amount: "💰 Summasi qancha? (masalan: 50 ming)",
-  category: "🏷 Qaysi turdagi xarajat? (yoqilg'i / ta'mirlash / oziq-ovqat / boshqa)",
+  clientPhone: 'Mijozning telefon raqami?',
+  clientName: 'Mijozning ismi?',
+  location: 'Qaysi manzilga borish kerak?',
+  serviceDateTime: 'Qachon borasiz? (sana va vaqt)',
+  price: 'Xizmat narxi qancha?',
+  paymentMethod: "To'lov usuli? (naqd/karta/o'tkazma)",
+  amount: 'Summasi qancha? (masalan: 50 ming)',
+  category: 'Qaysi turdagi xarajat? (yoqilgi / tamirlash / oziq-ovqat / boshqa)',
 };
 
 export function isEntryIntent(intent) {
   return Object.prototype.hasOwnProperty.call(ENTRY_REQUIRED, intent);
 }
 
-// To'lov turini normallashtirish (apostrof variantlari).
 export function normalizePaymentMethod(value) {
   if (!value) return null;
   const v = String(value).toLowerCase().replace(/[`'‘’]/g, '');
@@ -36,7 +33,18 @@ export function normalizePaymentMethod(value) {
   return null;
 }
 
-// Maydon to'ldirilganini tekshirish.
+export function normalizeExpenseCategory(value) {
+  if (!value) return null;
+  const v = String(value).toLowerCase().replace(/[`'‘’]/g, '');
+  if (/(yoqilgi|yoqilg|benzin|dizel|gaz|yakit|salyarka|propan|metan)/.test(v)) return 'yoqilgi';
+  if (/(tamir|tamirlash|remont|shina|balon|moy|maslo|ehtiyot|zapchast|akkumulyator)/.test(v)) {
+    return 'tamirlash';
+  }
+  if (/(oziq|ovqat|non|tushlik|choy|kafe|osh|somsa|suv)/.test(v)) return 'oziq-ovqat';
+  if (/(boshqa_chiqim|boshqa|chiqim)/.test(v)) return 'boshqa_chiqim';
+  return 'boshqa_chiqim';
+}
+
 export function hasValue(field, collected) {
   const v = collected[field];
   switch (field) {
@@ -56,17 +64,17 @@ export function hasValue(field, collected) {
   }
 }
 
-// NLU dan kelgan maydonlarni mavjud to'plamga qo'shish (faqat bo'sh bo'lganlarini).
 export function mergeFields(collected, incoming = {}) {
   const out = { ...collected };
   for (const [key, raw] of Object.entries(incoming)) {
-    if (raw === null || raw === undefined || raw === '' || raw === 0 || raw === false) continue;
+    if (raw === null || raw === undefined || raw === '' || raw === false) continue;
     let value = raw;
     if (key === 'clientPhone' || key === 'targetPhone') value = normalizePhone(raw) || raw;
     else if (key === 'price' || key === 'amount' || key === 'paymentAmount') value = parseMoney(raw);
     else if (key === 'paymentMethod') value = normalizePaymentMethod(raw) || raw;
+    else if (key === 'category') value = normalizeExpenseCategory(raw) || raw;
     if (value === null || value === undefined || value === '') continue;
-    // Mavjud to'g'ri qiymatni qayta yozmaymiz.
+
     if (out[key] === undefined || out[key] === '' || out[key] === null) {
       out[key] = value;
     }
@@ -74,11 +82,11 @@ export function mergeFields(collected, incoming = {}) {
   return out;
 }
 
-// Kutilayotgan maydonga foydalanuvchining xom javobini qo'llash (NLU topa olmasa).
 export function applyRawValue(field, rawText, collected) {
   const out = { ...collected };
   const text = (rawText || '').trim();
   if (!text) return out;
+
   switch (field) {
     case 'clientPhone':
     case 'targetPhone': {
@@ -98,16 +106,34 @@ export function applyRawValue(field, rawText, collected) {
       if (pm) out[field] = pm;
       break;
     }
-    case 'category':
-    case 'clientName':
-    case 'location':
+    case 'category': {
+      out[field] = normalizeExpenseCategory(text);
+      break;
+    }
     default:
       out[field] = text;
   }
   return out;
 }
 
-// Keyingi yetishmayotgan majburiy maydonni topish.
+// Maxsus eslatma matnini daqiqaga aylantiradi.
+// "2 soat oldin" -> 120, "30 daqiqa oldin" -> 30, "1 kun oldin" -> 1440,
+// "yarim soat" -> 30, "xizmat vaqtida" -> 0.
+export function parseReminderOffset(text) {
+  if (!text) return null;
+  const v = String(text).toLowerCase().replace(/[`'‘’]/g, '');
+  if (/(xizmat vaqti|aniq vaqt|vaqtida)/.test(v)) return 0;
+  if (/yarim\s*soat/.test(v)) return 30;
+
+  const num = parseFloat((v.match(/[\d.]+/) || [])[0]);
+  if (Number.isNaN(num)) return null;
+
+  if (/(kun|sutka|day)/.test(v)) return num > 0 ? Math.round(num * 1440) : null;
+  if (/(soat|hour|chas)/.test(v)) return num > 0 ? Math.round(num * 60) : null;
+  if (/(daqiqa|daq|minut|min)/.test(v)) return num >= 0 ? Math.round(num) : null;
+  return null;
+}
+
 export function nextMissing(intent, collected) {
   const required = ENTRY_REQUIRED[intent] || [];
   for (const field of required) {

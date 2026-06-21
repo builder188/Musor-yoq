@@ -2,7 +2,8 @@
 // Barchasi tasdiqlash kodini (1990) talab qiladi.
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { bulkDelete, listDeleted, restore, checkCode } from '../services/deleteService.js';
+import { requireDeleteCode } from '../middleware/deleteCode.js';
+import { bulkDelete, listDeleted, restore, restoreByIds, restoreClientWithServices } from '../services/deleteService.js';
 
 const router = Router();
 
@@ -18,9 +19,17 @@ router.get(
 router.post(
   '/restore',
   asyncHandler(async (req, res) => {
-    const { type, id } = req.body;
-    const doc = await restore(type, id);
-    res.json({ ok: true, doc });
+    if (req.body?.clientId) {
+      return res.json({
+        ok: true,
+        result: await restoreClientWithServices(req.body.clientId, req.body.serviceIds || []),
+      });
+    }
+    if (Array.isArray(req.body?.ids)) {
+      return res.json({ ok: true, result: await restoreByIds(req.body.ids) });
+    }
+    const doc = await restore(req.body.type, req.body.id);
+    return res.json({ ok: true, doc });
   })
 );
 
@@ -28,12 +37,10 @@ router.post(
 // target: clients | services | finance | all
 router.post(
   '/bulk-delete',
+  requireDeleteCode,
   asyncHandler(async (req, res) => {
-    const { target, confirmationCode } = req.body;
-    if (!checkCode(confirmationCode)) {
-      return res.status(403).json({ error: 'Tasdiqlash kodi noto\'g\'ri' });
-    }
-    const result = await bulkDelete(target, confirmationCode);
+    const { target } = req.body;
+    const result = await bulkDelete(target, req.body?.code ?? req.body?.confirmationCode);
     res.json({ ok: true, result });
   })
 );
@@ -41,12 +48,9 @@ router.post(
 // POST /api/system/reset  body: { confirmationCode } — hammasini o'chirish.
 router.post(
   '/reset',
+  requireDeleteCode,
   asyncHandler(async (req, res) => {
-    const { confirmationCode } = req.body;
-    if (!checkCode(confirmationCode)) {
-      return res.status(403).json({ error: 'Tasdiqlash kodi noto\'g\'ri' });
-    }
-    const result = await bulkDelete('all', confirmationCode);
+    const result = await bulkDelete('all', req.body?.code ?? req.body?.confirmationCode);
     res.json({ ok: true, result });
   })
 );

@@ -1,5 +1,4 @@
 // Moliyaviy tranzaksiya: daromad yoki xarajat.
-// Qarz to'lovlari alohida kolleksiyada: DebtPayment (debt_payments).
 import mongoose from 'mongoose';
 
 export const TX_TYPES = {
@@ -7,25 +6,20 @@ export const TX_TYPES = {
   EXPENSE: 'expense',
 };
 
-// Xarajat kategoriyalari.
-export const EXPENSE_CATEGORIES = ["yoqilg'i", "ta'mirlash", 'oziq-ovqat', 'boshqa'];
+export const TX_CATEGORIES = ['xizmat', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'];
+export const EXPENSE_CATEGORIES = ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'];
 
 const transactionSchema = new mongoose.Schema(
   {
     type: { type: String, enum: Object.values(TX_TYPES), required: true },
-    amount: { type: Number, required: true },
+    amount: { type: Number, required: true, min: 0 },
 
-    // Faqat xarajatlar uchun.
-    category: { type: String, default: null },
+    category: { type: String, enum: TX_CATEGORIES, default: null },
+    description: { type: String, default: '' },
 
-    // Daromad xizmatdan kelgan bo'lsa — bog'langan xizmat.
+    // Daromad xizmatdan kelgan bo'lsa вЂ” bog'langan xizmat.
     serviceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', default: null },
-    // Xizmatga bog'liq bo'lsa — mijoz (denormalizatsiya, qulaylik uchun).
-    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null },
-
-    paymentMethod: { type: String, default: null },
-    note: { type: String, default: '' },
-    date: { type: Date, default: Date.now },
+    date: { type: Date, required: true, default: Date.now },
 
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },

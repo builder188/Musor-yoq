@@ -1,61 +1,238 @@
-// PDFKit yordamida hisobot yaratish.
-// Eslatma: standart shrift (Helvetica) lotin alifbosini qo'llab-quvvatlaydi (o'zbekcha mos).
-// Kirill (ruscha) uchun TTF shrift qo'shish kerak bo'ladi.
 import PDFDocument from 'pdfkit';
 import { formatMoney } from './money.js';
-import { formatDateTime } from './dates.js';
+import { formatDate, formatDateTime } from './dates.js';
 
-// Hisobot hujjatini yaratadi va PDFDocument qaytaradi (chaqiruvchi uni stream'ga uzatadi).
-// data: { title, periodLabel, summary:{income,expense,balance}, transactions:[], services:[] }
+const COLORS = {
+  income: '#2E7D32',
+  expense: '#C62828',
+  text: '#212121',
+  muted: '#616161',
+  border: '#E0E0E0',
+  rowAlt: '#F5F5F5',
+};
+
+const LABELS = {
+  uz: {
+    title: "Musir Yo'q - Hisobot",
+    created: 'Yaratildi',
+    period: 'Davr',
+    all: 'Hammasi',
+    page: 'Sahifa',
+    summary: 'Umumiy',
+    totalServices: 'Jami xizmatlar',
+    totalIncome: 'Jami kirim',
+    totalExpense: 'Jami chiqim',
+    balance: 'Balans',
+    clients: 'Mijozlar',
+    services: 'Xizmatlar',
+    finance: 'Moliya',
+    lastSixMonths: 'Oxirgi 6 oy',
+    clientHeaders: ['Ism', 'Tel', "So'nggi xizmat", "Jami to'lagan", "To'lanmagan"],
+    serviceHeaders: ['Sana', 'Mijoz', 'Manzil', 'Narx', 'Status', "To'lov"],
+    financeHeaders: ['Sana', 'Turi', 'Toifa', 'Summa', 'Izoh'],
+    income: 'Kirim',
+    expense: 'Chiqim',
+  },
+  ru: {
+    title: "Musir Yo'q - Otchet",
+    created: 'Sozdano',
+    period: 'Period',
+    all: 'Vse',
+    page: 'Stranitsa',
+    summary: 'Itogo',
+    totalServices: 'Uslugi',
+    totalIncome: 'Dohod',
+    totalExpense: 'Rashod',
+    balance: 'Balans',
+    clients: 'Klienty',
+    services: 'Uslugi',
+    finance: 'Finansy',
+    lastSixMonths: 'Poslednie 6 mesyatsev',
+    clientHeaders: ['Imya', 'Tel', 'Posl. usluga', 'Oplacheno', 'Ne oplacheno'],
+    serviceHeaders: ['Data', 'Klient', 'Adres', 'Cena', 'Status', 'Oplata'],
+    financeHeaders: ['Data', 'Tip', 'Kategoriya', 'Summa', 'Zametka'],
+    income: 'Dohod',
+    expense: 'Rashod',
+  },
+};
+
 export function createReportDoc(data) {
-  const doc = new PDFDocument({ margin: 40, size: 'A4' });
+  const labels = LABELS[data.language] || LABELS.uz;
+  const doc = new PDFDocument({
+    margins: { top: 96, right: 40, bottom: 66, left: 40 },
+    size: 'A4',
+    bufferPages: true,
+    info: { Title: labels.title },
+  });
 
-  // Sarlavha.
-  doc.fontSize(20).text(data.title || 'Musir Yo\'q — Hisobot', { align: 'center' });
-  doc.moveDown(0.3);
-  doc.fontSize(10).fillColor('#666').text(`Davr: ${data.periodLabel || 'Hammasi'}`, { align: 'center' });
-  doc.fillColor('#000');
-  doc.moveDown(1);
+  doc.font('Helvetica');
+  drawSummary(doc, data.summary, labels);
 
-  // Umumiy ko'rsatkichlar.
-  if (data.summary) {
-    doc.fontSize(13).text('Umumiy ko\'rsatkichlar', { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(11);
-    doc.text(`Daromad:  ${formatMoney(data.summary.income)}`);
-    doc.text(`Xarajat:  ${formatMoney(data.summary.expense)}`);
-    doc.text(`Sof balans:  ${formatMoney(data.summary.balance)}`);
-    doc.moveDown(1);
+  if (data.clients?.length) {
+    drawSectionTitle(doc, labels.clients);
+    drawTable(doc, labels.clientHeaders, data.clients, [110, 90, 100, 95, 80]);
   }
 
-  // Tranzaksiyalar jadvali.
-  if (data.transactions && data.transactions.length > 0) {
-    doc.fontSize(13).text('Tranzaksiyalar', { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(10);
-    for (const tx of data.transactions) {
-      const sign = tx.type === 'expense' ? '-' : '+';
-      const label = tx.type === 'expense' ? `Xarajat (${tx.category || 'boshqa'})` : tx.type === 'debt_payment' ? 'Qarz to\'lovi' : 'Daromad';
-      doc.text(`${formatDateTime(tx.date)}   ${label}   ${sign}${formatMoney(tx.amount)}${tx.note ? '   — ' + tx.note : ''}`);
-    }
-    doc.moveDown(1);
+  if (data.services?.length) {
+    drawSectionTitle(doc, labels.services);
+    drawTable(doc, labels.serviceHeaders, data.services, [80, 80, 125, 70, 70, 70]);
   }
 
-  // Xizmatlar jadvali.
-  if (data.services && data.services.length > 0) {
-    doc.fontSize(13).text('Xizmatlar', { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(10);
-    for (const s of data.services) {
-      doc.text(`${formatDateTime(s.serviceDateTime)}   ${s.clientName}   ${s.location?.address || '—'}   ${formatMoney(s.price)}   [${s.status}]`);
-    }
-    doc.moveDown(1);
+  if (data.transactions?.length) {
+    drawSectionTitle(doc, labels.finance);
+    drawTable(doc, labels.financeHeaders, data.transactions, [85, 65, 85, 80, 180]);
   }
 
-  // Pastki qism.
-  doc.fontSize(8).fillColor('#999').text(`Yaratilgan: ${formatDateTime(new Date())}`, { align: 'right' });
+  if (data.monthlyChart?.length) {
+    drawSectionTitle(doc, labels.lastSixMonths);
+    drawMonthlyChart(doc, data.monthlyChart, labels);
+  }
 
+  drawHeadersAndFooters(doc, data.periodLabel, labels);
   return doc;
+}
+
+function drawHeadersAndFooters(doc, periodLabel, labels) {
+  const range = doc.bufferedPageRange();
+  const created = formatDateTime(new Date());
+
+  for (let i = range.start; i < range.start + range.count; i += 1) {
+    doc.switchToPage(i);
+    doc.save();
+    doc.fillColor(COLORS.text).font('Helvetica-Bold').fontSize(14);
+    doc.text(labels.title, 40, 28);
+    doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted);
+    doc.text(`${labels.created}: ${created}`, 40, 48);
+    doc.text(`${labels.period}: ${periodLabel || labels.all}`, 40, 63);
+    doc.moveTo(40, 82).lineTo(555, 82).strokeColor(COLORS.border).stroke();
+    doc.moveTo(40, 790).lineTo(555, 790).strokeColor(COLORS.border).stroke();
+    doc.fontSize(8).fillColor(COLORS.muted);
+    doc.text(`${labels.page} ${i + 1} / ${range.count} | ${created}`, 40, 800, {
+      align: 'right',
+      width: 515,
+    });
+    doc.restore();
+  }
+}
+
+function drawSummary(doc, summary, labels) {
+  drawSectionTitle(doc, labels.summary);
+  drawTable(
+    doc,
+    [labels.totalServices, labels.totalIncome, labels.totalExpense, labels.balance],
+    [[
+      String(summary.totalServices || 0),
+      formatMoney(summary.totalIncome || 0),
+      formatMoney(summary.totalExpense || 0),
+      formatMoney(summary.balance || 0),
+    ]],
+    [110, 130, 130, 125],
+    { compact: true }
+  );
+}
+
+function drawSectionTitle(doc, title) {
+  ensureSpace(doc, 34);
+  doc.moveDown(0.8);
+  doc.font('Helvetica-Bold').fontSize(13).fillColor(COLORS.text).text(title);
+  doc.moveDown(0.35);
+}
+
+function drawTable(doc, headers, rows, widths, options = {}) {
+  const rowHeight = options.compact ? 26 : 30;
+  const startX = doc.page.margins.left;
+
+  ensureSpace(doc, rowHeight * 2);
+  drawRow(doc, headers, widths, startX, doc.y, rowHeight, true);
+  doc.y += rowHeight;
+
+  rows.forEach((row, index) => {
+    ensureSpace(doc, rowHeight);
+    drawRow(doc, row, widths, startX, doc.y, rowHeight, false, index % 2 === 1);
+    doc.y += rowHeight;
+  });
+  doc.moveDown(0.4);
+}
+
+function drawRow(doc, values, widths, x, y, height, header = false, alt = false) {
+  if (header || alt) {
+    doc.rect(x, y, widths.reduce((sum, w) => sum + w, 0), height)
+      .fill(header ? COLORS.text : COLORS.rowAlt);
+  }
+
+  let left = x;
+  values.forEach((value, i) => {
+    doc.rect(left, y, widths[i], height).strokeColor(COLORS.border).stroke();
+    const cellColor = header ? '#FFFFFF' : rowTextColor(values, i);
+    doc.fillColor(header ? '#FFFFFF' : COLORS.text)
+      .fillColor(cellColor)
+      .font(header ? 'Helvetica-Bold' : 'Helvetica')
+      .fontSize(header ? 8.5 : 8)
+      .text(truncate(value, widths[i]), left + 5, y + 8, {
+        width: widths[i] - 10,
+        height: height - 10,
+        ellipsis: true,
+      });
+    left += widths[i];
+  });
+}
+
+function rowTextColor(values, columnIndex) {
+  const text = String(values[columnIndex] ?? '').toLowerCase();
+  const rowText = values.map((value) => String(value ?? '').toLowerCase()).join(' ');
+  if (rowText.includes('bajarildi') || rowText.includes('tolangan')) return COLORS.income;
+  if (rowText.includes('bekor') || rowText.includes('chiqim') || text.startsWith('-')) return COLORS.expense;
+  if (rowText.includes('kutilmoqda')) return COLORS.muted;
+  if (rowText.includes('kirim') || text.startsWith('+')) return COLORS.income;
+  return COLORS.text;
+}
+
+function drawMonthlyChart(doc, chartRows, labels) {
+  ensureSpace(doc, 190);
+  const x = 58;
+  const y = doc.y + 10;
+  const width = 450;
+  const height = 130;
+  const max = Math.max(...chartRows.flatMap((row) => [row.income, row.expense]), 1);
+  const groupWidth = width / chartRows.length;
+  const barWidth = Math.min(22, groupWidth / 4);
+
+  doc.path(svgRectPath(x, y, width, height)).strokeColor(COLORS.border).stroke();
+  chartRows.forEach((row, index) => {
+    const baseX = x + index * groupWidth + groupWidth / 2 - barWidth;
+    const incomeH = (row.income / max) * (height - 26);
+    const expenseH = (row.expense / max) * (height - 26);
+    doc.path(svgRectPath(baseX, y + height - incomeH - 20, barWidth, incomeH)).fill(COLORS.income);
+    doc.path(svgRectPath(baseX + barWidth + 3, y + height - expenseH - 20, barWidth, expenseH)).fill(COLORS.expense);
+    doc.fillColor(COLORS.muted).fontSize(7).text(row.label, x + index * groupWidth, y + height - 16, {
+      width: groupWidth,
+      align: 'center',
+    });
+  });
+
+  doc.fillColor(COLORS.income).fontSize(8).text(labels.income, x, y + height + 8);
+  doc.fillColor(COLORS.expense).text(labels.expense, x + 55, y + height + 8);
+  doc.y = y + height + 28;
+}
+
+function ensureSpace(doc, requiredHeight) {
+  if (doc.y + requiredHeight > doc.page.height - doc.page.margins.bottom) {
+    doc.addPage();
+  }
+}
+
+function truncate(value, width) {
+  const text = value === null || value === undefined ? '' : String(value);
+  const maxChars = Math.max(8, Math.floor(width / 5));
+  return text.length > maxChars ? `${text.slice(0, maxChars - 1)}...` : text;
+}
+
+function svgRectPath(x, y, width, height) {
+  return `M${x} ${y}h${width}v${height}h${-width}Z`;
+}
+
+export function reportDate(value) {
+  return formatDate(value);
 }
 
 export default { createReportDoc };

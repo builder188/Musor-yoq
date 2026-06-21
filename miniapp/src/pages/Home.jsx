@@ -1,65 +1,171 @@
-// Bosh sahifa: tezkor statistika + qidiruv + AI chat paneli.
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatDate } from '../utils/format.js';
+import { formatMoney, formatDate, formatPhone } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 
-export default function Home() {
+export default function Home({ onOpenClient }) {
   const { t } = useApp();
   const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  // Tezkor qidiruv (ism / telefon / manzil).
+  const [loadingStats, setLoadingStats] = useState(true);
   const [search, setSearch] = useState('');
-  const [searchResults, setSearchResults] = useState(null);
+  const [clients, setClients] = useState([]);
   const [searching, setSearching] = useState(false);
-
-  // AI chat holati.
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [thinking, setThinking] = useState(false);
-  const [selected, setSelected] = useState(null);
-  const chatEndRef = useRef(null);
-
-  const runSearch = async () => {
-    const q = search.trim();
-    if (!q) {
-      setSearchResults(null);
-      return;
-    }
-    setSearching(true);
-    try {
-      setSearchResults(await api.get(`/services?search=${encodeURIComponent(q)}`));
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
-  };
+  const [aiOpen, setAiOpen] = useState(false);
+  const [selectedService, setSelectedService] = useState(null);
 
   useEffect(() => {
     api
       .get('/stats/home')
       .then(setStats)
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => setLoadingStats(false));
   }, []);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const q = search.trim();
+    if (!q) {
+      setClients([]);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setSearching(true);
+      api
+        .get(`/clients?search=${encodeURIComponent(q)}`)
+        .then(normalizeClients)
+        .then(setClients)
+        .catch(() => setClients([]))
+        .finally(() => setSearching(false));
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  return (
+    <div>
+      <h1 className="page-title">{t('home.title')}</h1>
+
+      <QuickStatsRow stats={stats} loading={loadingStats} />
+
+      <div className="search-box">
+        <input
+          className="input"
+          placeholder={t('home.searchPlaceholder')}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      <SearchResults clients={clients} searching={searching} onOpenClient={onOpenClient} />
+
+      <FloatingAiButton onClick={() => setAiOpen(true)} />
+
+      {aiOpen && <AiChatPanel onClose={() => setAiOpen(false)} onSelectService={setSelectedService} />}
+      {selectedService && <ServiceDetailModal service={selectedService} onClose={() => setSelectedService(null)} />}
+    </div>
+  );
+}
+
+function QuickStatsRow({ stats, loading }) {
+  const { t } = useApp();
+  return (
+    <div className="quick-stats">
+      <div className="quick-stat">
+        <span>📦</span>
+        <div>
+          <strong>{loading ? '...' : stats?.todayCount ?? 0}</strong>
+          <small>{t('home.todayJobs')}</small>
+        </div>
+      </div>
+      <div className="quick-stat">
+        <span>💰</span>
+        <div>
+          <strong>{formatMoney(stats?.monthSummary?.balance ?? 0)}</strong>
+          <small>{t('home.balance')}</small>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SearchResults({ clients, searching, onOpenClient }) {
+  const { t } = useApp();
+  if (searching) return <Spinner />;
+  if (!clients.length) return null;
+
+  return (
+    <div className="card">
+      <div className="row-between mb-8">
+        <strong>{clients.length} {t('ui.clientsCount')}</strong>
+      </div>
+      {clients.map((client) => (
+        <ClientCard key={client._id} client={client} onOpen={() => onOpenClient?.(client._id)} />
+      ))}
+    </div>
+  );
+}
+
+function ClientCard({ client, onOpen }) {
+  const { t } = useApp();
+  const lastServiceAt = client.lastServiceAt || client.services?.[0]?.serviceDateTime;
+  const debt = client.unpaidTotal || client.totalDebt || client.unpaidAmount;
+
+  return (
+    <div className={`list-item ${client.isDeleted ? 'deleted-item' : ''}`} onClick={onOpen}>
+      <div className="row-between">
+        <div className="title">{client.name}</div>
+        {client.isDeleted && <span className="badge badge-muted">{t('ui.deleted')}</span>}
+      </div>
+      <div className="sub">{formatPhone(client.phone)}</div>
+      {lastServiceAt && <div className="sub">{t('ui.lastService')}: {formatDate(lastServiceAt)}</div>}
+      {debt > 0 && <div className="sub debt-text">{formatMoney(debt)}</div>}
+    </div>
+  );
+}
+
+function FloatingAiButton({ onClick }) {
+  return (
+    <button className="floating-ai" onClick={onClick} aria-label="AI yordamchi">
+      ✨
+    </button>
+  );
+}
+
+function AiChatPanel({ onClose, onSelectService }) {
+  const { t } = useApp();
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, thinking]);
 
-  const sendQuery = async () => {
+  const send = async () => {
     const text = input.trim();
     if (!text || thinking) return;
+
     setInput('');
-    setMessages((m) => [...m, { role: 'user', text }]);
+    const botIndex = messages.length + 1;
+    setMessages((m) => [...m, { role: 'user', text }, { role: 'bot', text: t('home.aiThinking'), results: [] }]);
     setThinking(true);
+
     try {
-      const res = await api.post('/ai/chat', { message: text });
-      setMessages((m) => [...m, { role: 'bot', text: res.reply, results: res.results || [] }]);
+      await api.streamPost('/ai/search', { message: text }, (event, data) => {
+        if (event === 'progress') {
+          setMessages((m) => m.map((item, index) => (index === botIndex ? { ...item, text: data.text } : item)));
+        }
+        if (event === 'result') {
+          setMessages((m) =>
+            m.map((item, index) =>
+              index === botIndex ? { role: 'bot', text: data.reply, results: data.results || [] } : item
+            )
+          );
+        }
+      });
     } catch (e) {
       setMessages((m) => [...m, { role: 'bot', text: `⚠️ ${e.message}` }]);
     } finally {
@@ -67,93 +173,28 @@ export default function Home() {
     }
   };
 
-  if (loading) return <Spinner />;
-
   return (
-    <div>
-      <h1 className="page-title">{t('home.title')}</h1>
-
-      {/* Tezkor statistika */}
-      <div className="stat-grid">
-        <div className="stat">
-          <div className="stat-label">{t('home.todayJobs')}</div>
-          <div className="stat-value">{stats?.todayCount ?? 0}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">{t('home.pendingJobs')}</div>
-          <div className="stat-value">{stats?.pendingCount ?? 0}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">{t('home.expectedIncome')}</div>
-          <div className="stat-value" style={{ fontSize: 16 }}>
-            {formatMoney(stats?.expectedIncome ?? 0)}
-          </div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">{t('home.monthBalance')}</div>
-          <div className="stat-value" style={{ fontSize: 16 }}>
-            {formatMoney(stats?.monthSummary?.balance ?? 0)}
-          </div>
-        </div>
-      </div>
-
-      {/* Tezkor qidiruv: ism / telefon / manzil */}
-      <div className="search-box">
-        <input
-          className="input"
-          placeholder={`${t('common.search')} (${t('common.name')}, ${t('common.phone')}, ${t('common.location')})`}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && runSearch()}
-        />
-        <button className="btn btn-primary" onClick={runSearch}>
-          🔍
-        </button>
-      </div>
-      {searchResults !== null && (
-        <div className="card">
-          <div className="row-between mb-8">
-            <strong>{t('home.noResults') && searchResults.length === 0 ? t('home.noResults') : `${searchResults.length} ta`}</strong>
-            <button className="btn btn-sm" onClick={() => { setSearch(''); setSearchResults(null); }}>
-              ✕
-            </button>
-          </div>
-          {searching ? (
-            <Spinner />
-          ) : (
-            searchResults.slice(0, 20).map((s) => (
-              <div key={s._id} className="list-item" onClick={() => setSelected(s)}>
-                <div className="title">{s.clientName}</div>
-                <div className="sub">
-                  {formatDate(s.serviceDateTime)} · {s.location?.address || '—'} · {formatMoney(s.price)}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* AI chat paneli */}
-      <div className="card ai-panel">
-        <div className="row-between mb-8">
-          <strong>🤖 {t('home.aiChat')}</strong>
+    <div className="modal-overlay ai-overlay" onClick={onClose}>
+      <div className="modal ai-chat" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">✨ AI yordamchi</div>
+          <button className="modal-close" onClick={onClose}>×</button>
         </div>
 
         <div className="ai-messages">
           {messages.length === 0 && <div className="muted center">{t('home.aiPlaceholder')}</div>}
           {messages.map((m, i) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column' }}>
+            <div key={i}>
               <div className={`ai-bubble ${m.role}`}>{m.text}</div>
-              {m.results && m.results.length > 0 && (
-                <div style={{ marginTop: 6 }}>
-                  {m.results.slice(0, 10).map((s) => (
-                    <div key={s._id} className="list-item" onClick={() => setSelected(s)}>
-                      <div className="title">{s.clientName}</div>
+              {(m.results || []).length > 0 && (
+                <div className="mt-8">
+                  {m.results.map((service) => (
+                    <button key={service._id} className="ai-result" onClick={() => onSelectService(service)}>
+                      <div className="title">{service.clientName}</div>
                       <div className="sub">
-                        {formatDate(s.serviceDateTime)} · {s.location?.address || '—'} ·{' '}
-                        {formatMoney(s.price)}
+                        {formatDate(service.serviceDateTime)} · {service.location?.address || '-'} · {formatMoney(service.price)}
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -168,24 +209,28 @@ export default function Home() {
               </span>
             </div>
           )}
-          <div ref={chatEndRef} />
+          <div ref={endRef} />
         </div>
 
-        <div className="search-box">
+        <div className="search-box" style={{ margin: 0 }}>
           <input
             className="input"
             placeholder={t('home.aiPlaceholder')}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendQuery()}
+            onKeyDown={(e) => e.key === 'Enter' && send()}
           />
-          <button className="btn btn-primary" onClick={sendQuery} disabled={thinking}>
+          <button className="btn btn-primary" onClick={send} disabled={thinking}>
             {t('home.ask')}
           </button>
         </div>
       </div>
-
-      {selected && <ServiceDetailModal service={selected} onClose={() => setSelected(null)} />}
     </div>
   );
+}
+
+function normalizeClients(value) {
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.items)) return value.items;
+  return [];
 }

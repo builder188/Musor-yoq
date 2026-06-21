@@ -4,7 +4,21 @@
       "Bash(git -C \"C:/Users/faxri/Desktop/musor yoq\" status)",
       "Bash(curl -s --max-time 5 http://localhost:3000/api/health)",
       "Bash(git add *)",
-      "Bash(git commit -q -m 'docs: record exact schema in AI_CONTEXT *)"
+      "Bash(git commit -q -m 'docs: record exact schema in AI_CONTEXT *)",
+      "PowerShell(npm install *)",
+      "Bash(npm run *)",
+      "Bash(node --check src/services/clientService.js)",
+      "Bash(node --check src/models/Settings.js)",
+      "Bash(node --check src/bot/ui.js)",
+      "Bash(node --check src/cron/reminders.js)",
+      "Bash(node --check src/bot/handlers/callbacks.js)",
+      "Bash(node -e ' *)",
+      "Bash(npx vite *)",
+      "Bash(node --check src/bot/location.js)",
+      "Bash(node --check src/bot/handlers/message.js)",
+      "Bash(timeout 20 node -e ' *)",
+      "Bash(git check-ignore *)",
+      "Bash(grep -iE '\\(^|/\\)\\\\.env$|\\\\.env\\\\.local$|\\\\.playwright-mcp')"
     ]
   }
 }

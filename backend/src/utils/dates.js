@@ -43,12 +43,18 @@ export function startOfYear(d = new Date()) {
 }
 
 // Davr nomidan {from, to} oralig'ini qaytaradi.
-// period: 'today' | 'month' | 'last_month' | 'year' | 'all'
+// period: 'today' | 'week' | 'month' | 'last_month' | 'year' | 'all'
 export function periodRange(period) {
   const today = new Date();
   switch (period) {
     case 'today':
       return { from: startOfDay(today), to: endOfDay(today) };
+    case 'week': {
+      const from = startOfDay(today);
+      const day = from.getDay() || 7; // Monday = 1, Sunday = 7
+      from.setDate(from.getDate() - day + 1);
+      return { from, to: endOfDay(today) };
+    }
     case 'month':
       return { from: startOfMonth(today), to: endOfMonth(today) };
     case 'last_month': {

@@ -8,6 +8,7 @@ export default {
     clients: 'Клиенты',
     services: 'Услуги',
     finance: 'Финансы',
+    reports: 'Отчёты',
     settings: 'Настройки',
   },
 
@@ -55,7 +56,6 @@ export default {
 
   clients: {
     title: 'Клиенты',
-    debt: 'Долг',
     totalSpent: 'Всего услуг',
     history: 'История услуг',
     noClients: 'Нет клиентов',
@@ -74,6 +74,7 @@ export default {
     newPrice: 'Новая цена',
     noServices: 'Нет услуг',
     all: 'Все',
+    detail: 'Подробнее',
   },
 
   finance: {
@@ -88,7 +89,6 @@ export default {
     all: 'Все',
     chart: 'Доход / Расход',
     transactions: 'Транзакции',
-    debts: 'Долги',
     addPayment: 'Добавить оплату',
     addTransaction: 'Добавить',
     debtors: 'Должники',
@@ -100,10 +100,12 @@ export default {
 
   settings: {
     title: 'Настройки',
+    appearance: 'Вид',
     language: 'Язык',
     theme: 'Тема',
     light: 'Светлая',
     dark: 'Тёмная',
+    auto: 'Авто',
     uzbek: "O'zbek",
     russian: 'Русский',
     reminders: 'Напоминания',
@@ -112,6 +114,11 @@ export default {
     minutesBefore: 'мин. до',
     hoursBefore: 'ч. до',
     daysBefore: 'дн. до',
+    onTime: 'Точно вовремя',
+    security: 'Безопасность',
+    currentCode: 'Текущий код',
+    newCode: 'Новый 4-значный код',
+    changeCode: 'Изменить код подтверждения',
     reports: 'Отчёты',
     exportPdf: 'Скачать PDF',
     beforeDelete: 'перед удалением',
@@ -135,15 +142,56 @@ export default {
   },
 
   category: {
+    yoqilgi: 'Топливо',
+    tamirlash: 'Ремонт',
     "yoqilg'i": 'Топливо',
     "ta'mirlash": 'Ремонт',
     'oziq-ovqat': 'Еда',
+    boshqa_chiqim: 'Прочее',
     boshqa: 'Прочее',
+  },
+
+  paymentStatus: {
+    tolanmagan: 'Не оплачено',
+    qisman: 'Частично',
+    tolangan: 'Оплачено',
+    unpaid: 'Не оплачено',
+    partial: 'Частично',
+    paid: 'Оплачено',
   },
 
   status: {
     kutilmoqda: 'Ожидает',
     bajarildi: 'Выполнено',
     bekor_qilindi: 'Отменено',
+  },
+
+  reports: {
+    title: 'Отчёты',
+    type: 'Тип отчёта',
+    full: 'Полный',
+    clients: 'Клиенты',
+    services: 'Услуги',
+    finance: 'Финансы',
+    period: 'Период',
+    range: 'Диапазон',
+    start: 'Начало',
+    end: 'Конец',
+    limit: 'Лимит',
+    download: 'Скачать PDF',
+  },
+
+  confirm: {
+    title: 'Подтвердите удаление',
+    warning: 'Это действие необратимо.',
+    enterPin: 'Введите 4-значный код',
+    wrongCode: 'Неверный код ❌',
+  },
+
+  ui: {
+    deleted: 'Удалён',
+    lastService: 'Последняя услуга',
+    notVisited: 'Сюда не выезжали',
+    clientsCount: 'клиентов',
   },
 };

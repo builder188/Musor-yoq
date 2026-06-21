@@ -7,7 +7,8 @@ const settingsSchema = new mongoose.Schema(
     telegramUserId: { type: String, unique: true, required: true },
 
     language: { type: String, enum: ['uz', 'ru'], default: 'uz' },
-    theme: { type: String, enum: ['light', 'dark'], default: 'light' },
+    theme: { type: String, enum: ['light', 'dark', 'auto'], default: 'auto' },
+    deleteCode: { type: String, default: env.CONFIRM_DELETE_CODE || '1990' },
 
     // Standart eslatma vaqtlari (xizmatdan necha daqiqa oldin).
     // Standart: 1 kun (1440), 1 soat (60) va aniq vaqtida (0).
@@ -28,5 +29,13 @@ settingsSchema.statics.getSingleton = async function getSingleton() {
   }
   return doc;
 };
+
+settingsSchema.virtual('confirmDeleteCode')
+  .get(function getConfirmDeleteCode() {
+    return this.deleteCode;
+  })
+  .set(function setConfirmDeleteCode(value) {
+    this.deleteCode = value;
+  });
 
 export default mongoose.model('Settings', settingsSchema);

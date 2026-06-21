@@ -8,6 +8,7 @@ import { webhookCallback } from 'grammy';
 import env, { validateEnv, isProd } from './config/env.js';
 import { connectDB } from './db/connect.js';
 import apiRouter from './routes/index.js';
+import { attachReportBot } from './routes/reports.js';
 import { bot } from './bot/bot.js';
 import { startReminderCron } from './cron/reminders.js';
 import { startCleanupCron } from './cron/cleanup.js';
@@ -18,6 +19,7 @@ const WEBHOOK_PATH = '/telegram/webhook';
 async function main() {
   validateEnv();
   await connectDB();
+  attachReportBot(bot);
 
   const app = express();
   app.use(express.json({ limit: '5mb' }));
@@ -38,6 +40,7 @@ async function main() {
 
   // --- API ---
   app.use('/api', apiRouter);
+  app.use('/api/v1', apiRouter);
 
   // --- Mini App statik fayllari (production) ---
   const miniappDist = path.resolve(__dirname, '../../miniapp/dist');

@@ -19,16 +19,14 @@ const clientSchema = new mongoose.Schema(
     phone: { type: String, required: true, unique: true },
     // Mijozning bir nechta manzillari (xizmatlardan avtomatik to'planadi).
     locations: { type: [locationSchema], default: [] },
-    // Mijozning umumiy qarzi — doimo yangilanib turadi.
-    totalDebt: { type: Number, default: 0 },
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
+    isDeletedByClientDeletion: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
 
-// Indekslar: phone (unique — yuqorida), isDeleted, totalDebt.
+// Indekslar: phone (unique), isDeleted.
 clientSchema.index({ isDeleted: 1 });
-clientSchema.index({ totalDebt: -1 });
 
 export default mongoose.model('Client', clientSchema);

@@ -16,7 +16,7 @@ ovoz, matn, rasm yoki lokatsiya yuboradi — **Google Gemini AI** uni tushunadi 
 - ❓ Yetishmayotgan maydonlarni **bittalab so'rash**
 - 🔔 **Aqlli eslatmalar** (1 kun + 1 soat + aniq vaqt; sozlanadi)
 - 📊 **Mini App** — 5 sahifa: Bosh sahifa, Mijozlar, Xizmatlar (Kanban/List), Moliya, Sozlamalar
-- 💰 **Moliya mantig'i**: daromad faqat "Bajarildi" bo'lganda yoziladi; qarz hisobi
+- 💰 **Moliya mantig'i**: yagona balans = kirimlar - chiqimlar; alohida qarz moduli yo'q
 - 🗑 **Xavfsiz o'chirish**: 1990 kodi + 30 kunlik tiklash oynasi
 - 🌗 Yorug'/Tungi mavzu, 🇺🇿/🇷🇺 til (o'zbekcha asosiy, ruscha tayyor)
 
@@ -146,8 +146,11 @@ npm run dev                   # http://localhost:5173
 
 ### Moliyaviy qoidalar
 - Xizmat narxi **faqat "Bajarildi"** bo'lganda daromadga yoziladi.
-- Bajarilgandan keyin narx tahrirlansa — bog'langan daromad va qarz **avtomatik** yangilanadi.
-- To'lanmagan qism mijoz **qarziga** qo'shiladi; to'lov qarzni kamaytiradi.
+- Boshqa kirimlar bot yoki Mini App orqali qo'lda `income` tranzaksiya sifatida yoziladi.
+- Chiqimlar `expense` tranzaksiya sifatida yoziladi: benzin, ta'mirlash, oziq-ovqat yoki boshqa.
+- Yagona balans formulasi: **barcha kirimlar - barcha chiqimlar**.
+- Bajarilgandan keyin narx tahrirlansa, bog'langan daromad avtomatik yangilanadi.
+- Alohida qarz yoki to'lov ledgeri yo'q. Xizmat ichida faqat `tolangan` / `tolanmagan` / `qisman` holati saqlanadi.
 
 ### O'chirish
 - Har qanday o'chirish **1990** kodini talab qiladi (soft delete).

@@ -1,38 +1,13 @@
-// Moliya API: hisobot, diagramma, tranzaksiyalar.
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import {
-  getSummary,
-  getMonthlyChart,
-  listTransactions,
-  createTransaction,
-  updateTransaction,
-} from '../services/financeService.js';
+import { createTransaction, getSummary, listTransactions, updateTransaction } from '../services/financeService.js';
 import { softDeleteOne } from '../services/deleteService.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
 
 const router = Router();
 
-// GET /api/finance/summary?period=today|month|last_month|year|all
 router.get(
-  '/summary',
-  asyncHandler(async (req, res) => {
-    res.json(await getSummary(req.query.period || 'all'));
-  })
-);
-
-// GET /api/finance/chart?year=
-router.get(
-  '/chart',
-  asyncHandler(async (req, res) => {
-    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
-    res.json(await getMonthlyChart(year));
-  })
-);
-
-// GET /api/finance/transactions?period=&type=
-router.get(
-  '/transactions',
+  '/',
   asyncHandler(async (req, res) => {
     res.json(
       await listTransactions({
@@ -63,24 +38,22 @@ router.get(
   })
 );
 
-// POST /api/finance/transactions
 router.post(
-  '/transactions',
+  '/',
   asyncHandler(async (req, res) => {
     res.status(201).json(await createTransaction(req.body));
   })
 );
 
 router.put(
-  '/transactions/:id',
+  '/:id',
   asyncHandler(async (req, res) => {
     res.json(await updateTransaction(req.params.id, req.body));
   })
 );
-// DELETE /api/finance/transactions/:id вЂ” tasdiqlash kodi kerak.
-// DELETE /api/finance/transactions/:id - tasdiqlash kodi kerak.
+
 router.delete(
-  '/transactions/:id',
+  '/:id',
   requireDeleteCode,
   asyncHandler(async (req, res) => {
     const code = req.body?.code ?? req.body?.confirmationCode ?? req.query.code;

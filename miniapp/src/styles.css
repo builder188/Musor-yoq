@@ -118,6 +118,12 @@ body {
 .btn-block { width: 100%; }
 .btn-sm { padding: 7px 12px; font-size: 13px; }
 .btn-row { display: flex; gap: 8px; }
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.action-grid .btn-block { grid-column: 1 / -1; }
 
 /* Inputlar */
 .input, .select, textarea.input {
@@ -150,7 +156,6 @@ body {
   font-size: 12px;
   font-weight: 600;
 }
-.badge-debt { background: var(--danger-soft); color: var(--danger); }
 .badge-pending { background: var(--warning-soft); color: var(--warning); }
 .badge-done { background: var(--primary-soft); color: var(--primary); }
 .badge-cancelled { background: var(--danger-soft); color: var(--danger); }
@@ -250,8 +255,71 @@ body {
 .list-item .title { font-weight: 600; }
 .list-item .sub { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
 
-/* AI chat */
-.ai-panel { margin-top: 8px; }
+/* Quick stats */
+.quick-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.quick-stat {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.quick-stat > span { font-size: 24px; }
+.quick-stat small { display: block; color: var(--text-muted); margin-top: 2px; }
+
+/* Floating AI button */
+.floating-ai {
+  position: fixed;
+  right: 18px;
+  bottom: 84px;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  font-size: 24px;
+  z-index: 40;
+  cursor: pointer;
+}
+
+/* AI bottom sheet */
+.ai-overlay { z-index: 120; }
+.ai-chat { max-height: 86vh; }
+.ai-result {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 10px;
+  margin-top: 6px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+/* List and cards */
+.deleted-item { background: #e8eaed; opacity: 0.72; }
+[data-theme='dark'] .deleted-item { background: #2a2d31; }
+.debt-text { color: var(--danger); font-weight: 600; }
+.deleted-text { color: var(--danger); font-weight: 600; }
+.service-expanded {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.filter-card { padding: 12px; }
+.badge-muted { background: #e8eaed; color: var(--text-muted); }
+[data-theme='dark'] .badge-muted { background: #2a2d31; }
+
 .ai-messages { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .ai-bubble {
   padding: 10px 12px;
@@ -275,12 +343,15 @@ body {
 .row-between { display: flex; justify-content: space-between; align-items: center; }
 .muted { color: var(--text-muted); }
 .mb-8 { margin-bottom: 8px; }
+.mt-8 { margin-top: 8px; }
 .mt-12 { margin-top: 12px; }
 .text-income { color: var(--primary); font-weight: 600; }
 .text-expense { color: var(--danger); font-weight: 600; }
 .center { text-align: center; }
 .empty { text-align: center; color: var(--text-muted); padding: 30px 0; }
 .section-title { font-size: 15px; font-weight: 700; margin: 16px 4px 8px; }
+.section-title.compact { margin: 0 0 8px; }
+.success-banner { background: var(--primary-soft); color: var(--primary); padding: 10px; border-radius: 10px; margin-bottom: 12px; font-size: 13px; }
 .spinner {
   width: 28px; height: 28px; border: 3px solid var(--border);
   border-top-color: var(--primary); border-radius: 50%;
@@ -288,3 +359,125 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-banner { background: var(--danger-soft); color: var(--danger); padding: 10px; border-radius: 10px; margin-bottom: 12px; font-size: 13px; }
+.date-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.badge-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.badge-action button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.danger-card { border: 1px solid var(--danger); }
+.danger-text { color: var(--danger); }
+.danger-targets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.restore-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.restore-check {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+@media (max-width: 420px) {
+  .date-range,
+  .danger-targets,
+  .action-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* O'chirishni tasdiqlash modali — ogohlantirish + PIN */
+.confirm-warn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.confirm-warn .warn-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--danger-soft);
+  color: var(--danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+}
+.confirm-warn .warn-text { color: var(--text-muted); font-size: 14px; }
+
+/* 4 xonali PIN */
+.pin-input {
+  width: 100%;
+  text-align: center;
+  letter-spacing: 14px;
+  font-size: 26px;
+  font-weight: 700;
+  padding: 12px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  caret-color: var(--primary);
+  /* number input strelkalarini yashirish */
+  -moz-appearance: textfield;
+}
+.pin-input::-webkit-outer-spin-button,
+.pin-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pin-input:focus { outline: none; border-color: var(--primary); }
+.pin-input.error { border-color: var(--danger); animation: shake 0.4s; }
+.pin-error { color: var(--danger); font-weight: 600; text-align: center; margin: 8px 0 0; font-size: 14px; }
+.backup-question {
+  text-align: center;
+  font-weight: 700;
+  margin: 8px 0;
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+
+/* Lokatsiya: manzil + xarita havolalari */
+.location-block { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.map-links { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.map-links a {
+  font-size: 12px;
+  color: var(--tg-theme-link-color, var(--primary));
+  text-decoration: none;
+  padding: 2px 8px;
+  border: 1px solid var(--tg-theme-link-color, var(--primary));
+  border-radius: 12px;
+  white-space: nowrap;
+}

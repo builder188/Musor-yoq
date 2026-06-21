@@ -21,14 +21,16 @@ const reminderSchema = new mongoose.Schema(
     scheduledAt: { type: Date, required: true },
     sent: { type: Boolean, default: false },
     sentAt: { type: Date, default: null },
+    failed: { type: Boolean, default: false },
+    retryCount: { type: Number, default: 0 },
+    nextRetryAt: { type: Date, default: null },
   },
   { _id: false }
 );
 
 const imageSchema = new mongoose.Schema(
   {
-    url: { type: String },
-    type: { type: String },
+    telegramFileId: { type: String },
   },
   { _id: false }
 );
@@ -51,8 +53,8 @@ const serviceSchema = new mongoose.Schema(
     serviceDateTime: { type: Date, required: true, index: true },
     isHistorical: { type: Boolean, default: false },
 
-    price: { type: Number, required: true },
-    paymentMethod: { type: String, enum: PAYMENT_METHODS },
+    price: { type: Number, required: true, min: 0 },
+    paymentMethod: { type: String, enum: PAYMENT_METHODS, required: true },
     paymentStatus: {
       type: String,
       enum: Object.values(PAYMENT_STATUS),
@@ -66,13 +68,17 @@ const serviceSchema = new mongoose.Schema(
       default: SERVICE_STATUS.PENDING,
       index: true,
     },
+    cancellationReason: { type: String, default: null },
     completedAt: { type: Date, default: null },
+    completionPromptSent: { type: Boolean, default: false },
 
     notes: { type: String },
     images: { type: [imageSchema], default: [] },
     reminders: { type: [reminderSchema], default: [] },
 
     incomeTransactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', default: null },
+    isDeletedByClientDeletion: { type: Boolean, default: false },
+    clientDeletionNote: { type: String, default: '' },
 
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },

@@ -8,8 +8,13 @@ import {
   editService,
   completeService,
   cancelService,
+  rescheduleService,
+  listUpcomingServices,
 } from '../services/serviceService.js';
 import { softDeleteOne } from '../services/deleteService.js';
+import { requireDeleteCode } from '../middleware/deleteCode.js';
+import env from '../config/env.js';
+import Service from '../models/Service.js';
 
 const router = Router();
 
@@ -23,8 +28,34 @@ router.get(
       dateFrom: req.query.dateFrom || null,
       dateTo: req.query.dateTo || null,
       search: req.query.search || '',
+      page: req.query.page || null,
+      limit: req.query.limit || 500,
     });
     res.json(services);
+  })
+);
+
+router.get(
+  '/upcoming',
+  asyncHandler(async (req, res) => {
+    res.json(await listUpcomingServices(7));
+  })
+);
+
+router.get(
+  '/images/:fileId',
+  asyncHandler(async (req, res) => {
+    const fileRes = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(req.params.fileId)}`);
+    if (!fileRes.ok) return res.status(502).json({ error: 'Telegram fayl ma\'lumotini olishda xatolik' });
+    const fileData = await fileRes.json();
+    const filePath = fileData.result?.file_path;
+    if (!filePath) return res.status(404).json({ error: 'Rasm topilmadi' });
+
+    const imgRes = await fetch(`https://api.telegram.org/file/bot${env.BOT_TOKEN}/${filePath}`);
+    if (!imgRes.ok) return res.status(502).json({ error: 'Telegram rasmni olishda xatolik' });
+    res.setHeader('Content-Type', imgRes.headers.get('content-type') || 'application/octet-stream');
+    const buffer = Buffer.from(await imgRes.arrayBuffer());
+    res.send(buffer);
   })
 );
 
@@ -63,6 +94,7 @@ router.patch(
     const service = await completeService(req.params.id, {
       newPrice: req.body?.newPrice ?? null,
       markPaid: req.body?.markPaid !== false, // standart: to'langan
+      includeTransaction: true,
     });
     res.json(service);
   })
@@ -72,16 +104,39 @@ router.patch(
 router.patch(
   '/:id/cancel',
   asyncHandler(async (req, res) => {
-    const service = await cancelService(req.params.id);
+    const service = await cancelService(req.params.id, req.body?.reason || req.body?.cancellationReason || null);
+    res.json(service);
+  })
+);
+
+router.patch(
+  '/:id/reschedule',
+  asyncHandler(async (req, res) => {
+    const service = await rescheduleService(req.params.id, req.body?.newDateTime);
     res.json(service);
   })
 );
 
 // DELETE /api/services/:id — tasdiqlash kodi kerak.
 router.delete(
-  '/:id',
+  '/:id/reminders/:index',
   asyncHandler(async (req, res) => {
-    const code = req.body?.confirmationCode || req.query.code;
+    const service = await Service.findById(req.params.id);
+    const index = Number(req.params.index);
+    if (!service || Number.isNaN(index) || index < 0 || index >= service.reminders.length) {
+      return res.status(404).json({ error: 'Eslatma topilmadi' });
+    }
+    service.reminders.splice(index, 1);
+    await service.save();
+    res.json({ ok: true, service });
+  })
+);
+
+router.delete(
+  '/:id',
+  requireDeleteCode,
+  asyncHandler(async (req, res) => {
+    const code = req.body?.code ?? req.body?.confirmationCode ?? req.query.code;
     const service = await softDeleteOne('service', req.params.id, code);
     res.json({ ok: true, service });
   })

@@ -7,6 +7,7 @@ export default {
     clients: 'Mijozlar',
     services: 'Xizmatlar',
     finance: 'Moliya',
+    reports: 'Hisobotlar',
     settings: 'Sozlamalar',
   },
 
@@ -41,10 +42,9 @@ export default {
 
   home: {
     title: "Bosh sahifa",
-    todayJobs: 'Bugungi ishlar',
-    pendingJobs: 'Kutilayotgan',
-    expectedIncome: 'Kutilayotgan daromad',
-    monthBalance: 'Oylik balans',
+    todayJobs: 'Bugungi xizmatlar',
+    balance: 'Balans',
+    searchPlaceholder: 'Mijoz ismi, telefon yoki manzil...',
     aiChat: 'AI yordamchi',
     aiPlaceholder: "Savol bering: 15 mart kuni qayerga borganman?",
     aiThinking: "O'ylanyapti...",
@@ -54,11 +54,11 @@ export default {
 
   clients: {
     title: 'Mijozlar',
-    debt: 'Qarz',
     totalSpent: 'Jami xizmat',
     history: 'Xizmatlar tarixi',
     noClients: 'Mijozlar yo\'q',
     addClient: 'Mijoz qo\'shish',
+    noHistory: 'Xizmat tarixi yo\'q',
   },
 
   services: {
@@ -69,10 +69,15 @@ export default {
     done: 'Bajarildi',
     cancelled: 'Bekor qilindi',
     markDone: 'Bajarildi',
+    reschedule: 'Kechiktirish',
+    cancelConfirm: 'Bu xizmatni bekor qilishni tasdiqlaysizmi?',
+    paymentStatus: "To'lov holati",
+    isHistorical: 'Tarixiy xizmat',
     priceChangedQ: 'Narx o\'zgardimi?',
     newPrice: 'Yangi narx',
     noServices: 'Xizmatlar yo\'q',
     all: 'Barchasi',
+    detail: 'Batafsil',
   },
 
   finance: {
@@ -87,11 +92,8 @@ export default {
     all: 'Barchasi',
     chart: 'Daromad / Xarajat',
     transactions: 'Tranzaksiyalar',
-    debts: 'Qarzlar',
     addPayment: "To'lov qo'shish",
     addTransaction: "Qo'shish",
-    debtors: 'Qarzdorlar',
-    remaining: 'Qolgan qarz',
     type: 'Turi',
     category: 'Kategoriya',
     payment: "To'lov summasi",
@@ -99,10 +101,12 @@ export default {
 
   settings: {
     title: 'Sozlamalar',
+    appearance: "Ko'rinish",
     language: 'Til',
     theme: 'Mavzu',
     light: 'Yorug\'',
     dark: 'Tungi',
+    auto: 'Avto',
     uzbek: "O'zbek",
     russian: 'Русский',
     reminders: 'Eslatmalar',
@@ -111,8 +115,15 @@ export default {
     minutesBefore: 'daqiqa oldin',
     hoursBefore: 'soat oldin',
     daysBefore: 'kun oldin',
+    onTime: 'Aynan vaqtida',
+    security: 'Xavfsizlik',
+    currentCode: 'Joriy kod',
+    newCode: 'Yangi 4 xonali kod',
+    changeCode: "Tasdiqlash kodini o'zgartirish",
+    dataExport: "Ma'lumot eksport",
     reports: 'Hisobotlar',
     exportPdf: 'PDF yuklab olish',
+    exportExcel: 'Excel eksport',
     beforeDelete: "o'chirishdan oldin",
     dangerZone: 'Xavfli zona',
     deleteData: 'Ma\'lumotlarni o\'chirish',
@@ -125,6 +136,28 @@ export default {
     deleteClients: 'Mijozlarni o\'chirish',
     deleteServices: 'Xizmatlarni o\'chirish',
     deleteFinance: 'Moliyani o\'chirish',
+    deletedAt: "O'chirilgan sana",
+  },
+
+  reports: {
+    title: 'Hisobotlar',
+    type: 'Hisobot turi',
+    full: "To'liq",
+    clients: 'Mijozlar',
+    services: 'Xizmatlar',
+    finance: 'Moliya',
+    period: 'Davr',
+    range: 'Oraliq',
+    start: 'Boshlanish',
+    end: 'Tugash',
+    limit: 'Limit',
+    download: 'PDF yuklab olish',
+    latest: "So'nggi N ta",
+    month: 'Oy',
+    downloadPdf: 'PDF yuklab olish',
+    downloadExcel: 'Excel yuklab olish',
+    sendToBot: 'Botga yuborish',
+    sentToBot: 'Botga yuborildi',
   },
 
   payment: {
@@ -134,15 +167,45 @@ export default {
   },
 
   category: {
+    yoqilgi: "Yoqilg'i",
+    tamirlash: "Ta'mirlash",
     "yoqilg'i": "Yoqilg'i",
     "ta'mirlash": "Ta'mirlash",
     'oziq-ovqat': 'Oziq-ovqat',
+    boshqa_chiqim: 'Boshqa',
     boshqa: 'Boshqa',
+  },
+
+  paymentStatus: {
+    tolanmagan: "To'lanmagan",
+    qisman: 'Qisman',
+    tolangan: "To'langan",
+    unpaid: "To'lanmagan",
+    partial: 'Qisman',
+    paid: "To'langan",
   },
 
   status: {
     kutilmoqda: 'Kutilmoqda',
     bajarildi: 'Bajarildi',
     bekor_qilindi: 'Bekor qilindi',
+  },
+
+  confirm: {
+    title: "O'chirishni tasdiqlang",
+    warning: "Bu amalni qaytarib bo'lmaydi.",
+    enterPin: '4 xonali kodni kiriting',
+    backupQuestion: "O'chirishdan oldin PDF zaxira ko'chirma olasizmi?",
+    backupYes: 'Ha, PDF olaman',
+    backupNo: "Yo'q, to'g'ridan o'chirish",
+    wrongCode: "Noto'g'ri kod ❌",
+  },
+
+  // Mijoz/xizmat kartochkalaridagi qo'shimcha matnlar.
+  ui: {
+    deleted: "O'chirilgan",
+    lastService: "So'nggi xizmat",
+    notVisited: 'Bu xizmatga borilmagan',
+    clientsCount: 'ta mijoz',
   },
 };

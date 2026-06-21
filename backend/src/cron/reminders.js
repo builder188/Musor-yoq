@@ -1,62 +1,99 @@
-// Eslatma cron: har daqiqada vaqti kelgan, yuborilmagan eslatmalarni jo'natadi.
+// Eslatma cron: belgilangan vaqti kelgan eslatmalarni yuboradi.
+// Asosiy cron har daqiqada, retry cron har 5 daqiqada ishlaydi.
 import cron from 'node-cron';
-import { InlineKeyboard } from 'grammy';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { notDeleted } from '../models/softDelete.js';
 import { ownerId } from '../config/env.js';
-import { formatMoney } from '../utils/money.js';
-import { formatDateTime } from '../utils/dates.js';
-import { formatPhone } from '../utils/phone.js';
+import { reminderText, serviceActionKeyboard, reminderSnoozeKeyboard } from '../bot/ui.js';
 
-function reminderKeyboard(serviceId) {
-  return new InlineKeyboard()
-    .text('✅ Bajarildi', `svc:done:${serviceId}`)
-    .text('❌ Bekor qilindi', `svc:cancel:${serviceId}`)
-    .row()
-    .text('⏳ 30 daqiqaga kechiktir', `svc:snooze:${serviceId}`);
+// Urinishlar orasidagi kechikishlar (daqiqada) va maksimal urinishlar soni.
+const RETRY_DELAYS_MIN = [5, 15, 60];
+const MAX_RETRIES = 3;
+
+function reminderKeyboard(serviceId, reminder) {
+  return reminder.minutesBefore === 0
+    ? serviceActionKeyboard(serviceId)
+    : reminderSnoozeKeyboard(serviceId);
 }
 
+// Bitta eslatmani yuborishga urinadi va sent/retry hisoblagichlarini yangilaydi.
+// Asosiy va retry cron ham shu yagona mantiqdan foydalanadi.
+async function processReminder(bot, service, reminder, now) {
+  const serviceId = service._id.toString();
+  try {
+    await bot.api.sendMessage(ownerId(), reminderText(service, reminder), {
+      reply_markup: reminderKeyboard(serviceId, reminder),
+    });
+    reminder.sent = true;
+    reminder.sentAt = now;
+    reminder.failed = false;
+    reminder.nextRetryAt = null;
+    if (reminder.minutesBefore === 0) service.completionPromptSent = true;
+  } catch (err) {
+    console.error('Eslatma yuborishda xato:', err.message);
+    reminder.retryCount = (reminder.retryCount || 0) + 1;
+    if (reminder.retryCount >= MAX_RETRIES) {
+      // 3 urinishdan keyin butunlay muvaffaqiyatsiz deb belgilanadi.
+      reminder.failed = true;
+      reminder.nextRetryAt = null;
+    } else {
+      const delayMin = RETRY_DELAYS_MIN[reminder.retryCount - 1] || 60;
+      reminder.nextRetryAt = new Date(now.getTime() + delayMin * 60 * 1000);
+    }
+  }
+}
+
+// ASOSIY (har daqiqada): vaqti kelgan, hali yuborilmagan eslatmalar.
+// Retry kutayotgan (nextRetryAt kelajakda) eslatmalarni o'tkazib yuboradi — ularni retry cron hal qiladi.
 async function fireDueReminders(bot) {
-  const nowDate = new Date();
+  const now = new Date();
   const services = await Service.find({
     ...notDeleted,
     status: SERVICE_STATUS.PENDING,
-    reminders: { $elemMatch: { sent: false, scheduledAt: { $lte: nowDate } } },
+    reminders: { $elemMatch: { sent: false, failed: false, scheduledAt: { $lte: now } } },
   });
 
   for (const service of services) {
     let changed = false;
     for (const reminder of service.reminders) {
-      if (reminder.sent || reminder.scheduledAt > nowDate) continue;
+      if (reminder.sent || reminder.failed) continue;
+      if (reminder.scheduledAt > now) continue;
+      if (reminder.retryCount > 0 && reminder.nextRetryAt && reminder.nextRetryAt > now) continue;
+      await processReminder(bot, service, reminder, now);
+      changed = true;
+    }
+    if (changed) await service.save();
+  }
+}
 
-      const text = [
-        '🔔 Eslatma!',
-        `👤 ${service.clientName}`,
-        `📞 ${formatPhone(service.clientPhone)}`,
-        `📍 ${service.location?.address || '—'}`,
-        `🗓 ${formatDateTime(service.serviceDateTime)}`,
-        `💵 ${formatMoney(service.price)}`,
-      ].join('\n');
+// RETRY (har 5 daqiqada): muvaffaqiyatsiz urinishdan keyin nextRetryAt kelgan eslatmalar.
+async function retryFailedReminders(bot) {
+  const now = new Date();
+  const services = await Service.find({
+    ...notDeleted,
+    reminders: {
+      $elemMatch: { sent: false, failed: false, retryCount: { $gt: 0 }, nextRetryAt: { $lte: now } },
+    },
+  });
 
-      try {
-        await bot.api.sendMessage(ownerId(), text, {
-          reply_markup: reminderKeyboard(service._id.toString()),
-        });
-        reminder.sent = true;
-        reminder.sentAt = new Date();
-        changed = true;
-      } catch (err) {
-        console.error('Eslatma yuborishda xato:', err.message);
-      }
+  for (const service of services) {
+    let changed = false;
+    for (const reminder of service.reminders) {
+      if (reminder.sent || reminder.failed) continue;
+      if (!reminder.retryCount || !reminder.nextRetryAt || reminder.nextRetryAt > now) continue;
+      await processReminder(bot, service, reminder, now);
+      changed = true;
     }
     if (changed) await service.save();
   }
 }
 
 export function startReminderCron(bot) {
-  // Har daqiqada.
   cron.schedule('* * * * *', () => {
     fireDueReminders(bot).catch((err) => console.error('Reminder cron xatosi:', err.message));
   });
-  console.log('⏰ Eslatma cron ishga tushdi (har daqiqada)');
+  cron.schedule('*/5 * * * *', () => {
+    retryFailedReminders(bot).catch((err) => console.error('Retry cron xatosi:', err.message));
+  });
+  console.log('Eslatma cron ishga tushdi (asosiy: har daqiqada, retry: har 5 daqiqada)');
 }
