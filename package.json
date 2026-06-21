@@ -1,0 +1,18 @@
+{
+  "name": "musir-yoq",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Musir Yo'q Telegram bot, API, and Mini App",
+  "type": "module",
+  "workspaces": [
+    "backend",
+    "miniapp"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace musir-yoq-miniapp",
+    "start": "npm run start --workspace musir-yoq-backend"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

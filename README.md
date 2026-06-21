@@ -121,18 +121,18 @@ npm run dev                   # http://localhost:5173
 
 ## ☁️ Railway'ga deploy
 
-1. GitHub repo'ni Railway'ga ulang. Ikki service yarating yoki bittasida ikkalasini build qiling.
+1. GitHub repo'ni Railway'ga ulang va service root'ini repo rootida qoldiring.
 2. **MongoDB** plugin qo'shing → `MONGODB_URI` ni oling.
-3. Backend service muhit o'zgaruvchilarini Railway'da kiriting (yuqoridagi jadval).
+3. Muhit o'zgaruvchilarini Railway'da kiriting (yuqoridagi jadval).
 4. Production uchun:
    - `NODE_ENV=production`
    - `BOT_MODE=webhook`
    - `RAILWAY_STATIC_URL` = Railway bergan domen (https:// siz)
-5. Mini App'ni build qiling: `cd miniapp && npm run build` → `miniapp/dist`.
-   Backend production rejimida `miniapp/dist` ni avtomatik statik tarzda beradi.
+5. Railway root `package.json` orqali avtomatik ishlaydi:
+   - build: `npm run build` → `miniapp/dist`
+   - start: `npm run start` → backend server
 
-> Eslatma: bitta Railway service'da ishlatish uchun `miniapp` ni build qilib,
-> backend'ni ishga tushiring — u `/` da Mini App'ni, `/api` da API'ni xizmat qiladi.
+> Eslatma: bitta Railway service'da backend `/` da Mini App'ni, `/api` da API'ni xizmat qiladi.
 
 ---
 

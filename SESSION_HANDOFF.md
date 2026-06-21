@@ -125,3 +125,10 @@
 - Dublikat fayllar olib tashlandi: `utils/coords.js`, `services/geocode.js` (location.js codec/geocode bor; ui.js+callbacks+message location.js dan import qiladi).
 - Saqlash formati spec'ga mos: matn → coordinates null; Telegram pin → {address (reverse geocode), coordinates:{lat,lng}} (serviceService.normalizeLocation orqali).
 - Tekshiruv: node --check + location.js load/encode/decode/sameCoords/normalize OK; miniapp build OK.
+
+## 2026-06-21 Railway deploy fix
+- Railway log sababi: Railpack repo rootini tahlil qilgan, lekin rootda `package.json`/build manifest yo'q edi; shu sabab "could not determine how to build the app" xatosi chiqqan.
+- Root `package.json` qo'shildi: `workspaces` (`backend`, `miniapp`), `build` -> Mini App Vite build, `start` -> backend start.
+- Root `package-lock.json` yaratildi (`npm install` workspace dependency graph uchun).
+- README Railway bo'limi root deploy oqimiga moslandi.
+- Tekshiruv: `npm run build` OK; `node --check backend/src/index.js` OK.

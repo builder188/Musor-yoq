@@ -231,6 +231,9 @@ miniapp/src/
   `Ha, to'g'ri` / `Nomi o'zgartirish` orqali tasdiqlanadi; koordinata saqlanadi, faqat address nomi
   almashtirilishi mumkin. Slot-filling davomida location tasdiqlansa agent keyingi maydonga davom etadi,
   suhbatsiz yuborilgan location esa yangi xizmat boshlash savoliga o'tadi.
+- 2026-06-21: Railway deploy xatosi tuzatildi. Root papkada `package.json` yo'qligi sabab Railpack app turini
+  aniqlay olmagan; root workspace manifest qo'shildi. `npm run build` Mini App'ni build qiladi, `npm run start`
+  backend service'ni ishga tushiradi.
 
 ## Known issues / TODO (ixtiyoriy yaxshilashlar)
 - PDFKit standart shrift kirill (ruscha) matnni qo'llamaydi — ruscha PDF uchun TTF shrift kerak.
