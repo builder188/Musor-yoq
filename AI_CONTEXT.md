@@ -1,5 +1,13 @@
 # AI_CONTEXT.md
 
+## 2026-06-21 Railway Mongo env alias fix
+- Railway runtime logidagi crash sababi: backend faqat `MONGODB_URI` ni o'qigan, lekin deploy muhitida Mongo ulanishi boshqa Railway/Mongo alias nomi bilan berilishi mumkin.
+- `backend/src/config/env.js` endi `MONGODB_URI`, `MONGO_URL`, `MONGO_PRIVATE_URL`, va `mongodb://` yoki `mongodb+srv://` bilan boshlanadigan `DATABASE_URL` dan birinchisini qabul qiladi.
+- `validateEnv()` xabarlari ASCII/o'qiladigan formatga o'tkazildi; Mongo env yo'q bo'lsa qabul qilinadigan aliaslar aniq chiqadi.
+- `backend/src/db/connect.js` MongoDB start/disconnect loglaridagi emoji olib tashlandi, Railway loglarida mojibake chiqmasligi uchun.
+- `backend/.env.example` va `README.md` Railway Mongo aliaslari bilan yangilandi.
+- Verification: `node --check` (`env.js`, `connect.js`, `index.js`) OK; runtime import `MONGO_URL` aliasini `env.MONGODB_URI` sifatida tasdiqladi; root `npm run build` OK.
+
 ## 2026-06-21 ExcelJS export + safe bulk delete flow
 - `exceljs` is now a backend dependency. `POST /reports/excel` returns a real `.xlsx` workbook
   (`musir_yoq_eksport.xlsx`) instead of XML `.xls`.

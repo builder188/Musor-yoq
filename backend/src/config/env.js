@@ -1,5 +1,5 @@
-// Markaziy muhit o'zgaruvchilari yuklovchisi va tekshiruvchisi.
-// Majburiy o'zgaruvchilar bo'lmasa, dastur aniq xato bilan to'xtaydi.
+// Central environment loader and validator.
+// The app exits with a clear message when required variables are missing.
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -12,10 +12,21 @@ function required(name) {
   return value.trim();
 }
 
+function firstMongoUri() {
+  const aliases = ['MONGODB_URI', 'MONGO_URL', 'MONGO_PRIVATE_URL', 'DATABASE_URL'];
+  for (const name of aliases) {
+    const value = required(name);
+    if (value && /^mongodb(\+srv)?:\/\//i.test(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
 const env = {
   BOT_TOKEN: required('BOT_TOKEN'),
   OWNER_TELEGRAM_ID: required('OWNER_TELEGRAM_ID'),
-  MONGODB_URI: required('MONGODB_URI'),
+  MONGODB_URI: firstMongoUri(),
   GEMINI_API_KEY: required('GEMINI_API_KEY'),
   GEMINI_MODEL: process.env.GEMINI_MODEL?.trim() || 'gemini-1.5-flash',
 
@@ -31,7 +42,7 @@ const env = {
   AUTH_DEV_BYPASS: process.env.AUTH_DEV_BYPASS?.trim() === '1',
 };
 
-// node-cron va Date'lar to'g'ri mintaqada ishlashi uchun.
+// Keep node-cron and Date calculations in the configured timezone.
 process.env.TZ = env.TZ;
 
 export function validateEnv() {
@@ -39,14 +50,19 @@ export function validateEnv() {
   for (const key of ['BOT_TOKEN', 'OWNER_TELEGRAM_ID', 'MONGODB_URI', 'GEMINI_API_KEY']) {
     if (!env[key]) missing.push(key);
   }
+
   if (missing.length > 0) {
-    console.error('\n❌ Majburiy muhit o\'zgaruvchilari topilmadi:');
+    console.error('\nXATO: Majburiy muhit o\'zgaruvchilari topilmadi:');
     for (const key of missing) console.error(`   - ${key}`);
-    console.error('\n👉 backend/.env.example faylidan nusxa olib, .env ni to\'ldiring.\n');
+    if (missing.includes('MONGODB_URI')) {
+      console.error('   MongoDB uchun MONGODB_URI, MONGO_URL, MONGO_PRIVATE_URL yoki mongodb:// bilan boshlanadigan DATABASE_URL qabul qilinadi.');
+    }
+    console.error('\nbackend/.env.example faylidan nusxa olib, .env ni to\'ldiring yoki Railway Variables bo\'limida qiymatlarni kiriting.\n');
     process.exit(1);
   }
+
   if (env.BOT_MODE === 'webhook' && !env.RAILWAY_STATIC_URL) {
-    console.error('\n❌ BOT_MODE=webhook bo\'lsa, RAILWAY_STATIC_URL ham kerak.\n');
+    console.error('\nXATO: BOT_MODE=webhook bo\'lsa, RAILWAY_STATIC_URL ham kerak.\n');
     process.exit(1);
   }
 }

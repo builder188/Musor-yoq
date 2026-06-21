@@ -1,4 +1,4 @@
-// MongoDB ulanishi (Mongoose).
+// MongoDB connection (Mongoose).
 import mongoose from 'mongoose';
 import env from '../config/env.js';
 
@@ -7,13 +7,13 @@ export async function connectDB() {
   await mongoose.connect(env.MONGODB_URI, {
     serverSelectionTimeoutMS: 15000,
   });
-  console.log('✅ MongoDB ulandi');
+  console.log('MongoDB ulandi');
 
   mongoose.connection.on('error', (err) => {
     console.error('MongoDB xatosi:', err.message);
   });
   mongoose.connection.on('disconnected', () => {
-    console.warn('⚠️  MongoDB uzildi');
+    console.warn('MongoDB uzildi');
   });
 }
 

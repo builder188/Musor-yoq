@@ -2,6 +2,14 @@
 
 > Oxirgi yangilanish: 2026-06-21.
 
+## 2026-06-21 Railway MONGODB_URI runtime fix
+- Pasted Railway log tahlil qilindi: konteyner start bo'lmoqda, lekin backend `MONGODB_URI` topilmagani uchun `validateEnv()` ichida chiqib ketyapti.
+- `backend/src/config/env.js` Mongo connection stringni `MONGODB_URI`, `MONGO_URL`, `MONGO_PRIVATE_URL`, yoki mongodb bilan boshlanadigan `DATABASE_URL` dan oladi.
+- Mongo env topilmasa xato xabari endi qaysi aliaslar qabul qilinishini aniq ko'rsatadi; emoji loglar olib tashlandi.
+- `backend/src/db/connect.js` MongoDB loglari ASCII formatga o'tkazildi.
+- `backend/.env.example` va `README.md` Railway Mongo aliaslari bilan yangilandi.
+- Tekshiruv: `node --check backend/src/config/env.js`, `node --check backend/src/db/connect.js`, `node --check backend/src/index.js`, runtime `MONGO_URL` alias testi, va root `npm run build` muvaffaqiyatli.
+
 ## 2026-06-21 ExcelJS/data-delete prompt bajarildi
 - Backendga `exceljs` dependency qo'shildi.
 - `POST /reports/excel` endi haqiqiy `.xlsx` qaytaradi: `musir_yoq_eksport.xlsx`.
