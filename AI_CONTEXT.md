@@ -1,5 +1,10 @@
 # AI_CONTEXT.md
 
+## 2026-06-22 Gemini model 2.0 update
+- Local `backend/.env` `GEMINI_MODEL=gemini-2.0-flash` ga almashtirildi.
+- Tracked defaults ham moslandi: `backend/.env.example`, `backend/src/config/env.js`,
+  `backend/src/ai/gemini.js`, `README.md`, `AGENTS.md`, `CLAUDE.md`.
+
 ## 2026-06-21 Railway diagnostics/degraded startup
 - Uchinchi Railway loglar yana `MONGODB_URI` missing ekanini ko'rsatdi. Bu endi kod alias muammosi emas: runtime environmentda Mongo variable umuman yo'q yoki app servicega link qilinmagan.
 - `backend/src/index.js` qayta ishlanib, Express server env/DB tayyor bo'lmasa ham crash-loop qilmaydigan diagnostika rejimida start qiladi.
@@ -153,7 +158,7 @@
 ## 2026-06-10 Gemini agent STEP 1-5 update
 - Voice pipeline: Telegram audio/OGG fayli Gemini inline audio orqali aniq Uzbek transcription qiladi, keyin text classificationga ketadi.
 - Image OCR: Gemini notebook rasmlaridan records JSON massivini chiqaradi; multi-record tasdiqdan keyin to'liq yozuvlar bulk saqlanadi, yetishmayotgan maydonli yozuvlar alohida qaytariladi.
-- Intent classification: `gemini-1.5-flash` function calling, tool `classify_business_input`, 7 intentdan aynan bittasi.
+- Intent classification: `gemini-2.0-flash` function calling, tool `classify_business_input`, 7 intentdan aynan bittasi.
 - Data extraction: SERVICE_ENTRY va EXPENSE_ENTRY maydonlari prompt/schema/server normalizatsiyada qat'iy qo'llanadi.
 - Missing-field handler: SERVICE_ENTRY uchun tartib phone -> name -> location -> datetime -> price -> paymentMethod; qiymatlar `Conversation` sessionda yig'iladi.
 - Agent tools: `create_service`, `update_service_status`, `create_transaction`, `record_payment`, `search_data`, `get_analytics`; Gemini tool tanlaydi, server kutilgan intent-tool mosligini tekshiradi, MongoDB service layer ijro qiladi, natija Gemini orqali Uzbek javobga aylantiriladi.

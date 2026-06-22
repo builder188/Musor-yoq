@@ -14,7 +14,7 @@ Uchta asosiy maqsad: (1) mijoz va xizmatlarni boshqarish, (2) moliya (daromad/xa
 - **Backend:** Node.js + Express (ESM, `type: module`) → Railway
 - **DB:** MongoDB + Mongoose
 - **Bot:** Grammy
-- **AI:** Google Gemini (`gemini-1.5-flash`, multimodal: matn/audio/rasm)
+- **AI:** Google Gemini (`gemini-2.0-flash`, multimodal: matn/audio/rasm)
 - **Mini App:** React + Vite + Telegram Mini App SDK + Chart.js
 - **Scheduler:** node-cron · **PDF:** PDFKit
 

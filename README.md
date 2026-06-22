@@ -100,7 +100,7 @@ npm run dev                   # http://localhost:5173
 | `OWNER_TELEGRAM_ID` | Sizning Telegram ID | `123456789` |
 | `MONGODB_URI` | MongoDB ulanish manzili. Kod `MONGO_URL`, `MONGO_PRIVATE_URL`, `MONGO_PUBLIC_URL`, mongodb bilan boshlanadigan `DATABASE_URL`, yoki Railway `MONGOUSER`/`MONGOPASSWORD`/`MONGOHOST`/`MONGOPORT`/`MONGODATABASE` qismlarini ham qabul qiladi. | `mongodb://127.0.0.1:27017/musiryoq` |
 | `GEMINI_API_KEY` | Google Gemini API key | `AIza...` |
-| `GEMINI_MODEL` | Model nomi (ixtiyoriy) | `gemini-1.5-flash` |
+| `GEMINI_MODEL` | Model nomi (ixtiyoriy) | `gemini-2.0-flash` |
 | `NODE_ENV` | `development` / `production` | `development` |
 | `PORT` | Server porti | `3000` |
 | `TZ` | Vaqt mintaqasi | `Asia/Tashkent` |

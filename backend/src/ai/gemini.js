@@ -291,7 +291,7 @@ const agentTools = {
 
 function model(options = {}) {
   return genAI.getGenerativeModel({
-    model: env.GEMINI_MODEL || 'gemini-1.5-flash',
+    model: env.GEMINI_MODEL || 'gemini-2.0-flash',
     ...options,
   });
 }

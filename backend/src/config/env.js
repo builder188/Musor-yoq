@@ -72,7 +72,7 @@ const env = {
   OWNER_TELEGRAM_ID: required('OWNER_TELEGRAM_ID'),
   MONGODB_URI: firstMongoUri(),
   GEMINI_API_KEY: required('GEMINI_API_KEY'),
-  GEMINI_MODEL: process.env.GEMINI_MODEL?.trim() || 'gemini-1.5-flash',
+  GEMINI_MODEL: process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash',
 
   NODE_ENV: process.env.NODE_ENV?.trim() || 'development',
   PORT: parseInt(process.env.PORT, 10) || 3000,

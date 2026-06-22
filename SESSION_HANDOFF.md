@@ -1,6 +1,11 @@
 # SESSION_HANDOFF.md
 
-> Oxirgi yangilanish: 2026-06-21.
+> Oxirgi yangilanish: 2026-06-22.
+
+## 2026-06-22 Gemini model 2.0 update
+- `backend/.env` lokal model qiymati `gemini-2.0-flash` ga almashtirildi.
+- GitHubga push qilinadigan defaultlar ham moslandi: `backend/.env.example`, runtime fallbacklar,
+  README va agent kontekst fayllari endi `gemini-2.0-flash` ni ko'rsatadi.
 
 ## 2026-06-21 Railway diagnostika startup fix
 - Yangi loglar o'qildi: `MONGODB_URI` hali ham yo'q. So'nggi kod xabarlari logda ko'ringani uchun bu code alias emas, Railway Variables/link muammosi.
