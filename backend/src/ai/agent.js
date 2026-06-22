@@ -21,13 +21,13 @@ import {
 } from '../services/serviceService.js';
 import { createTransaction, getSummary, listTransactions } from '../services/financeService.js';
 import { listClients, updateClient } from '../services/clientService.js';
-import { searchServices, findServiceForUpdate, findClient } from '../services/searchService.js';
+import { searchServices, findServiceForUpdate, findClient, findClientsByName } from '../services/searchService.js';
 import { TX_TYPES } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { formatMoney, parseMoney } from '../utils/money.js';
-import { formatDateTime, formatDate } from '../utils/dates.js';
+import { formatDateTime, formatDate, parseHumanDateTime } from '../utils/dates.js';
 import { formatPhone, normalizePhone } from '../utils/phone.js';
-import { editConfirmKeyboard, paymentMethodKeyboard } from '../bot/ui.js';
+import { editConfirmKeyboard, paymentMethodKeyboard, clientPickKeyboard } from '../bot/ui.js';
 
 // Yetishmayotgan maydonni so'rash — paymentMethod uchun tugmalar bilan.
 function askField(field) {
@@ -89,7 +89,7 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
       return startEntry({ conversation, intent: understanding.intent, fields: understanding.fields || {}, rawText, mode });
 
     case 'STATUS_UPDATE':
-      return handleStatusUpdate({ fields: understanding.fields || {}, rawText, mode });
+      return handleStatusUpdate({ fields: understanding.fields || {}, rawText, conversation, mode });
 
     case 'SERVICE_EDIT':
       return handleServiceEdit({ fields: understanding.fields || {}, rawText, conversation, mode });
@@ -98,7 +98,7 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
       return handleClientEdit({ fields: understanding.fields || {}, rawText, conversation, mode });
 
     case 'PAYMENT_UPDATE':
-      return handlePaymentUpdate({ fields: understanding.fields || {}, rawText, mode });
+      return handlePaymentUpdate({ fields: understanding.fields || {}, rawText, conversation, mode });
 
     case 'SEARCH_QUERY':
       return executeToolFlow({ intent: 'SEARCH_QUERY', fields: understanding.fields || {}, rawText, mode });
@@ -171,19 +171,56 @@ async function finalizeEntry({ conversation, intent, collected, rawText, mode })
   return result;
 }
 
-async function handleStatusUpdate({ fields, rawText, mode }) {
+async function handleStatusUpdate({ fields, rawText, conversation, mode }) {
   const identifier = fields.targetPhone || fields.clientPhone || fields.targetClientName || fields.clientName || fields.searchText;
   if (!identifier) {
     return { text: 'Qaysi mijoz yoki qaysi xizmat? Ism yoki telefonni yuboring.' };
   }
+  const disambiguation = await maybeDisambiguate({ fields, conversation, intent: 'STATUS_UPDATE' });
+  if (disambiguation) return disambiguation;
   return executeToolFlow({ intent: 'STATUS_UPDATE', fields, rawText, mode });
 }
 
-async function handlePaymentUpdate({ fields, rawText, mode }) {
+async function handlePaymentUpdate({ fields, rawText, conversation, mode }) {
   const identifier = fields.targetPhone || fields.clientPhone || fields.targetClientName || fields.clientName;
   if (!identifier) return { text: 'Qaysi mijoz tolov qildi? Ism yoki telefonni yuboring.' };
   if (!(fields.paymentAmount || fields.amount)) return { text: 'Tolov summasi qancha?' };
+  const disambiguation = await maybeDisambiguate({ fields, conversation, intent: 'PAYMENT_UPDATE' });
+  if (disambiguation) return disambiguation;
   return executeToolFlow({ intent: 'PAYMENT_UPDATE', fields, rawText, mode });
+}
+
+// Bir xil ismli mijozlar bo'lsa, jimgina birinchisini olмay, tanlash so'raydi.
+// Telefon berilgan bo'lsa (noyob) — aniqlik shart emas. Tanlov conversation'da
+// saqlanadi; foydalanuvchi tugmani bossa, amal o'sha mijoz bilan davom etadi.
+async function maybeDisambiguate({ fields, conversation, intent }) {
+  const phone = fields.targetPhone || fields.clientPhone;
+  if (phone) {
+    const norm = normalizePhone(phone);
+    if (norm && /^\+998\d{9}$/.test(norm)) return null;
+  }
+  const name = fields.targetClientName || fields.clientName || fields.targetIdentifier || fields.searchText;
+  // Ism yo'q yoki telefonga o'xshasa (raqamli) — oddiy oqim hal qiladi.
+  if (!name || /\d{5,}/.test(String(name))) return null;
+
+  const candidates = await findClientsByName(name);
+  if (candidates.length <= 1) return null;
+
+  if (conversation) {
+    conversation.pendingIntent = 'CLIENT_DISAMBIGUATION';
+    conversation.collected = {
+      disambIntent: intent,
+      disambFields: fields,
+      candidateIds: candidates.map((c) => String(c._id)),
+    };
+    conversation.awaitingField = 'chooseClient';
+    conversation.markModified('collected');
+    await conversation.save();
+  }
+  return {
+    text: `Bir nechta "${name}" ismli mijoz bor. Qaysi biri?`,
+    keyboard: clientPickKeyboard(candidates),
+  };
 }
 
 // Mavjud xizmatni tahrirlash — topib, tasdiq so'raydi (Ha/Yo'q), keyin callback ijro etadi.
@@ -229,6 +266,13 @@ async function handleClientEdit({ fields, rawText, conversation, mode }) {
     return { text: 'Yangi qiymatni yozing.' };
   }
 
+  const disambiguation = await maybeDisambiguate({
+    fields: { ...fields, targetIdentifier: identifier },
+    conversation,
+    intent: 'CLIENT_EDIT',
+  });
+  if (disambiguation) return disambiguation;
+
   const phone = normalizePhone(identifier);
   const client = await findClient({ name: phone === identifier ? '' : identifier, phone });
   if (!client) return { text: 'Mijoz topilmadi. Ismi yoki telefonini aniqroq ayting.' };
@@ -270,8 +314,8 @@ function buildServiceEditData(fieldKey, rawValue) {
     return { data: { price: num }, display: formatMoney(num) };
   }
   if (fieldKey === 'serviceDateTime') {
-    const date = new Date(String(rawValue).trim().replace(' ', 'T'));
-    if (Number.isNaN(date.getTime())) return { data: null, display: '' };
+    const date = parseHumanDateTime(rawValue);
+    if (!date || Number.isNaN(date.getTime())) return { data: null, display: '' };
     return { data: { serviceDateTime: date.toISOString() }, display: formatDateTime(date) };
   }
   // location
@@ -401,8 +445,8 @@ async function cancelAgentService(args) {
 async function rescheduleAgentService(args) {
   const service = await findServiceByIdentifier(args.serviceIdentifier || '');
   if (!service) throw new Error('Mos xizmat topilmadi.');
-  const date = new Date(String(args.newDateTime || '').trim().replace(' ', 'T'));
-  if (Number.isNaN(date.getTime())) throw new Error('Yangi vaqt notogri.');
+  const date = parseHumanDateTime(args.newDateTime || '');
+  if (!date || Number.isNaN(date.getTime())) throw new Error('Yangi vaqt notogri.');
   return serializeService(await rescheduleService(service._id, date.toISOString()));
 }
 

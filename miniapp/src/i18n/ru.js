@@ -52,6 +52,11 @@ export default {
     aiThinking: 'Думаю...',
     ask: 'Спросить',
     noResults: 'Ничего не найдено',
+    failedTitle: 'Неотправленные напоминания',
+    failedDesc: 'Не отправлено даже после 3 попыток. Решите вручную.',
+    retry: 'Повторить',
+    dismiss: 'Удалить',
+    retried: 'Поставлено в очередь',
   },
 
   clients: {
@@ -119,6 +124,7 @@ export default {
     currentCode: 'Текущий код',
     newCode: 'Новый 4-значный код',
     changeCode: 'Изменить код подтверждения',
+    forgotCode: 'Забыли код? Напишите боту /kod — он сбросится.',
     reports: 'Отчёты',
     exportPdf: 'Скачать PDF',
     beforeDelete: 'перед удалением',

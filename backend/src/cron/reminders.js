@@ -10,6 +10,20 @@ import { reminderText, serviceActionKeyboard, reminderSnoozeKeyboard } from '../
 const RETRY_DELAYS_MIN = [5, 15, 60];
 const MAX_RETRIES = 3;
 
+// Asosiy va retry cron BITTA umumiy lock ishlatadi: ular bir-biri bilan yoki o'zi
+// bilan parallel ishlamaydi (aks holda bir eslatma ikki marta yuborilishi mumkin).
+let reminderJobRunning = false;
+
+async function withReminderLock(fn) {
+  if (reminderJobRunning) return; // oldingi ishlov tugamadi — bu tikni o'tkazamiz
+  reminderJobRunning = true;
+  try {
+    await fn();
+  } finally {
+    reminderJobRunning = false;
+  }
+}
+
 function reminderKeyboard(serviceId, reminder) {
   return reminder.minutesBefore === 0
     ? serviceActionKeyboard(serviceId)
@@ -90,10 +104,10 @@ async function retryFailedReminders(bot) {
 
 export function startReminderCron(bot) {
   cron.schedule('* * * * *', () => {
-    fireDueReminders(bot).catch((err) => console.error('Reminder cron xatosi:', err.message));
+    withReminderLock(() => fireDueReminders(bot)).catch((err) => console.error('Reminder cron xatosi:', err.message));
   });
   cron.schedule('*/5 * * * *', () => {
-    retryFailedReminders(bot).catch((err) => console.error('Retry cron xatosi:', err.message));
+    withReminderLock(() => retryFailedReminders(bot)).catch((err) => console.error('Retry cron xatosi:', err.message));
   });
   console.log('Eslatma cron ishga tushdi (asosiy: har daqiqada, retry: har 5 daqiqada)');
 }

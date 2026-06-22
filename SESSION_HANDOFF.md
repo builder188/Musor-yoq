@@ -2,6 +2,20 @@
 
 > Oxirgi yangilanish: 2026-06-22.
 
+## 2026-06-22 To'liq audit (KRITIK/MUHIM/KICHIK) — FIXLOG.md
+Batafsil: `FIXLOG.md`. Asosiy o'zgarishlar (hammasi syntax + import + miniapp build bilan tekshirildi):
+- KRITIK: `clients.phone` partial unique index (`isDeleted:false`) + startup `Client.syncIndexes()` (eski `phone_1` ni almashtiradi); initData'ga `auth_date` muddati + `timingSafeEqual`; failed eslatmalar Mini App'da (`/stats/home` + retry endpoint + Home banner); reminder cron umumiy `withReminderLock`. ("Bajarildi" yagona `completeService` — tekshirildi, dublikat yo'q.)
+- MUHIM: bog'langan income `amount` to'g'ridan tahrirlash bloklandi (desync); OCR bitta yozuv majburiy maydon yetishsa SERVICE_ENTRY so'rash oqimiga ulanadi (save_yes + matn "ha"); universal "bekor" + session/conv stale holat tozalash; mijoz tiklashda xizmat sana/narx tahrirlash; `parseHumanDateTime` (reschedule nisbiy sana) + `parseMoney` "yarim mln"; ovoz disambiguation (`maybeDisambiguate` + `pick_client_`).
+- KICHIK: Kanban mobil "✅ Bajarildi" tugmasi (drag touch'da ishlamaydi); Excel uz/ru lokalizatsiya; `/kod` bot komandasi (delete code recovery, owner-only). (SSE va tema — tekshirildi, muammo yo'q.)
+
+## 2026-06-22 Ikkinchi audit tuzatishlari
+- `FIXLOG.md` topilmadi; `CODEX_FIXLOG.md` yangi yaratildi.
+- Pul/race: `completeService()` atomik guard bilan mustahkamlandi, double-click duplicate income transaction yaratmaydi.
+- Konsistensiya: service soft-delete linked income transactionni ham o'chiradi; completed service price retry income amountni yangilaydi.
+- Soft-delete/unique: deleted client telefoni qayta ishlatilsa client tiklanadi; active duplicate phone update 409.
+- Validatsiya/error: service/finance sanalar va summalar, phone/location tekshiruvi kuchaydi; Cast/Validation/Duplicate errors 400/409.
+- External API: Telegram file/image fetch timeoutlari, SSE AI search error event fallback qo'shildi.
+
 ## 2026-06-22 Gemini model 2.0 update
 - `backend/.env` lokal model qiymati `gemini-2.0-flash` ga almashtirildi.
 - GitHubga push qilinadigan defaultlar ham moslandi: `backend/.env.example`, runtime fallbacklar,

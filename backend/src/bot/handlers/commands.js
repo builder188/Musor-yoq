@@ -1,6 +1,7 @@
 import { InlineKeyboard } from 'grammy';
 import env from '../../config/env.js';
 import Conversation from '../../models/Conversation.js';
+import Settings from '../../models/Settings.js';
 import { pdfFilterKeyboard } from '../ui.js';
 
 const START_TEXT = 'Salom! 👋 Ovoz, matn, rasm yoki joylashuv yuboring.';
@@ -20,6 +21,7 @@ Ovoz, matn, daftar rasmi yoki lokatsiya yuborishingiz mumkin.
 
 /pdf - hisobotni PDF qilib olish
 /cancel - joriy amalni bekor qilish
+/kod - o'chirish kodini tiklash (unutib qolsangiz)
 /help - yordam`;
 
 export function registerCommands(bot) {
@@ -51,6 +53,28 @@ export function registerCommands(bot) {
 
   bot.command('yordam', async (ctx) => {
     await ctx.reply(HELP_TEXT, { reply_markup: buildAppKeyboard() });
+  });
+
+  // O'chirish kodini tiklash. Bot owner-only guard ortida — egasi Telegram orqali
+  // o'zini tasdiqlagan, shuning uchun eski kodsiz tiklashga ruxsat (forgot-code recovery).
+  // "/kod" -> standart kodga (1990) tiklaydi; "/kod 4567" -> yangi kod o'rnatadi.
+  bot.command(['kod', 'kodni_tiklash', 'resetcode'], async (ctx) => {
+    const arg = String(ctx.match || '').trim();
+    const settings = await Settings.getSingleton();
+    if (arg) {
+      if (!/^\d{4}$/.test(arg)) {
+        await ctx.reply("Yangi kod 4 ta raqamdan iborat bo'lishi kerak. Masalan: /kod 4567");
+        return;
+      }
+      settings.deleteCode = arg;
+      await settings.save();
+      await ctx.reply(`✅ O'chirish tasdiqlash kodi yangilandi: ${arg}`);
+      return;
+    }
+    const fallback = env.CONFIRM_DELETE_CODE || '1990';
+    settings.deleteCode = fallback;
+    await settings.save();
+    await ctx.reply(`🔑 O'chirish kodi standart holatga tiklandi: ${fallback}\nYangi kod o'rnatish uchun: /kod 4567`);
   });
 }
 

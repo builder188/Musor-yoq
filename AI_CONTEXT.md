@@ -1,5 +1,15 @@
 # AI_CONTEXT.md
 
+## 2026-06-22 Second audit fixes
+- `CODEX_FIXLOG.md` yaratildi va har bir topilgan/tuzatilgan muammo 1 qatordan yozildi.
+- `completeService()` double-click race yopildi: pending->done DB atomic update bo'lmasa yangi income transaction yaratilmaydi.
+- Completed service narxi qayta yuborilganda linked income transaction amount ham yangilanadi.
+- Single service soft-delete endi linked income transactionni ham soft-delete qiladi; restore service linkni qayta tiklaydi.
+- Client phone soft-delete kolliziyasi boshqarildi: deleted client qayta ishlatilsa tiklanadi, active duplicate phone update 409 beradi.
+- Service/finance input validation kuchaytirildi: invalid date, manfiy/NaN amount, noto'g'ri phone, bo'sh location DBga o'tmaydi.
+- API error middleware CastError/ValidationError/duplicate key uchun 400/409 qaytaradi.
+- Telegram file/image proxy fetchlariga timeout qo'shildi; SSE AI search xatoda `error` event bilan yopiladi.
+
 ## 2026-06-22 Gemini model 2.0 update
 - Local `backend/.env` `GEMINI_MODEL=gemini-2.0-flash` ga almashtirildi.
 - Tracked defaults ham moslandi: `backend/.env.example`, `backend/src/config/env.js`,

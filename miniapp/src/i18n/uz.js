@@ -50,6 +50,11 @@ export default {
     aiThinking: "O'ylanyapti...",
     ask: 'So\'rash',
     noResults: 'Natija topilmadi',
+    failedTitle: 'Yuborilmagan eslatmalar',
+    failedDesc: '3 marta urinishdan keyin ham yuborilmadi. Qo\'lda hal qiling.',
+    retry: 'Qayta urinish',
+    dismiss: "O'chirish",
+    retried: 'Qayta navbatga qo\'yildi',
   },
 
   clients: {
@@ -120,6 +125,7 @@ export default {
     currentCode: 'Joriy kod',
     newCode: 'Yangi 4 xonali kod',
     changeCode: "Tasdiqlash kodini o'zgartirish",
+    forgotCode: "Kodni unutdingizmi? Botga /kod deb yozing — tiklanadi.",
     dataExport: "Ma'lumot eksport",
     reports: 'Hisobotlar',
     exportPdf: 'PDF yuklab olish',

@@ -42,7 +42,11 @@ router.post(
 router.post(
   '/restore-client',
   asyncHandler(async (req, res) => {
-    const result = await restoreClientWithServices(req.body?.clientId, req.body?.serviceIds || []);
+    const result = await restoreClientWithServices(
+      req.body?.clientId,
+      req.body?.serviceIds || [],
+      req.body?.serviceEdits || {}
+    );
     res.json({ ok: true, result });
   })
 );

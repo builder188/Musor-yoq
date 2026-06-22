@@ -114,8 +114,20 @@ async function main() {
   });
 
   app.use((err, req, res, next) => {
-    console.error('API xatosi:', err.message);
-    res.status(err.status || 500).json({ error: err.message || 'Server xatosi' });
+    let status = err.status || 500;
+    let message = err.message || 'Server xatosi';
+    if (err.name === 'CastError') {
+      status = 400;
+      message = "ID yoki qiymat formati noto'g'ri";
+    } else if (err.name === 'ValidationError') {
+      status = 400;
+      message = Object.values(err.errors || {})[0]?.message || "Ma'lumotlar noto'g'ri";
+    } else if (err.code === 11000) {
+      status = 409;
+      message = 'Bu ma\'lumot allaqachon mavjud';
+    }
+    console.error('API xatosi:', message);
+    res.status(status).json({ error: message });
   });
 
   app.listen(env.PORT, () => {

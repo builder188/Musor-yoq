@@ -3,8 +3,21 @@
 import crypto from 'crypto';
 import env, { ownerId } from '../config/env.js';
 
+// initData eskirgan hisoblanadigan muddat (replay hujumiga qarshi).
+const MAX_AUTH_AGE_SECONDS = 24 * 60 * 60;
+
+// Ikki hex-string'ni doimiy vaqtda solishtirish (timing attack'ga qarshi).
+function safeEqualHex(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
 function validateInitData(initData) {
-  if (!initData) return null;
+  if (!initData || !env.BOT_TOKEN) return null;
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
   if (!hash) return null;
@@ -21,7 +34,13 @@ function validateInitData(initData) {
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(env.BOT_TOKEN).digest();
   const computedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
-  if (computedHash !== hash) return null;
+  if (!safeEqualHex(computedHash, hash)) return null;
+
+  // Eskirgan initData'ni rad etamiz (replay protection).
+  const authDate = Number(params.get('auth_date'));
+  if (!Number.isFinite(authDate) || authDate <= 0) return null;
+  const ageSeconds = Math.floor(Date.now() / 1000) - authDate;
+  if (ageSeconds > MAX_AUTH_AGE_SECONDS || ageSeconds < -300) return null;
 
   // Foydalanuvchini ajratib olamiz.
   try {

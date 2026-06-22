@@ -24,6 +24,16 @@ export async function searchServices({ text = '', dateFrom = null, dateTo = null
   return Service.find(filter).sort({ serviceDateTime: -1 }).limit(limit).lean();
 }
 
+// Ism bo'yicha barcha aktiv mijozlarni topish (bir xil ismlilarni aniqlashtirish uchun).
+export async function findClientsByName(name = '', limit = 8) {
+  if (!name) return [];
+  const rx = new RegExp(escapeRegex(name), 'i');
+  return Client.find({ name: rx, ...notDeleted })
+    .sort({ updatedAt: -1 })
+    .limit(limit)
+    .lean();
+}
+
 // Mijoz nomi yoki telefoni bo'yicha mijozni topish.
 export async function findClient({ name = '', phone = '' } = {}) {
   if (phone) {

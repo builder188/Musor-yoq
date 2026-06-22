@@ -8,6 +8,25 @@ const CATEGORY_KEYWORDS = {
   'oziq-ovqat': ['ovqat', 'non', 'tushlik', 'choy', 'kafe'],
 };
 
+function badRequest(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
+function parsePositiveAmount(value) {
+  const amount = Math.round(Number(value));
+  if (!Number.isFinite(amount) || amount <= 0) throw badRequest("Summa noto'g'ri");
+  return amount;
+}
+
+function parseOptionalDate(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw badRequest("Sana noto'g'ri");
+  return date;
+}
+
 function detectExpenseCategory(text = '') {
   const value = String(text || '').toLowerCase();
   for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
@@ -69,7 +88,9 @@ export async function listTransactions({
   page = null,
   limit = 200,
 } = {}) {
-  const range = dateFrom || dateTo ? { from: new Date(dateFrom || 0), to: new Date(dateTo || Date.now()) } : periodRange(period);
+  const range = dateFrom || dateTo
+    ? { from: parseOptionalDate(dateFrom) || new Date(0), to: parseOptionalDate(dateTo) || new Date() }
+    : periodRange(period);
   if (dateTo) range.to.setHours(23, 59, 59, 999);
   const filter = { ...notDeleted, date: { $gte: range.from, $lte: range.to } };
   if (type && [TX_TYPES.INCOME, TX_TYPES.EXPENSE].includes(type)) filter.type = type;
@@ -92,8 +113,8 @@ export async function listTransactions({
 
 export async function createTransaction(data) {
   const type = data.type === TX_TYPES.INCOME ? TX_TYPES.INCOME : TX_TYPES.EXPENSE;
-  const amount = Math.round(Number(data.amount) || 0);
-  if (amount <= 0) throw new Error("Summa noto'g'ri");
+  const amount = parsePositiveAmount(data.amount);
+  const date = parseOptionalDate(data.date) || new Date();
 
   const tx = {
     type,
@@ -103,21 +124,45 @@ export async function createTransaction(data) {
       data.category || (type === TX_TYPES.EXPENSE ? detectExpenseCategory(data.description || data.note || '') : null)
     ),
     description: data.description || data.note || '',
-    date: data.date ? new Date(data.date) : new Date(),
+    date,
   };
   if (data.serviceId) tx.serviceId = data.serviceId;
   return Transaction.create(tx);
 }
 
 export async function updateTransaction(id, data) {
+  const current = await Transaction.findOne({ _id: id, ...notDeleted });
+  if (!current) {
+    const error = new Error('Tranzaksiya topilmadi');
+    error.status = 404;
+    throw error;
+  }
+
   const allowed = {};
-  if (data.amount !== undefined) allowed.amount = Math.round(Number(data.amount));
+  if (data.amount !== undefined) {
+    const amount = parsePositiveAmount(data.amount);
+    // Xizmatga bog'langan daromad summasi — yagona manba Service.price.
+    // To'g'ridan-to'g'ri o'zgartirilsa desync bo'ladi, shuning uchun xizmatga yo'naltiramiz.
+    if (current.serviceId && current.type === TX_TYPES.INCOME && amount !== current.amount) {
+      throw badRequest("Bu daromad xizmatga bog'langan. Summani o'zgartirish uchun xizmat narxini tahrirlang.");
+    }
+    allowed.amount = amount;
+  }
   if (data.description !== undefined || data.note !== undefined) allowed.description = data.description ?? data.note;
-  if (data.date !== undefined) allowed.date = new Date(data.date);
+  if (data.date !== undefined) {
+    const date = parseOptionalDate(data.date);
+    if (!date) throw badRequest("Sana noto'g'ri");
+    allowed.date = date;
+  }
   if (data.category !== undefined) {
-    const current = await Transaction.findOne({ _id: id, ...notDeleted }).select('type').lean();
-    if (!current) return null;
     allowed.category = normalizeCategory(current.type, data.category);
   }
-  return Transaction.findOneAndUpdate({ _id: id, ...notDeleted }, allowed, { new: true });
+
+  const transaction = await Transaction.findOneAndUpdate({ _id: id, ...notDeleted }, allowed, { new: true });
+  if (!transaction) {
+    const error = new Error('Tranzaksiya topilmadi');
+    error.status = 404;
+    throw error;
+  }
+  return transaction;
 }

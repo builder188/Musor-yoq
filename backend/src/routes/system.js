@@ -22,7 +22,11 @@ router.post(
     if (req.body?.clientId) {
       return res.json({
         ok: true,
-        result: await restoreClientWithServices(req.body.clientId, req.body.serviceIds || []),
+        result: await restoreClientWithServices(
+          req.body.clientId,
+          req.body.serviceIds || [],
+          req.body.serviceEdits || {}
+        ),
       });
     }
     if (Array.isArray(req.body?.ids)) {

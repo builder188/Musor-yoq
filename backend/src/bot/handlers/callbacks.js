@@ -13,6 +13,7 @@ import {
   notDoneKeyboard,
   cancelConfirmKeyboard,
   locationQuestionKeyboard,
+  paymentMethodKeyboard,
   ocrRecordKeyboard,
   ocrRecordText,
 } from '../ui.js';
@@ -133,7 +134,32 @@ export function registerCallbacks(bot) {
         return;
       }
 
-      const service = await createService(pending);
+      // Majburiy maydon yetishsa — to'g'ridan saqlamasdan standart so'rash oqimiga ulaymiz.
+      const fields = mergeFields({}, pending);
+      const missing = nextMissing('SERVICE_ENTRY', fields);
+      if (missing) {
+        const conversation = conv || (await getOrCreateConversation(ctx.from.id));
+        conversation.pendingIntent = 'SERVICE_ENTRY';
+        conversation.collected = fields;
+        conversation.awaitingField = missing;
+        conversation.markModified('collected');
+        await conversation.save();
+        if (ctx.session) {
+          ctx.session.intent = 'SERVICE_ENTRY';
+          ctx.session.collectedData = fields;
+          ctx.session.pendingField = missing;
+          ctx.session.awaitingConfirmation = false;
+        }
+        await ctx.answerCallbackQuery({ text: "Ma'lumot to'liq emas" });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        await ctx.reply(
+          `Rasmdagi ba'zi ma'lumot to'liq emas.\n${QUESTIONS[missing] || missing}`,
+          missing === 'paymentMethod' ? { reply_markup: paymentMethodKeyboard() } : undefined
+        );
+        return;
+      }
+
+      const service = await createService(fields);
       if (conv) await conv.reset();
       clearSession(ctx);
       if (ctx.session) ctx.session.lastServiceId = service._id.toString();
@@ -277,6 +303,51 @@ export function registerCallbacks(bot) {
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
     }
+  });
+
+  // Bir xil ismli mijozlardan birini tanlash — saqlangan amalni (status/to'lov/tahrir) davom ettiradi.
+  bot.callbackQuery(/^pick_client_(.+)$/, async (ctx) => {
+    try {
+      const clientId = ctx.match[1];
+      const conv = await Conversation.findOne({ telegramId: ctx.from.id });
+      const pending = conv?.collected;
+      if (!pending?.disambIntent) {
+        await ctx.answerCallbackQuery({ text: "Ma'lumot topilmadi", show_alert: true });
+        return;
+      }
+      const client = await Client.findOne({ _id: clientId, isDeleted: { $ne: true } });
+      if (!client) {
+        await ctx.answerCallbackQuery({ text: 'Mijoz topilmadi', show_alert: true });
+        return;
+      }
+      const intent = pending.disambIntent;
+      // Tanlangan mijoz telefoni noyob — amal aniq shu mijoz bilan bajariladi.
+      const fields = {
+        ...(pending.disambFields || {}),
+        targetPhone: client.phone,
+        clientPhone: client.phone,
+        targetIdentifier: client.phone,
+      };
+      await conv.reset();
+      await ctx.answerCallbackQuery({ text: `${client.name} tanlandi` });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      const res = await runAgent({
+        understanding: { intent, fields, reply: '', confidence: 1 },
+        rawText: '',
+        conversation: conv,
+      });
+      await ctx.reply(res.text, res.keyboard ? { reply_markup: res.keyboard } : undefined);
+    } catch (err) {
+      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true }).catch(() => {});
+    }
+  });
+
+  bot.callbackQuery('pick_cancel', async (ctx) => {
+    const conv = await Conversation.findOne({ telegramId: ctx.from.id });
+    if (conv) await conv.reset();
+    clearSession(ctx);
+    await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
+    await ctx.editMessageText('Bekor qilindi.');
   });
 
   // PDF hisobot — filtr tanlangach yaratib, bot orqali yuboriladi.

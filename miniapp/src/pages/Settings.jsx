@@ -120,6 +120,7 @@ export default function Settings() {
         <button className="btn btn-block" onClick={changeDeleteCode} disabled={busyAction === 'code' || !oldDeleteCode || !newDeleteCode}>
           {busyAction === 'code' ? '...' : t('settings.changeCode')}
         </button>
+        <div className="muted mt-8" style={{ fontSize: 13 }}>{t('settings.forgotCode')}</div>
       </div>
 
       <div className="card">
@@ -260,16 +261,37 @@ function RestoreModal({ t, onClose }) {
 
 function ClientRestoreModal({ client, services, t, onClose, onDone }) {
   const [selected, setSelected] = useState(services.map((service) => service._id));
+  // Tiklashdan oldin tahrirlash: { [id]: { serviceDateTime(local), price } }
+  const [edits, setEdits] = useState(() =>
+    Object.fromEntries(
+      services.map((s) => [s._id, { serviceDateTime: toLocalInput(s.serviceDateTime), price: s.price ?? '' }])
+    )
+  );
   const [busy, setBusy] = useState(false);
 
   const toggle = (id) => {
     setSelected((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
   };
 
+  const setEdit = (id, field, value) => {
+    setEdits((current) => ({ ...current, [id]: { ...current[id], [field]: value } }));
+  };
+
   const restore = async () => {
     setBusy(true);
     try {
-      await api.post('/system/restore', { clientId: client._id, serviceIds: selected });
+      const serviceEdits = {};
+      for (const id of selected) {
+        const e = edits[id] || {};
+        const entry = {};
+        if (e.serviceDateTime) {
+          const d = new Date(e.serviceDateTime);
+          if (!Number.isNaN(d.getTime())) entry.serviceDateTime = d.toISOString();
+        }
+        if (e.price !== '' && e.price !== null && e.price !== undefined) entry.price = Number(e.price);
+        if (Object.keys(entry).length) serviceEdits[id] = entry;
+      }
+      await api.post('/system/restore', { clientId: client._id, serviceIds: selected, serviceEdits });
       onDone();
     } finally {
       setBusy(false);
@@ -281,18 +303,51 @@ function ClientRestoreModal({ client, services, t, onClose, onDone }) {
       {services.length === 0 ? (
         <div className="muted mb-8">{t('services.noServices')}</div>
       ) : (
-        services.map((service) => (
-          <label key={service._id} className="restore-check">
-            <span>{service.clientName || client.name} - {formatDate(service.serviceDateTime)}</span>
-            <input type="checkbox" checked={selected.includes(service._id)} onChange={() => toggle(service._id)} />
-          </label>
-        ))
+        services.map((service) => {
+          const isSelected = selected.includes(service._id);
+          return (
+            <div key={service._id} className="restore-item">
+              <label className="restore-check">
+                <span>{service.clientName || client.name} - {formatDate(service.serviceDateTime)}</span>
+                <input type="checkbox" checked={isSelected} onChange={() => toggle(service._id)} />
+              </label>
+              {isSelected && (
+                <div className="restore-edit">
+                  <label className="label">{t('common.date')}</label>
+                  <input
+                    className="input"
+                    type="datetime-local"
+                    value={edits[service._id]?.serviceDateTime || ''}
+                    onChange={(e) => setEdit(service._id, 'serviceDateTime', e.target.value)}
+                  />
+                  <label className="label">{t('common.price')}</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={edits[service._id]?.price ?? ''}
+                    onChange={(e) => setEdit(service._id, 'price', e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })
       )}
       <button className="btn btn-primary btn-block mt-12" onClick={restore} disabled={busy}>
         {busy ? '...' : t('settings.restore')}
       </button>
     </Modal>
   );
+}
+
+// ISO -> datetime-local input qiymati (YYYY-MM-DDTHH:mm).
+function toLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function DeletedSection({ title, items = [], t, onRestore, render }) {

@@ -34,6 +34,7 @@ export async function softDeleteOne(type, id, code = env.CONFIRM_DELETE_CODE) {
   const Model = MODELS[type];
   if (!Model) throw new Error("Noto'g'ri tur");
   if (Model === Client) return softDeleteClient(id);
+  if (Model === Service) return softDeleteService(id);
   return Model.findByIdAndUpdate(id, { isDeleted: true, deletedAt: new Date() }, { new: true });
 }
 
@@ -58,6 +59,15 @@ async function softDeleteClient(id) {
     }
   );
   return client;
+}
+
+async function softDeleteService(id) {
+  const deletedAt = new Date();
+  const service = await Service.findByIdAndUpdate(id, { isDeleted: true, deletedAt }, { new: true });
+  if (service?.incomeTransactionId) {
+    await Transaction.findByIdAndUpdate(service.incomeTransactionId, { isDeleted: true, deletedAt });
+  }
+  return service;
 }
 
 export async function bulkDelete(target, code = env.CONFIRM_DELETE_CODE) {
@@ -150,7 +160,9 @@ export async function restore(typeOrIds, maybeId = null) {
   return doc;
 }
 
-export async function restoreClientWithServices(clientId, serviceIds = []) {
+// serviceEdits: { [serviceId]: { serviceDateTime?, price? } } — tiklashdan oldin
+// xizmatni tahrirlash (masalan o'tib ketgan sanani yangilash yoki narxni to'g'rilash).
+export async function restoreClientWithServices(clientId, serviceIds = [], serviceEdits = {}) {
   const client = await Client.findByIdAndUpdate(
     clientId,
     { isDeleted: false, deletedAt: null },
@@ -169,11 +181,33 @@ export async function restoreClientWithServices(clientId, serviceIds = []) {
     if (!selected.has(String(service._id))) continue;
     service.isDeleted = false;
     service.deletedAt = null;
-    await restoreServiceLinks(service);
+    const priceChanged = applyRestoreEdit(service, serviceEdits[String(service._id)]);
+    await restoreServiceLinks(service); // income tiklash + eslatmalarni (yangi sanaga) qayta hisoblash
+    // Bajarilgan xizmat narxi o'zgargan bo'lsa, bog'langan daromadni ham moslaymiz.
+    if (priceChanged && service.status === SERVICE_STATUS.DONE && service.incomeTransactionId) {
+      await Transaction.findByIdAndUpdate(service.incomeTransactionId, { amount: service.price });
+    }
     restoredServices.push(service);
   }
 
   return { client, services: restoredServices };
+}
+
+// Tiklash paytidagi tahrirni qo'llaydi. Narx o'zgarsa true qaytaradi.
+function applyRestoreEdit(service, edit) {
+  if (!edit || typeof edit !== 'object') return false;
+  if (edit.serviceDateTime) {
+    const date = new Date(edit.serviceDateTime);
+    if (!Number.isNaN(date.getTime())) service.serviceDateTime = date;
+  }
+  if (edit.price !== undefined && edit.price !== null && edit.price !== '') {
+    const price = Math.round(Number(edit.price));
+    if (Number.isFinite(price) && price > 0 && price !== service.price) {
+      service.price = price;
+      return true;
+    }
+  }
+  return false;
 }
 
 export async function restoreByIds(ids = []) {

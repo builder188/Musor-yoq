@@ -54,7 +54,7 @@ bot.catch((err) => {
 export async function downloadFile(fileId, api = bot.api) {
   const file = await api.getFile(fileId);
   const url = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${file.file_path}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error('Faylni yuklab bo\'lmadi');
   const arrayBuffer = await res.arrayBuffer();
   return Buffer.from(arrayBuffer);

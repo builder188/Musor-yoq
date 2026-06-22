@@ -17,9 +17,17 @@ export function parseMoney(raw) {
   // olib tashlaymiz ("400 000" -> "400000", "1 500 000" -> "1500000").
   const cleaned = text.replace(',', '.').replace(/(\d)\s+(?=\d)/g, '$1');
   const numMatch = cleaned.match(/[\d.]+/);
-  if (!numMatch) return null;
 
-  const base = parseFloat(numMatch[0]);
+  // "yarim mln" / "yarim million" -> 0.5 * birlik. Faqat birlik bilan ("yarim"
+  // yolg'iz pul summasi emas).
+  let base;
+  if (numMatch) {
+    base = parseFloat(numMatch[0]);
+  } else if (/yarim/.test(text) && multiplier > 1) {
+    base = 0.5;
+  } else {
+    return null;
+  }
   if (Number.isNaN(base)) return null;
 
   // Birlik ko'rsatilmagan bo'lsa ko'paytirmaymiz; "400 ming" kabilarda ko'paytiramiz.

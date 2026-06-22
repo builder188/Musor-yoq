@@ -1,0 +1,25 @@
+# FIXLOG — "Musir Yo'q" audit va tuzatishlar
+
+Format: muammo → tuzatish (1 qator). Bo'limlar: KRITIK / MUHIM / KICHIK.
+
+## KRITIK
+- clients.phone oddiy `unique:true` soft-delete bilan to'qnashar edi (E11000 update/restore'da) → `unique` olib tashlanib, `partialFilterExpression:{isDeleted:false}` bilan partial unique index qo'yildi; startupda `Client.syncIndexes()` eski `phone_1` ni almashtiradi (connect.js).
+- "Bajarildi" 3 yo'l (bot callback `complete_`/`svc:done:`, Mini App `PATCH /:id/complete`, ovoz agent `update_service_status`/`complete_service`) → hammasi yagona `completeService()` ni chaqiradi, `findOneAndUpdate` PENDING guard double-click'da dublikat tranzaksiya yaratmaydi. TEKSHIRILDI, muammo yo'q.
+- Mini App initData: HMAC bor edi, lekin (a) `auth_date` muddati yo'q (replay), (b) hash solishtiruv non-constant-time → `crypto.timingSafeEqual` + 24 soatlik `auth_date` tekshiruvi qo'shildi (auth.js).
+- Eslatma 3 urinishdan keyin `failed` bo'lsa Mini Appda ko'rinmas edi → `/stats/home` ga `failedReminders` qo'shildi, `POST /services/:id/reminders/:index/retry` endpoint, Home.jsx da ogohlantirish banner (qayta urinish / o'chirish).
+- Reminder cron lock yo'q edi: asosiy (har daqiqa) va retry (har 5 daqiqa) cron bir vaqtda `nextRetryAt<=now` retry eslatmani 2 marta yuborishi mumkin edi → ikkalasi uchun umumiy `withReminderLock` re-entrancy guard qo'shildi (reminders.js).
+
+## MUHIM
+- Transaction desync: `updateTransaction` xizmatga bog'langan income `amount`ini o'zgartirib Service.price bilan desync qilardi → bog'langan income summasini to'g'ridan bloklab "xizmat narxini tahrirlang" deb yo'naltiriladi (description/sana/kategoriya edit'i ruxsat) (financeService.js).
+- OCR bitta yozuvda majburiy maydon yetishmasa, save_yes tugmasi createService throw bilan, matn "ha" esa "yetishmaydi" bilan dead-end edi (so'rash oqimiga ulanmasdi) → ikkala yo'l ham endi SERVICE_ENTRY slot-filling oqimiga ulanadi (yetishmagan maydon bittalab so'raladi, paymentMethod uchun tugma) (callbacks.js save_yes, message.js routeImageConfirmation+startServiceAskFromRecord). Bulk navbat (ko'p yozuv) ataylab review/skip rejimida qoladi.
+- Session holatlari aralashishi: (a) reschedule/eslatma/lokatsiya-nomi kutilganda foydalanuvchi qopqonga tushar, "bekor" ham ishlamasdi → universal "bekor" chiqishi + barcha session holatini tozalash qo'shildi; (b) reschedule/edit-tasdiq kutilganda ovoz/rasm yuborilsa eskirgan `session.awaitingReschedule` va non-entry `conv.pendingIntent` qolib keyingi matnni noto'g'ri ushlardi → `routeUnderstanding` da eskirgan bayroqlar tozalanadi va non-entry stale `conv.pendingIntent` reset qilinadi (message.js).
+- Mijoz tiklashda xizmatlarni tiklashdan oldin tahrirlash yo'q edi (o'tib ketgan sana / o'zgargan narx) → `restoreClientWithServices` ga `serviceEdits` (sana/narx) qo'shildi, eslatma yangi sanaga qayta hisoblanadi, DONE bo'lsa income summasi moslanadi; Mini App ClientRestoreModal'da har xizmat uchun sana+narx inputlari (deleteService.js, system.js, data.js, Settings.jsx).
+- Parsing ishonchliligi: (a) `parseMoney` "yarim mln/million" ni tushunmasdi (raqam yo'q→null) → "yarim"+birlik = 0.5×birlik qo'shildi (money.js); (b) reschedule AI'ni chetlab `new Date(text)` ishlatib "ertaga"/"2 kundan keyin" ni rad etardi → `parseHumanDateTime` (nisbiy+aniq sana) yaratilib reschedule, agent edit-sana va reschedule_service'da ishlatildi (dates.js, message.js, agent.js).
+- Disambiguation ishlamasdi: ovoz/agent yo'lida `findClient` ism bo'yicha `findOne` jimgina birinchi mijozni olardi (xato mijozga status/to'lov/tahrir) → `findClientsByName` + agent `maybeDisambiguate` (STATUS_UPDATE/PAYMENT_UPDATE/CLIENT_EDIT) bir nechta moslik bo'lsa `clientPickKeyboard` bilan tanlash so'raydi, tanlovni conversation'da saqlab `pick_client_` callback amalni o'sha mijoz (noyob telefon) bilan davom ettiradi (searchService.js, agent.js, ui.js, callbacks.js).
+
+## KICHIK
+- Kanban drag-and-drop HTML5 dataTransfer'da — mobil touch'da ishlamaydi (drop'ning yagona amali: "bajarildi") → Kanban pending kartochkasiga to'g'ridan "✅ Bajarildi" tugmasi qo'shildi (touch'da ishlaydi, drag desktop uchun qoladi) (Services.jsx).
+- AI qidiruv SSE: `/ai/search` haqiqiy `text/event-stream` (progress+result), Home `streamPost` bilan ishlatadi. TEKSHIRILDI, allaqachon real-time, tuzatish shart emas.
+- Telegram avto-tema vs foydalanuvchi tanlovi: 'auto' da Telegram themeParams+colorScheme sinxron va themeChanged kuzatiladi, 'light'/'dark' da `clearTelegramTheme()` o'z palitraga qaytadi. TEKSHIRILDI, to'qnashuv yo'q.
+- Excel hisobot tili lokalizatsiya qilinmagandi (`buildExcelPayload` body.language'ni e'tiborsiz, doim o'zbekcha) → uz/ru sheet nomlari, sarlavhalar va ha/yo'q tarjima qilindi (reports.js). Raw enum/kategoriya qiymatlari data-eksport sifatida qoladi.
+- Delete code unutilsa tiklash yo'li yo'q edi (change-code eski kodni talab qiladi) → bot owner-only guard ortida `/kod` komandasi qo'shildi (eski kodsiz tiklash, owner Telegram orqali tasdiqlangan): `/kod`→1990, `/kod 4567`→yangi kod; Mini App Settings'da hint (commands.js, Settings.jsx, i18n).

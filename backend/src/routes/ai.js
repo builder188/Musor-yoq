@@ -49,27 +49,32 @@ router.post(
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
 
-    sendSse(res, 'progress', { text: 'Qidirmoqda...' });
-    const understanding = await understandText(message);
+    try {
+      sendSse(res, 'progress', { text: 'Qidirmoqda...' });
+      const understanding = await understandText(message);
 
-    sendSse(res, 'progress', { text: 'Tahlil qilmoqda...' });
-    let results = [];
-    if (understanding.intent === 'SEARCH_QUERY') {
-      results = await searchServices({
-        text: understanding.fields?.searchText || message,
-        dateFrom: understanding.fields?.dateFrom || null,
-        dateTo: understanding.fields?.dateTo || null,
-        limit: 30,
+      sendSse(res, 'progress', { text: 'Tahlil qilmoqda...' });
+      let results = [];
+      if (understanding.intent === 'SEARCH_QUERY') {
+        results = await searchServices({
+          text: understanding.fields?.searchText || message,
+          dateFrom: understanding.fields?.dateFrom || null,
+          dateTo: understanding.fields?.dateTo || null,
+          limit: 30,
+        });
+      }
+
+      const agentRes = await runAgent({ understanding, rawText: message, mode: 'query' });
+      sendSse(res, 'result', {
+        reply: agentRes.text,
+        intent: understanding.intent,
+        results,
       });
+    } catch (err) {
+      sendSse(res, 'error', { error: err.message || 'AI qidiruv xatosi' });
+    } finally {
+      res.end();
     }
-
-    const agentRes = await runAgent({ understanding, rawText: message, mode: 'query' });
-    sendSse(res, 'result', {
-      reply: agentRes.text,
-      intent: understanding.intent,
-      results,
-    });
-    res.end();
   })
 );
 

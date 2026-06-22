@@ -339,6 +339,9 @@ body {
 .thinking span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
 
+/* Yuborilmagan eslatmalar ogohlantirishi */
+.failed-reminders { border-left: 3px solid var(--warning); background: var(--warning-soft); }
+
 /* Yordamchi */
 .row-between { display: flex; justify-content: space-between; align-items: center; }
 .muted { color: var(--text-muted); }
@@ -404,6 +407,10 @@ body {
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
 }
+.restore-item { border-bottom: 1px solid var(--border); }
+.restore-item .restore-check { border-bottom: none; }
+.restore-edit { padding: 0 0 10px; }
+.restore-edit .input { margin-bottom: 6px; }
 
 @media (max-width: 420px) {
   .date-range,

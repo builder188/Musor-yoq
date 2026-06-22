@@ -96,6 +96,8 @@ export default function Services() {
                     expanded={false}
                     onToggle={() => setDetail(service)}
                     draggable
+                    // Touch'da drag ishlamaydi — pending kartochkada tezkor "bajarildi" tugmasi.
+                    onQuickComplete={service.status === 'kutilmoqda' ? () => setCompleting(service) : undefined}
                   />
                 ))}
               </div>
@@ -282,7 +284,7 @@ function FilterBar({
   );
 }
 
-function ServiceCard({ service, expanded, onToggle, draggable = false, onDetail, onComplete, onReschedule, onCancel }) {
+function ServiceCard({ service, expanded, onToggle, draggable = false, onDetail, onComplete, onReschedule, onCancel, onQuickComplete }) {
   const { t } = useApp();
   const isPending = service.status === 'kutilmoqda';
   const stop = (fn) => (e) => {
@@ -302,6 +304,11 @@ function ServiceCard({ service, expanded, onToggle, draggable = false, onDetail,
       </div>
       <div className="sub">{formatDateTime(service.serviceDateTime)}</div>
       <div className="sub">{service.location?.address || '-'} · {formatMoney(service.price)}</div>
+      {onQuickComplete && (
+        <button className="btn btn-primary btn-sm btn-block mt-8" onClick={stop(onQuickComplete)}>
+          ✅ {t('services.markDone')}
+        </button>
+      )}
       {expanded && (
         <div className="service-expanded">
           <div className="sub">{t('common.phone')}: {service.clientPhone}</div>

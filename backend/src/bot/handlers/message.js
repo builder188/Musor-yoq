@@ -6,7 +6,7 @@ import { extractNotebookRecords, transcribeAudio, understandText } from '../../a
 import { runAgent } from '../../ai/agent.js';
 import { editService } from '../../services/serviceService.js';
 import { computeReminders } from '../../services/reminderService.js';
-import { mergeFields, nextMissing, parseReminderOffset } from '../flow.js';
+import { mergeFields, nextMissing, parseReminderOffset, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
 import {
   clientChoiceKeyboard,
@@ -14,6 +14,7 @@ import {
   locationQuestionKeyboard,
   locationReviewKeyboard,
   paymentConfirmKeyboard,
+  paymentMethodKeyboard,
   saveKeyboard,
   serviceConfirmationText,
   ocrRecordKeyboard,
@@ -21,6 +22,7 @@ import {
   formatBotDateTime,
 } from '../ui.js';
 import { formatMoney, parseMoney } from '../../utils/money.js';
+import { parseHumanDateTime } from '../../utils/dates.js';
 import { formatPhone } from '../../utils/phone.js';
 import { normalizeLocationData, reverseGeocode } from '../location.js';
 
@@ -105,6 +107,15 @@ export function registerMessageHandler(bot) {
     await ctx.replyWithChatAction('typing').catch(() => {});
     try {
       const conv = await getConversation(ctx.from.id);
+      // Universal chiqish: istalgan yarim qolgan oqimdan (reschedule, eslatma,
+      // lokatsiya nomi, slot-filling, OCR) "bekor" bilan chiqish — holatlar
+      // aralashib qolib foydalanuvchi qopqonga tushmasligi uchun.
+      if (/^(bekor|otmen|otmena|cancel|to'?xtat|toxtat|stop)\b/i.test(text.trim())) {
+        await conv.reset();
+        clearAllSessionState(ctx);
+        await ctx.reply('Bekor qilindi.');
+        return;
+      }
       // Eng yuqori ustuvorlik: maxsus eslatma vaqti kutilyapti.
       if (ctx.session?.awaitingReminderConfig) {
         return handleReminderConfig(ctx, text);
@@ -178,10 +189,10 @@ function reminderOffsetLabel(minutes) {
 }
 
 async function routeServiceReschedule(ctx, conv, text) {
-  const value = text.trim().replace(' ', 'T');
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    await ctx.reply("Sanani aniqroq yozing. Masalan: 2026-06-12 15:30");
+  // Nisbiy ("ertaga soat 15", "2 kundan keyin") va aniq ("2026-06-12 15:30") sanani tushunadi.
+  const date = parseHumanDateTime(text);
+  if (!date || Number.isNaN(date.getTime())) {
+    await ctx.reply("Sanani aniqroq yozing. Masalan: 'ertaga soat 15:00' yoki '2026-06-12 15:30'");
     return;
   }
   const serviceId =
@@ -244,6 +255,21 @@ async function maybeRouteFuzzyClientPayment(ctx, conv, text) {
 
 async function routeUnderstanding(ctx, understanding, rawText) {
   const conv = await getConversation(ctx.from.id);
+  // Yangi NLU xabari (matn/ovoz/rasm) keldi — boshqa mini-oqimlarning eskirgan
+  // session bayroqlarini tozalaymiz. Aks holda ovoz/rasm orqali kelgan xabar
+  // reschedule/eslatma kutilishini chetlab o'tib, keyingi matnni noto'g'ri ushlaydi.
+  if (ctx.session) {
+    ctx.session.awaitingReschedule = null;
+    ctx.session.awaitingReminderConfig = null;
+    ctx.session.pendingLocationRename = false;
+    ctx.session.pendingLocationCoords = null;
+  }
+  // Eskirgan non-entry tasdiq holati (reschedule, edit-tasdiq, lokatsiya savoli,
+  // to'lov tasdiq) — bu yergacha yetgan xabar yangi buyruq, demak uni tashlaymiz.
+  // Entry (slot-filling) holatini saqlaymiz: runAgent uni continueEntry'da davom ettiradi.
+  if (conv.pendingIntent && !isEntryIntent(conv.pendingIntent)) {
+    await conv.reset();
+  }
   const res = await runAgent({ understanding, rawText, conversation: conv });
   await syncSessionFromConversation(ctx, conv);
   await sendAgentResult(ctx, res);
@@ -304,6 +330,11 @@ async function routeImageConfirmation(ctx, conv, text) {
   if (/^(ha|xa|yes|y|ok|mayli|saqla)/i.test(normalized)) {
     const records = conv.collected?.records
       || (conv.collected?.pendingData ? [conv.collected.pendingData] : []);
+    // Bitta yozuvda majburiy maydon yetishmasa — standart so'rash oqimiga ulaymiz.
+    if (records.length === 1) {
+      const asked = await startServiceAskFromRecord(ctx, conv, records[0]);
+      if (asked) return;
+    }
     const result = await saveConfirmedImageRecords(records);
     await conv.reset();
     await ctx.reply(result);
@@ -311,6 +342,26 @@ async function routeImageConfirmation(ctx, conv, text) {
   }
 
   await ctx.reply("Iltimos, 'ha' yoki 'yo'q' deb javob bering.");
+}
+
+// OCR yozuvida majburiy maydon yetishsa, uni standart SERVICE_ENTRY slot-filling
+// oqimiga ulaydi (telefon/manzil/narx/to'lov... bittalab so'raladi). To'liq bo'lsa false.
+async function startServiceAskFromRecord(ctx, conv, record) {
+  const fields = mergeFields({}, record);
+  const missing = nextMissing('SERVICE_ENTRY', fields);
+  if (!missing) return false;
+  conv.pendingIntent = 'SERVICE_ENTRY';
+  conv.collected = fields;
+  conv.awaitingField = missing;
+  conv.markModified('collected');
+  await conv.save();
+  await syncSessionFromConversation(ctx, conv);
+  const keyboard = missing === 'paymentMethod' ? paymentMethodKeyboard() : null;
+  await ctx.reply(
+    `Rasmdagi ba'zi ma'lumot to'liq emas.\n${QUESTIONS[missing] || missing}`,
+    keyboard ? { reply_markup: keyboard } : undefined
+  );
+  return true;
 }
 
 async function routeLocationRename(ctx, conv, text) {
@@ -386,6 +437,25 @@ async function syncSessionFromConversation(ctx, conv) {
   ctx.session.collectedData = conv.collected || {};
   ctx.session.pendingField = conv.awaitingField;
   ctx.session.awaitingConfirmation = conv.pendingIntent === 'IMAGE_RECORD_CONFIRM';
+}
+
+// Barcha session sub-holatlarini tozalash (universal "bekor" uchun).
+function clearAllSessionState(ctx) {
+  if (!ctx.session) return;
+  ctx.session.intent = null;
+  ctx.session.collectedData = {};
+  ctx.session.pendingField = null;
+  ctx.session.awaitingConfirmation = false;
+  ctx.session.lastServiceId = null;
+  ctx.session.awaitingReschedule = null;
+  ctx.session.awaitingReminderConfig = null;
+  ctx.session.pendingLocation = null;
+  ctx.session.pendingLocationRename = false;
+  ctx.session.pendingLocationCoords = null;
+  ctx.session.ocrQueue = [];
+  ctx.session.currentOcrIndex = 0;
+  ctx.session.ocrSaved = 0;
+  ctx.session.ocrSkipped = 0;
 }
 
 function formatExtractedRecords(records) {

@@ -18,7 +18,17 @@
       "Bash(node --check src/bot/handlers/message.js)",
       "Bash(timeout 20 node -e ' *)",
       "Bash(git check-ignore *)",
-      "Bash(grep -iE '\\(^|/\\)\\\\.env$|\\\\.env\\\\.local$|\\\\.playwright-mcp')"
+      "Bash(grep -iE '\\(^|/\\)\\\\.env$|\\\\.env\\\\.local$|\\\\.playwright-mcp')",
+      "Bash(git commit -m 'first commit *)",
+      "Bash(git branch *)",
+      "Bash(git push *)",
+      "Bash(gh --version)",
+      "Bash(gh auth *)",
+      "Bash(git credential-manager *)",
+      "Bash(git credential *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(git commit *)"
     ]
   }
 }

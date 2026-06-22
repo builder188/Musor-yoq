@@ -6,15 +6,26 @@ import { normalizePhone } from '../utils/phone.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
 // Telefon bo'yicha mijozni topadi yoki yangisini yaratadi.
 // Manzil berilsa — mijoz manzillari ro'yxatiga qo'shadi (takrorlanmasa).
 export async function findOrCreateClient({ name, phone, location = '', coordinates = null }) {
   const normalized = normalizePhone(phone);
-  if (!normalized) throw new Error('Telefon raqami noto\'g\'ri');
+  if (!normalized || !/^\+998\d{9}$/.test(normalized)) throw httpError(400, 'Telefon raqami noto\'g\'ri');
 
-  let client = await Client.findOne({ phone: normalized, ...notDeleted });
+  let client = await Client.findOne({ phone: normalized });
   if (!client) {
     client = await Client.create({ name: name || 'Noma\'lum', phone: normalized, locations: [] });
+  } else if (client.isDeleted) {
+    client.isDeleted = false;
+    client.deletedAt = null;
+    client.isDeletedByClientDeletion = false;
+    if (name) client.name = name;
   } else if (name && client.name !== name) {
     client.name = name;
   }
@@ -81,7 +92,12 @@ export async function getClientDetail(id) {
 export async function updateClient(id, data) {
   const allowed = {};
   if (data.name !== undefined) allowed.name = data.name;
-  if (data.phone !== undefined) allowed.phone = normalizePhone(data.phone);
+  if (data.phone !== undefined) {
+    allowed.phone = normalizePhone(data.phone);
+    if (!allowed.phone || !/^\+998\d{9}$/.test(allowed.phone)) throw httpError(400, 'Telefon raqami noto\'g\'ri');
+    const duplicate = await Client.findOne({ _id: { $ne: id }, phone: allowed.phone, ...notDeleted }).lean();
+    if (duplicate) throw httpError(409, 'Bu telefon raqam boshqa aktiv mijozda bor');
+  }
 
   // Manzil berilgan bo'lsa va hali ro'yxatda bo'lmasa — qo'shamiz (create bilan bir xil mantiq).
   if (data.location) {

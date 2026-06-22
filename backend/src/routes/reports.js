@@ -16,6 +16,33 @@ const REPORT_TYPES = new Set(['clients', 'services', 'finance', 'full']);
 const REPORT_FORMATS = new Set(['pdf', 'excel']);
 let reportBot = null;
 
+// Excel hisobot tarjimalari (sheet nomlari va sarlavhalar). Raw enum/kategoriya
+// qiymatlari (status, paymentMethod) data-eksport sifatida o'zgarmaydi.
+const EXCEL_LABELS = {
+  uz: {
+    yes: 'ha',
+    no: "yo'q",
+    sheets: { clients: 'Mijozlar', services: 'Xizmatlar', transactions: 'Tranzaksiyalar', summary: 'Xulosa' },
+    clientHeaders: ['ID', 'Ism', 'Telefon', 'Manzillar', 'Yaratilgan sana', 'Yangilangan sana'],
+    serviceHeaders: ['ID', 'Client ID', 'Mijoz', 'Telefon', 'Manzil', 'Sana', 'Tarixiy', 'Narx', "To'langan", "To'lov usuli", "To'lov holati", 'Status', 'Bekor sababi', 'Bajarilgan sana', 'Izoh', 'Rasm fileIdlari', 'Income transaction ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana', 'Yangilangan sana'],
+    txHeaders: ['ID', 'Sana', 'Turi', 'Kategoriya', 'Summa', 'Izoh', 'Service ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana'],
+    summaryHeaders: ['Oy', 'Jami kirim', 'Jami chiqim', 'Balans', 'Xizmatlar soni', "To'langan", "To'lanmagan"],
+  },
+  ru: {
+    yes: 'да',
+    no: 'нет',
+    sheets: { clients: 'Клиенты', services: 'Услуги', transactions: 'Транзакции', summary: 'Сводка' },
+    clientHeaders: ['ID', 'Имя', 'Телефон', 'Адреса', 'Дата создания', 'Дата обновления'],
+    serviceHeaders: ['ID', 'Client ID', 'Клиент', 'Телефон', 'Адрес', 'Дата', 'Исторический', 'Цена', 'Оплачено', 'Способ оплаты', 'Статус оплаты', 'Статус', 'Причина отмены', 'Дата выполнения', 'Заметка', 'ID файлов фото', 'Income transaction ID', 'Удалён', 'Дата удаления', 'Дата создания', 'Дата обновления'],
+    txHeaders: ['ID', 'Дата', 'Тип', 'Категория', 'Сумма', 'Заметка', 'Service ID', 'Удалён', 'Дата удаления', 'Дата создания'],
+    summaryHeaders: ['Месяц', 'Всего доход', 'Всего расход', 'Баланс', 'Кол-во услуг', 'Оплачено', 'Не оплачено'],
+  },
+};
+
+function excelLabels(language) {
+  return EXCEL_LABELS[language === 'ru' ? 'ru' : 'uz'];
+}
+
 export function attachReportBot(botInstance) {
   reportBot = botInstance;
 }
@@ -103,6 +130,7 @@ async function buildPdfPayload(body = {}) {
 }
 
 async function buildExcelPayload(body = {}) {
+  const L = excelLabels(body.language);
   const range = resolveReportRange(body);
   const dateFilter = range.from || range.to ? { $gte: range.from, $lte: range.to } : null;
   const serviceFilter = { ...notDeleted };
@@ -123,8 +151,8 @@ async function buildExcelPayload(body = {}) {
   workbook.created = new Date();
   workbook.modified = new Date();
 
-  addSheet(workbook, 'Mijozlar', [
-    ['ID', 'Ism', 'Telefon', 'Manzillar', 'Yaratilgan sana', 'Yangilangan sana'],
+  addSheet(workbook, L.sheets.clients, [
+    L.clientHeaders,
     ...clients.map((client) => [
       String(client._id),
       client.name || '',
@@ -135,30 +163,8 @@ async function buildExcelPayload(body = {}) {
     ]),
   ]);
 
-  addSheet(workbook, 'Xizmatlar', [
-    [
-      'ID',
-      'Client ID',
-      'Mijoz',
-      'Telefon',
-      'Manzil',
-      'Sana',
-      'Tarixiy',
-      'Narx',
-      "To'langan",
-      "To'lov usuli",
-      "To'lov holati",
-      'Status',
-      'Bekor sababi',
-      'Bajarilgan sana',
-      'Izoh',
-      'Rasm fileIdlari',
-      'Income transaction ID',
-      "O'chirilgan",
-      "O'chirilgan sana",
-      'Yaratilgan sana',
-      'Yangilangan sana',
-    ],
+  addSheet(workbook, L.sheets.services, [
+    L.serviceHeaders,
     ...services.map((service) => [
       String(service._id),
       String(service.clientId || ''),
@@ -166,7 +172,7 @@ async function buildExcelPayload(body = {}) {
       service.clientPhone || '',
       service.location?.address || '',
       formatDateTime(service.serviceDateTime),
-      service.isHistorical ? 'ha' : "yo'q",
+      service.isHistorical ? L.yes : L.no,
       service.price || 0,
       service.paidAmount || 0,
       service.paymentMethod || '',
@@ -177,15 +183,15 @@ async function buildExcelPayload(body = {}) {
       service.notes || '',
       (service.images || []).map((image) => image.telegramFileId).filter(Boolean).join('; '),
       String(service.incomeTransactionId || ''),
-      service.isDeleted ? 'ha' : "yo'q",
+      service.isDeleted ? L.yes : L.no,
       formatDateTime(service.deletedAt),
       formatDateTime(service.createdAt),
       formatDateTime(service.updatedAt),
     ]),
   ]);
 
-  addSheet(workbook, 'Tranzaksiyalar', [
-    ['ID', 'Sana', 'Turi', 'Kategoriya', 'Summa', 'Izoh', 'Service ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana'],
+  addSheet(workbook, L.sheets.transactions, [
+    L.txHeaders,
     ...transactions.map((tx) => [
       String(tx._id),
       formatDateTime(tx.date),
@@ -194,13 +200,13 @@ async function buildExcelPayload(body = {}) {
       tx.amount || 0,
       tx.description || tx.note || '',
       String(tx.serviceId || ''),
-      tx.isDeleted ? 'ha' : "yo'q",
+      tx.isDeleted ? L.yes : L.no,
       formatDateTime(tx.deletedAt),
       formatDateTime(tx.createdAt),
     ]),
   ]);
 
-  addSheet(workbook, 'Xulosa', makeMonthlyBreakdownRows(transactions, services));
+  addSheet(workbook, L.sheets.summary, makeMonthlyBreakdownRows(transactions, services, L.summaryHeaders));
 
   return {
     buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
@@ -260,7 +266,7 @@ function addSheet(workbook, name, rows) {
   });
 }
 
-function makeMonthlyBreakdownRows(transactions, services) {
+function makeMonthlyBreakdownRows(transactions, services, headers = ['Oy', 'Jami kirim', 'Jami chiqim', 'Balans', 'Xizmatlar soni', "To'langan", "To'lanmagan"]) {
   const byMonth = new Map();
   const ensure = (key) => {
     if (!byMonth.has(key)) {
@@ -285,7 +291,7 @@ function makeMonthlyBreakdownRows(transactions, services) {
   }
 
   return [
-    ['Oy', 'Jami kirim', 'Jami chiqim', 'Balans', 'Xizmatlar soni', "To'langan", "To'lanmagan"],
+    headers,
     ...Array.from(byMonth.entries())
       .sort(([a], [b]) => b.localeCompare(a))
       .map(([month, row]) => [

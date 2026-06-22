@@ -165,6 +165,16 @@ export function clientChoiceKeyboard(clients) {
   return keyboard;
 }
 
+// Generik mijoz tanlash (bir xil ismlilar uchun) — har qanday amalni davom ettiradi.
+export function clientPickKeyboard(clients) {
+  const keyboard = new InlineKeyboard();
+  clients.slice(0, 8).forEach((client) => {
+    keyboard.text(`${client.name} (${formatPhone(client.phone) || client.phone})`, `pick_client_${client._id}`).row();
+  });
+  keyboard.text('Bekor qilish', 'pick_cancel');
+  return keyboard;
+}
+
 export function timeLabel(minutesBefore) {
   if (minutesBefore === 0) return 'Xizmat vaqti keldi';
   if (minutesBefore === 60) return '1 soat qoldi';

@@ -10,6 +10,38 @@ import { computeReminders, scheduleRemindersForService } from './reminderService
 
 const notDeleted = { isDeleted: { $ne: true } };
 
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function badRequest(message) {
+  return httpError(400, message);
+}
+
+function notFound(message) {
+  return httpError(404, message);
+}
+
+function parseMoneyAmount(value, message) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) throw badRequest(message);
+  return Math.round(number);
+}
+
+function parsePositiveMoneyAmount(value, message) {
+  const amount = parseMoneyAmount(value, message);
+  if (amount <= 0) throw badRequest(message);
+  return amount;
+}
+
+function parseRequiredDate(value, message) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) throw badRequest(message);
+  return date;
+}
+
 // Manzilni { address, coordinates } shakliga keltirish (matn yoki obyekt).
 function normalizeLocation(loc) {
   if (!loc) return { address: '', coordinates: { lat: null, lng: null } };
@@ -33,6 +65,7 @@ function resolvePaymentStatus(paidAmount, price) {
 // Yangi xizmat yaratish.
 export async function createService(data) {
   const location = normalizeLocation(data.location);
+  if (!location.address?.trim()) throw badRequest('Manzil kerak');
 
   const client = await findOrCreateClient({
     name: data.clientName,
@@ -41,8 +74,9 @@ export async function createService(data) {
     coordinates: location.coordinates,
   });
 
-  const serviceDateTime = new Date(data.serviceDateTime);
+  const serviceDateTime = parseRequiredDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
   const isFuture = serviceDateTime.getTime() > Date.now();
+  const price = parsePositiveMoneyAmount(data.price, "Xizmat narxi noto'g'ri");
 
   // Maxsus eslatma vaqti aytilgan bo'lsa вЂ” standartni almashtiradi.
   // Tarixiy yozuvga (isHistorical) eslatma rejalashtirilmaydi.
@@ -56,7 +90,7 @@ export async function createService(data) {
     clientPhone: client.phone,
     location,
     serviceDateTime,
-    price: Math.round(Number(data.price) || 0),
+    price,
     paymentMethod: data.paymentMethod,
     notes: data.notes || '',
     images: normalizeImages(data.images, data.imageFileId),
@@ -76,43 +110,81 @@ export async function createService(data) {
 // Xizmatni bajarilgan deb belgilash -> daromad yozish.
 export async function completeService(serviceId, { newPrice = null, markPaid = false, includeTransaction = false } = {}) {
   const service = await Service.findOne({ _id: serviceId, ...notDeleted });
-  if (!service) throw new Error('Xizmat topilmadi');
+  if (!service) throw notFound('Xizmat topilmadi');
 
   if (newPrice !== null && newPrice !== undefined) {
-    service.price = Math.round(Number(newPrice));
+    service.price = parsePositiveMoneyAmount(newPrice, "Xizmat narxi noto'g'ri");
   }
   if (service.status === SERVICE_STATUS.DONE) {
+    if (newPrice !== null && newPrice !== undefined) {
+      service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
+      if (service.incomeTransactionId) {
+        await Transaction.findByIdAndUpdate(service.incomeTransactionId, { amount: service.price });
+      }
+      await service.save();
+    }
     if (!includeTransaction) return service;
     const transaction = service.incomeTransactionId
       ? await Transaction.findById(service.incomeTransactionId).lean()
-      : null;
+      : await Transaction.findOne({ serviceId: service._id, type: TX_TYPES.INCOME, isDeleted: { $ne: true } }).lean();
+    if (!service.incomeTransactionId && transaction?._id) {
+      service.incomeTransactionId = transaction._id;
+      await service.save();
+    }
     return { service, transaction };
+  }
+  if (service.status === SERVICE_STATUS.CANCELLED) {
+    throw badRequest("Bekor qilingan xizmatni bajarib bo'lmaydi");
   }
 
   service.status = SERVICE_STATUS.DONE;
   service.completedAt = new Date();
   if (markPaid) service.paidAmount = service.price;
   service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
+  const completed = await Service.findOneAndUpdate(
+    { _id: serviceId, ...notDeleted, status: SERVICE_STATUS.PENDING },
+    {
+      status: SERVICE_STATUS.DONE,
+      completedAt: service.completedAt,
+      price: service.price,
+      paidAmount: service.paidAmount,
+      paymentStatus: service.paymentStatus,
+    },
+    { new: true }
+  );
+  if (!completed) {
+    const current = await Service.findOne({ _id: serviceId, ...notDeleted });
+    const transaction = current?.incomeTransactionId
+      ? await Transaction.findById(current.incomeTransactionId).lean()
+      : current
+        ? await Transaction.findOne({ serviceId: current._id, type: TX_TYPES.INCOME, isDeleted: { $ne: true } }).lean()
+        : null;
+    if (current && !current.incomeTransactionId && transaction?._id) {
+      current.incomeTransactionId = transaction._id;
+      await current.save();
+    }
+    return includeTransaction ? { service: current, transaction } : current;
+  }
 
   // Daromad tranzaksiyasi (to'liq narx вЂ” xizmat bajarilgani uchun).
   const transaction = await Transaction.create({
     type: TX_TYPES.INCOME,
-    amount: service.price,
+    amount: completed.price,
     category: 'xizmat',
-    description: `Xizmat: ${service.clientName}`,
-    serviceId: service._id,
+    description: `Xizmat: ${completed.clientName}`,
+    serviceId: completed._id,
     date: new Date(),
   });
-  service.incomeTransactionId = transaction._id;
-  await service.save();
+  completed.incomeTransactionId = transaction._id;
+  await completed.save();
 
-  return includeTransaction ? { service, transaction } : service;
+  return includeTransaction ? { service: completed, transaction } : completed;
 }
 
 // Xizmatni bekor qilish. Bajarilgan bo'lsa вЂ” daromadni qaytaramiz.
 export async function cancelService(serviceId, reason = null) {
   const service = await Service.findOne({ _id: serviceId, ...notDeleted });
-  if (!service) throw new Error('Xizmat topilmadi');
+  if (!service) throw notFound('Xizmat topilmadi');
 
   const wasDone = service.status === SERVICE_STATUS.DONE;
   if (wasDone && service.incomeTransactionId) {
@@ -127,8 +199,8 @@ export async function cancelService(serviceId, reason = null) {
 // Mijozdan olingan pul balansni oshirmaydi: xizmat daromadi "bajarildi" paytida yozilgan.
 // Bu faqat eng yaqin to'lanmagan/qisman xizmatning paymentStatus qiymatini yangilaydi.
 export async function recordServicePayment({ clientId, amount, note = '' }) {
-  const paid = Math.round(Number(amount) || 0);
-  if (paid <= 0) throw new Error("To'lov summasi noto'g'ri");
+  const paid = parseMoneyAmount(amount, "To'lov summasi noto'g'ri");
+  if (paid <= 0) throw badRequest("To'lov summasi noto'g'ri");
 
   const service = await Service.findOne({
     clientId,
@@ -137,7 +209,7 @@ export async function recordServicePayment({ clientId, amount, note = '' }) {
     $expr: { $lt: [{ $ifNull: ['$paidAmount', 0] }, '$price'] },
   }).sort({ status: 1, serviceDateTime: -1 });
 
-  if (!service) throw new Error("To'lanmagan yoki qisman to'langan xizmat topilmadi");
+  if (!service) throw notFound("To'lanmagan yoki qisman to'langan xizmat topilmadi");
 
   service.paidAmount = Math.min(service.price, (service.paidAmount || 0) + paid);
   service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
@@ -150,7 +222,7 @@ export async function recordServicePayment({ clientId, amount, note = '' }) {
 
 export async function editService(serviceId, data) {
   const service = await Service.findOne({ _id: serviceId, ...notDeleted });
-  if (!service) throw new Error('Xizmat topilmadi');
+  if (!service) throw notFound('Xizmat topilmadi');
 
   const wasDone = service.status === SERVICE_STATUS.DONE;
   const oldPrice = service.price;
@@ -159,7 +231,7 @@ export async function editService(serviceId, data) {
   if (data.clientPhone !== undefined) service.clientPhone = data.clientPhone;
   if (data.location !== undefined) service.location = normalizeLocation(data.location);
   if (data.serviceDateTime !== undefined) {
-    service.serviceDateTime = new Date(data.serviceDateTime);
+    service.serviceDateTime = parseRequiredDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
     if (service.status === SERVICE_STATUS.PENDING && !service.isHistorical) {
       const sentReminders = (service.reminders || []).filter((reminder) => reminder.sent);
       const nextReminders = service.serviceDateTime.getTime() > Date.now()
@@ -176,9 +248,9 @@ export async function editService(serviceId, data) {
   }
   if (data.paymentMethod !== undefined) service.paymentMethod = data.paymentMethod;
   if (data.notes !== undefined) service.notes = data.notes;
-  if (data.price !== undefined) service.price = Math.round(Number(data.price));
+  if (data.price !== undefined) service.price = parsePositiveMoneyAmount(data.price, "Xizmat narxi noto'g'ri");
   if (data.paidAmount !== undefined) {
-    service.paidAmount = Math.max(0, Math.min(service.price, Math.round(Number(data.paidAmount) || 0)));
+    service.paidAmount = Math.min(service.price, parseMoneyAmount(data.paidAmount, "To'lov summasi noto'g'ri"));
     service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
   }
 
@@ -227,8 +299,8 @@ export async function listServices({
   if (clientId) filter.clientId = clientId;
   if (dateFrom || dateTo) {
     filter.serviceDateTime = {};
-    if (dateFrom) filter.serviceDateTime.$gte = new Date(dateFrom);
-    if (dateTo) filter.serviceDateTime.$lte = new Date(dateTo);
+    if (dateFrom) filter.serviceDateTime.$gte = parseRequiredDate(dateFrom, "Boshlanish sanasi noto'g'ri");
+    if (dateTo) filter.serviceDateTime.$lte = parseRequiredDate(dateTo, "Tugash sanasi noto'g'ri");
   }
   if (search) {
     const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');

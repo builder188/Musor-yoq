@@ -45,13 +45,17 @@ router.get(
 router.get(
   '/images/:fileId',
   asyncHandler(async (req, res) => {
-    const fileRes = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(req.params.fileId)}`);
+    const fileRes = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(req.params.fileId)}`, {
+      signal: AbortSignal.timeout(10000),
+    });
     if (!fileRes.ok) return res.status(502).json({ error: 'Telegram fayl ma\'lumotini olishda xatolik' });
     const fileData = await fileRes.json();
     const filePath = fileData.result?.file_path;
     if (!filePath) return res.status(404).json({ error: 'Rasm topilmadi' });
 
-    const imgRes = await fetch(`https://api.telegram.org/file/bot${env.BOT_TOKEN}/${filePath}`);
+    const imgRes = await fetch(`https://api.telegram.org/file/bot${env.BOT_TOKEN}/${filePath}`, {
+      signal: AbortSignal.timeout(15000),
+    });
     if (!imgRes.ok) return res.status(502).json({ error: 'Telegram rasmni olishda xatolik' });
     res.setHeader('Content-Type', imgRes.headers.get('content-type') || 'application/octet-stream');
     const buffer = Buffer.from(await imgRes.arrayBuffer());
@@ -117,11 +121,34 @@ router.patch(
   })
 );
 
-// DELETE /api/services/:id — tasdiqlash kodi kerak.
+// POST /api/services/:id/reminders/:index/retry — yuborilmagan (failed) eslatmani qayta navbatga qo'yadi.
+// Hisoblagichlar nollanadi va vaqti hozirgi qilinadi, asosiy cron keyingi daqiqada qayta urinadi.
+router.post(
+  '/:id/reminders/:index/retry',
+  asyncHandler(async (req, res) => {
+    const service = await Service.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    const index = Number(req.params.index);
+    if (!service || Number.isNaN(index) || index < 0 || index >= service.reminders.length) {
+      return res.status(404).json({ error: 'Eslatma topilmadi' });
+    }
+    const reminder = service.reminders[index];
+    reminder.failed = false;
+    reminder.sent = false;
+    reminder.sentAt = null;
+    reminder.retryCount = 0;
+    reminder.nextRetryAt = null;
+    reminder.scheduledAt = new Date();
+    service.markModified('reminders');
+    await service.save();
+    res.json({ ok: true, service });
+  })
+);
+
+// DELETE /api/services/:id/reminders/:index — eslatmani o'chirish (failed bo'lsa qo'lda yopish).
 router.delete(
   '/:id/reminders/:index',
   asyncHandler(async (req, res) => {
-    const service = await Service.findById(req.params.id);
+    const service = await Service.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
     const index = Number(req.params.index);
     if (!service || Number.isNaN(index) || index < 0 || index >= service.reminders.length) {
       return res.status(404).json({ error: 'Eslatma topilmadi' });
