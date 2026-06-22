@@ -1,5 +1,20 @@
 # AI_CONTEXT.md
 
+## 2026-06-22 Railway Telegram polling conflict fix
+- Railway loglari o'qildi: backend start bo'lganidan keyin Grammy `getUpdates` 409 conflict bilan yiqilgan.
+- Sabab: Railway'da bot polling rejimida ishlagan, bir token bilan boshqa polling instance yoki restart overlap bo'lganda Telegram `getUpdates`ni rad qiladi.
+- `env.js` endi Railway runtime (`RAILWAY_ENVIRONMENT`, `RAILWAY_SERVICE_NAME`, `RAILWAY_PROJECT_ID`, `RAILWAY_DEPLOYMENT_ID`) va public domain mavjudligini aniqlaydi.
+- Railway public domain bor paytda `BOT_MODE=polling` berilgan bo'lsa ham runtime `webhook` rejimiga o'tadi va health warnings ichida sababini ko'rsatadi.
+- `index.js` polling start promise xatosini ushlaydi, shuning uchun polling conflict processni crash-loop qilmaydi; health `bot:false` warning bilan diagnostika beradi.
+- README va `.env.example` Railway webhook/polling conflict bo'yicha yangilandi.
+- Verification: `node --check` (`env.js`, `index.js`, `bot.js`) OK; Railway env simulyatsiyasi `mode:"webhook"` qaytardi; local/dev simulyatsiyasi `mode:"polling"` qoldi; root `npm run build` OK.
+
+## 2026-06-22 Railway bot start diagnostics
+- `backend/src/config/env.js` endi `backend/.env`ni fayl joylashuviga nisbatan yuklaydi; root workspace'dan import/start qilinganda ham lokal `.env` ko'rinadi.
+- Env validatsiyasi kuchaydi: `BOT_TOKEN`, `OWNER_TELEGRAM_ID`, `MONGODB_URI`, namunaviy `GEMINI_API_KEY`, va webhook public URL xatolari `/health` diagnostikasida aniqroq ko'rinadi.
+- Bot owner guard noto'g'ri `OWNER_TELEGRAM_ID` holatida `/start`ni jim tashlamaydi: ruxsatsiz `/start`ga qisqa Uzbek diagnostika javobi beradi va logga Telegram ID yozadi.
+- Self-check: `node --check` (`env.js`, `bot.js`) OK; `npm.cmd run build` OK; real MongoDB connect OK; Telegram Bot API `getMe` OK (`@Musor_yoq_bot`), `getWebhookInfo` OK va webhook URL hozir o'rnatilmagan.
+
 ## 2026-06-22 Second audit fixes
 - `CODEX_FIXLOG.md` yaratildi va har bir topilgan/tuzatilgan muammo 1 qatordan yozildi.
 - `completeService()` double-click race yopildi: pending->done DB atomic update bo'lmasa yangi income transaction yaratilmaydi.

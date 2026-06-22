@@ -1,7 +1,10 @@
 // Central environment loader and validator.
+import path from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 function required(name) {
   const value = process.env[name];
@@ -58,10 +61,21 @@ function publicDomain() {
   return value.replace(/^https?:\/\//i, '').replace(/\/+$/g, '');
 }
 
+function isRailwayRuntime() {
+  return Boolean(optional('RAILWAY_ENVIRONMENT', 'RAILWAY_SERVICE_NAME', 'RAILWAY_PROJECT_ID', 'RAILWAY_DEPLOYMENT_ID'));
+}
+
+function requestedBotMode() {
+  return process.env.BOT_MODE?.trim().toLowerCase() || '';
+}
+
 function botMode() {
-  const explicit = process.env.BOT_MODE?.trim().toLowerCase();
+  const explicit = requestedBotMode();
+  if (explicit === 'polling' && isRailwayRuntime() && publicDomain()) {
+    return 'webhook';
+  }
   if (explicit) return explicit;
-  if ((process.env.NODE_ENV?.trim() || 'development') === 'production' && publicDomain()) {
+  if (((process.env.NODE_ENV?.trim() || 'development') === 'production' || isRailwayRuntime()) && publicDomain()) {
     return 'webhook';
   }
   return 'polling';
@@ -109,8 +123,23 @@ export function getEnvIssues() {
   if (!['polling', 'webhook'].includes(env.BOT_MODE)) {
     errors.push(`BOT_MODE faqat polling yoki webhook bo'lishi mumkin. Hozir: ${env.BOT_MODE}`);
   }
+  if (env.BOT_TOKEN && !/^\d+:[A-Za-z0-9_-]{30,}$/.test(env.BOT_TOKEN)) {
+    errors.push('BOT_TOKEN formati noto\'g\'ri. @BotFather bergan haqiqiy tokenni kiriting.');
+  }
+  if (env.OWNER_TELEGRAM_ID && !/^\d+$/.test(String(env.OWNER_TELEGRAM_ID))) {
+    errors.push('OWNER_TELEGRAM_ID faqat raqamlardan iborat bo\'lishi kerak.');
+  }
+  if (env.MONGODB_URI && !/^mongodb(\+srv)?:\/\//i.test(env.MONGODB_URI)) {
+    errors.push('MONGODB_URI mongodb:// yoki mongodb+srv:// bilan boshlanishi kerak.');
+  }
+  if (env.GEMINI_API_KEY && /Example|ReplaceMe/i.test(env.GEMINI_API_KEY)) {
+    errors.push('GEMINI_API_KEY namunaviy qiymatga o\'xshaydi. Google AI Studio bergan haqiqiy keyni kiriting.');
+  }
   if (env.BOT_MODE === 'webhook' && !env.RAILWAY_STATIC_URL) {
     errors.push('BOT_MODE=webhook bo\'lsa, RAILWAY_STATIC_URL yoki RAILWAY_PUBLIC_DOMAIN kerak.');
+  }
+  if (requestedBotMode() === 'polling' && isRailwayRuntime() && env.RAILWAY_STATIC_URL) {
+    warnings.push('Railway muhitida BOT_MODE=polling webhookga almashtirildi, chunki polling bir nechta instance bilan 409 conflict beradi.');
   }
   if (env.NODE_ENV === 'production' && env.BOT_MODE === 'polling') {
     warnings.push('Production uchun BOT_MODE=webhook tavsiya qilinadi.');

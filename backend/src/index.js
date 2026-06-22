@@ -73,6 +73,11 @@ async function startRuntime(app) {
     await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
     bot.start({
       onStart: (info) => console.log(`Bot polling rejimida: @${info.username}`),
+    }).catch((err) => {
+      const description = err?.description || err?.error?.description || err?.message || 'Polling xatosi';
+      runtime.bot = false;
+      runtime.warnings.push(`Bot polling to'xtadi: ${description}`);
+      console.error('Bot polling xatosi:', description);
     });
   }
 

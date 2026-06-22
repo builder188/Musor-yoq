@@ -14,6 +14,10 @@ export const bot = new Bot(env.BOT_TOKEN || 'missing:token');
 
 bot.use(async (ctx, next) => {
   if (ctx.from?.id?.toString() !== String(ownerId())) {
+    if (ctx.message?.text?.startsWith('/start')) {
+      console.warn(`Unauthorized /start from Telegram ID ${ctx.from?.id || 'unknown'}`);
+      await ctx.reply("Bu bot faqat egasi uchun. Railway'da OWNER_TELEGRAM_ID ni tekshiring.");
+    }
     return;
   }
   await next();

@@ -1,6 +1,14 @@
 # SESSION_HANDOFF.md
 
+
 > Oxirgi yangilanish: 2026-06-22.
+
+
+## 2026-06-22 Railway bot /start diagnostikasi
+- `backend/src/config/env.js` `dotenv`ni endi `backend/.env` absolute path bilan yuklaydi; root workspace'dan ishlatilganda ham lokal env yo'qolmaydi.
+- Env validator `BOT_TOKEN`, `OWNER_TELEGRAM_ID`, `MONGODB_URI`, placeholder `GEMINI_API_KEY`, va webhook URL formatlarini aniq tekshiradi.
+- `backend/src/bot/bot.js` owner guard: `OWNER_TELEGRAM_ID` noto'g'ri bo'lsa `/start` endi butunlay jim qolmaydi, "Railway'da OWNER_TELEGRAM_ID ni tekshiring" deb javob beradi; boshqa access baribir bloklanadi.
+- Tekshiruv: `node --check backend/src/config/env.js`, `node --check backend/src/bot/bot.js`, `npm.cmd run build`, real Mongo connect, va Telegram `getMe/getWebhookInfo` OK. Telegram webhook URL hozir bo'sh, ya'ni deploy polling rejimiga tayangan yoki Railway webhook hali set qilmagan.
 
 ## 2026-06-22 To'liq audit (KRITIK/MUHIM/KICHIK) — FIXLOG.md
 Batafsil: `FIXLOG.md`. Asosiy o'zgarishlar (hammasi syntax + import + miniapp build bilan tekshirildi):

@@ -104,7 +104,7 @@ npm run dev                   # http://localhost:5173
 | `NODE_ENV` | `development` / `production` | `development` |
 | `PORT` | Server porti | `3000` |
 | `TZ` | Vaqt mintaqasi | `Asia/Tashkent` |
-| `BOT_MODE` | `polling` (dev) / `webhook` (prod) | `polling` |
+| `BOT_MODE` | `polling` (dev) / `webhook` (prod). Railway public domain bor bo'lsa `polling` avtomatik `webhook`ga almashtiriladi. | `polling` |
 | `RAILWAY_STATIC_URL` | Webhook uchun public domen. `RAILWAY_PUBLIC_DOMAIN`, `RAILWAY_PUBLIC_URL`, `PUBLIC_URL`, `APP_URL` ham qabul qilinadi. | `app.up.railway.app` |
 | `MINIAPP_URL` | Bot tugmasi ochadigan URL | `https://app.up.railway.app` |
 | `CONFIRM_DELETE_CODE` | O'chirish tasdiq kodi | `1990` |
@@ -126,7 +126,7 @@ npm run dev                   # http://localhost:5173
 3. Muhit o'zgaruvchilarini Railway'da kiriting (yuqoridagi jadval).
 4. Production uchun:
    - `NODE_ENV=production`
-   - `BOT_MODE=webhook`
+   - `BOT_MODE=webhook` yoki bu variable'ni umuman bermang. Railway'da `BOT_MODE=polling` qoldirilsa ham backend webhookga o'tadi.
    - `RAILWAY_STATIC_URL` = Railway bergan domen (https:// siz)
 5. Railway root `package.json` orqali avtomatik ishlaydi:
    - build: `npm run build` → `miniapp/dist`
@@ -135,6 +135,8 @@ npm run dev                   # http://localhost:5173
 Deploydan keyin `https://<domain>/health` ni oching. `ok:false` va `MONGODB_URI` xatosi chiqsa,
 app service MongoDB service bilan ulanmagan: Variables bo'limida `MONGODB_URI=${{MongoDB.MONGO_URL}}`
 yoki Atlas/Railway Mongo URL ni qo'lda kiriting.
+`mode:"polling"` ko'rinsa, Railway public domain variable'i (`RAILWAY_STATIC_URL` yoki `RAILWAY_PUBLIC_DOMAIN`)
+app service Variables ichida yo'q. Polling Railway'da Telegram `getUpdates` 409 conflict berishi mumkin.
 
 > Eslatma: bitta Railway service'da backend `/` da Mini App'ni, `/api` da API'ni xizmat qiladi.
 
