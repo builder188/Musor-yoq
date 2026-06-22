@@ -1,5 +1,22 @@
 # AI_CONTEXT.md
 
+## 2026-06-22 Resilient polling (bot Railway'da javob bermaslik fix)
+- Muammo: Railway'ga deploy + MongoDB ulangan bo'lsa ham `/start`ga bot javob bermayotgan edi.
+- Jonli diagnostika (`getMe`/`getWebhookInfo`/`getUpdates`): token ✓, webhook bo'sh, Atlas Mongo ✓ ulanadi.
+  Lokal start qilinganda Telegram darhol `409 Conflict: terminated by other getUpdates` berdi —
+  demak Railway poller tirik edi va env/Mongo to'g'ri. Sabab kod emas, polling modelining mo'rtligi.
+- Ildiz sabab: Railway'da public domain yo'q -> `botMode()` `polling`ga tushadi. Eski `index.js`da
+  `bot.start().catch()` bitta 409da pollingni butunlay to'xtatardi (konteyner tirik, lekin bot o'lik).
+  Redeploy paytida eski+yangi konteyner ikkalasi poll qilib 409 beradi -> bot javob bermaydi.
+- Fix: `index.js` `startPollingResilient()` — 409/conflict bo'lsa 5s dan keyin qayta uriniladi
+  (eski instance chiqib ketguncha, max 30 marta); muvaffaqiyatli startda hisoblagich nollanadi.
+  `runtime.bot` endi haqiqiy polling holatini aks ettiradi. Webhook auto-switch (Railway+domain) saqlanib qoldi.
+- Tekshiruv: `node --check` (index/env/bot) OK; ikkita lokal instance bilan real 409 -> qayta urinish ->
+  tiklanish kuzatildi (eski kodda birinchi 409 doim o'ldirardi); bitta instance toza polling (`bot:true`,
+  warnings bo'sh); `npm run build` OK.
+- Eng ishonchli variant (ixtiyoriy, user amali): Railway'da service uchun public domain generate qilinsa,
+  kod avtomatik webhookga o'tadi va 409 umuman bo'lmaydi. Shuningdek faqat BITTA service shu tokenni polling qilsin.
+
 ## 2026-06-22 Railway Telegram polling conflict fix
 - Railway loglari o'qildi: backend start bo'lganidan keyin Grammy `getUpdates` 409 conflict bilan yiqilgan.
 - Sabab: Railway'da bot polling rejimida ishlagan, bir token bilan boshqa polling instance yoki restart overlap bo'lganda Telegram `getUpdates`ni rad qiladi.

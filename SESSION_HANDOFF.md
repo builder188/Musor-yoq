@@ -4,6 +4,19 @@
 > Oxirgi yangilanish: 2026-06-22.
 
 
+## 2026-06-22 Bot Railway'da javob bermaslik — resilient polling fix
+- Jonli Telegram diagnostikasi: token ✓ (`@Musor_yoq_bot`), webhook bo'sh, Atlas Mongo ✓ ulanadi.
+  Lokal poll qilinganda Railway poller bilan real `409 Conflict` chiqdi -> Railway tirik, env/Mongo joyida.
+- Ildiz sabab: public domain yo'q -> polling rejimi; eski `bot.start().catch()` bitta 409da pollingni butunlay
+  o'chirardi (redeploy overlap yoki tashqi poller = bot o'lik). `backend/src/index.js`ga
+  `startPollingResilient()` qo'shildi: 409/conflictda 5s interval bilan qayta uriniladi (max 30), muvaffaqiyatli
+  startda hisoblagich nollanadi; `runtime.bot` haqiqiy holatga moslandi. Webhook auto-switch saqlanib qoldi.
+- Tekshirildi: `node --check` (index/env/bot) OK; 2 lokal instance bilan real 409 -> qayta urinish -> tiklanish;
+  1 instance toza polling (`bot:true`, warnings bo'sh); `npm run build` OK.
+- USER UCHUN: redeploydan keyin bot o'zi tiklanadi. Maksimal ishonch uchun Railway service'ga public domain
+  generate qiling (kod webhookga o'tadi, 409 umuman bo'lmaydi) va shu tokenni faqat BITTA service polling qilsin.
+  Railway Variables to'liq bo'lsin: `BOT_TOKEN`, `OWNER_TELEGRAM_ID=6028715926`, `MONGODB_URI` (Atlas), `GEMINI_API_KEY`.
+
 ## 2026-06-22 Railway bot /start diagnostikasi
 - `backend/src/config/env.js` `dotenv`ni endi `backend/.env` absolute path bilan yuklaydi; root workspace'dan ishlatilganda ham lokal env yo'qolmaydi.
 - Env validator `BOT_TOKEN`, `OWNER_TELEGRAM_ID`, `MONGODB_URI`, placeholder `GEMINI_API_KEY`, va webhook URL formatlarini aniq tekshiradi.

@@ -68,24 +68,60 @@ async function startRuntime(app) {
     app.use(WEBHOOK_PATH, webhookCallback(bot, 'express'));
     const url = `https://${env.RAILWAY_STATIC_URL}${WEBHOOK_PATH}`;
     await bot.api.setWebhook(url, { drop_pending_updates: true });
+    runtime.bot = true;
     console.log(`Bot webhook rejimida: ${url}`);
   } else {
-    await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-    bot.start({
-      onStart: (info) => console.log(`Bot polling rejimida: @${info.username}`),
-    }).catch((err) => {
-      const description = err?.description || err?.error?.description || err?.message || 'Polling xatosi';
-      runtime.bot = false;
-      runtime.warnings.push(`Bot polling to'xtadi: ${description}`);
-      console.error('Bot polling xatosi:', description);
-    });
+    // Polling promise'i bot to'xtaganda hal bo'ladi — uni kutmaymiz, aks holda
+    // server tayyor bo'lmaydi. Konflikt qayta urinishlari fonda davom etadi.
+    startPollingResilient(bot);
   }
 
   startReminderCron(bot);
   startCleanupCron();
-  runtime.bot = true;
   runtime.ready = true;
   console.log('Backend tayyor');
+}
+
+function isConflictError(err) {
+  const code = err?.error_code ?? err?.error?.error_code;
+  const description = err?.description || err?.error?.description || err?.message || '';
+  return code === 409 || /conflict/i.test(description);
+}
+
+// Telegram bitta token uchun faqat bitta getUpdates poller'ga ruxsat beradi. Railway
+// redeploy paytida eski konteyner bir necha soniya hali poll qilib turishi mumkin, shuning
+// uchun 409 konflikt botni butunlay o'ldirmaydi — eski instance chiqib ketguncha qayta uriniladi.
+async function startPollingResilient(bot) {
+  const maxConflictRetries = 30;
+  let conflictRetries = 0;
+
+  for (;;) {
+    try {
+      await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+      await bot.start({
+        onStart: (info) => {
+          conflictRetries = 0;
+          runtime.bot = true;
+          console.log(`Bot polling rejimida: @${info.username}`);
+        },
+      });
+      // bot.start() faqat bot.stop() chaqirilganda hal bo'ladi — normal to'xtash.
+      runtime.bot = false;
+      return;
+    } catch (err) {
+      const description = err?.description || err?.error?.description || err?.message || 'Polling xatosi';
+      runtime.bot = false;
+      if (isConflictError(err) && conflictRetries < maxConflictRetries) {
+        conflictRetries += 1;
+        console.error(`Bot polling konflikti (${conflictRetries}/${maxConflictRetries}): ${description}. 5s dan keyin qayta urinish...`);
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        continue;
+      }
+      runtime.warnings.push(`Bot polling to'xtadi: ${description}`);
+      console.error('Bot polling xatosi:', description);
+      return;
+    }
+  }
 }
 
 async function main() {
