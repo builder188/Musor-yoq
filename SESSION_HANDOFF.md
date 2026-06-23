@@ -1,5 +1,20 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-23 "salom" hali ham xato — SEARCH_QUERY crash + Gemini 503 resilience
+- Model fixi (gemini-2.5-flash-lite) dan keyin ham botda "salom" "AI bilan bog'lanishda xatolik" berardi.
+  Jonli `/api/v1/ai/chat` (bot token bilan imzolangan initData orqali) test qilib aniqlandi: "salom" ->
+  SEARCH_QUERY -> `searchAgentData`. `listClients`/`listTransactions` sahifasiz ham `{items}` obyekt qaytaradi
+  (massiv qaytaruvchi shox dead-code: `Math.max(1, page)`), shuning uchun `.filter`/`.slice` "is not a function"
+  -> 500 -> umumiy AI xato. Batafsil gotcha: memory `list-service-return-shape`.
+- Tuzatish (`agent.js`): `asArray()` — `searchServices`/`listClients`/`listTransactions` natijasi massivga keltiriladi.
+  Route'lar hamon `{items}` obyektni frontendga beradi (o'zgartirilmadi).
+- Gemini 503 "high demand" o'tkinchi xatosi: `gemini.js` `generate()` helperi har modelni qisqa backoff bilan
+  qayta uriniydi, keyin zaxira modellarga o'tadi: `[primary, gemini-2.5-flash, gemini-flash-latest]`. 6 ta chaqiruv
+  shu orqali ketadi; 4xx (kalit/model) darhol uzatiladi.
+- Tekshirildi: lokal e2e (DB+Gemini) salom 5/5 OK; jonli deploy salom 4/5 OK (5-chi Railway 502 infra blip, AI emas),
+  Sardor/analytics 200. Commitlar: `04945cb` (asArray+retry), `941e061` (model fallback). Faqat `agent.js`+`gemini.js`
+  push qilindi (multi-user/redesign WIP aralashtirilmadi).
+
 ## 2026-06-23 Mini App premium redesign
 - Promptdagi dizayn paketi `_design_extracted/design_handoff_miniapp_redesign` oqildi; HTML referens lokal server orqali brauzerda ochildi.
 - Mini App file structure saqlandi; asosiy ozgarishlar `miniapp/src/styles.css`, `Home.jsx`, `Clients.jsx`, `Services.jsx`, `Finance.jsx`, `Settings.jsx`, `i18n/uz.js`, `i18n/ru.js`. Yangi dependency qoshilmadi.
