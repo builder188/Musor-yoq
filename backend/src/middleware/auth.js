@@ -1,7 +1,7 @@
 // Telegram Mini App initData ni tekshirish (HMAC-SHA256).
 // https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
 import crypto from 'crypto';
-import env, { ownerId } from '../config/env.js';
+import env, { isOwnerTelegramId, ownerId } from '../config/env.js';
 
 // initData eskirgan hisoblanadigan muddat (replay hujumiga qarshi).
 const MAX_AUTH_AGE_SECONDS = 24 * 60 * 60;
@@ -65,7 +65,7 @@ export function authMiddleware(req, res, next) {
   if (!user || !user.id) {
     return res.status(401).json({ error: 'Avtorizatsiya xatosi' });
   }
-  if (Number(user.id) !== ownerId()) {
+  if (!isOwnerTelegramId(user.id)) {
     return res.status(403).json({ error: 'Ruxsat yo\'q' });
   }
 

@@ -8,7 +8,7 @@ const router = Router();
 router.put(
   '/change-code',
   asyncHandler(async (req, res) => {
-    const settings = await Settings.getSingleton();
+    const settings = await Settings.getSingleton(req.telegramUser?.id);
     const { currentCode, newCode } = req.body;
     if (String(currentCode) !== String(settings.deleteCode)) {
       return res.status(403).json({ error: 'Joriy kod noto\'g\'ri' });
@@ -26,7 +26,7 @@ router.put(
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    res.json(await Settings.getSingleton());
+    res.json(await Settings.getSingleton(req.telegramUser?.id));
   })
 );
 
@@ -34,7 +34,7 @@ router.get(
 router.put(
   '/',
   asyncHandler(async (req, res) => {
-    const settings = await Settings.getSingleton();
+    const settings = await Settings.getSingleton(req.telegramUser?.id);
     const { language, theme, defaultReminders, currentDeleteCode, newDeleteCode } = req.body;
     if (language !== undefined) settings.language = language;
     if (theme !== undefined) settings.theme = theme;

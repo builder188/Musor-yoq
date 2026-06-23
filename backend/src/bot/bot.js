@@ -2,7 +2,7 @@
 import { Bot, session, InlineKeyboard } from 'grammy';
 import { MongoDBAdapter } from '@grammyjs/storage-mongodb';
 import mongoose from 'mongoose';
-import env, { ownerId } from '../config/env.js';
+import env, { isOwnerTelegramId } from '../config/env.js';
 
 // Mongoose ulanishining native DB handle'i; ulanishdan oldin ham xavfsiz (amallar bufferlanadi).
 const db = mongoose.connection;
@@ -13,7 +13,7 @@ import { registerCallbacks } from './handlers/callbacks.js';
 export const bot = new Bot(env.BOT_TOKEN || 'missing:token');
 
 bot.use(async (ctx, next) => {
-  if (ctx.from?.id?.toString() !== String(ownerId())) {
+  if (!isOwnerTelegramId(ctx.from?.id)) {
     if (ctx.message?.text?.startsWith('/start')) {
       console.warn(`Unauthorized /start from Telegram ID ${ctx.from?.id || 'unknown'}`);
       await ctx.reply("Bu bot faqat egasi uchun. Railway'da OWNER_TELEGRAM_ID ni tekshiring.");

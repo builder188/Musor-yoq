@@ -8,7 +8,6 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { createReportDoc } from '../utils/pdf.js';
 import { formatDate, formatDateTime } from '../utils/dates.js';
 import { formatMoney } from '../utils/money.js';
-import { ownerId } from '../config/env.js';
 
 const router = express.Router();
 const notDeleted = { isDeleted: { $ne: true } };
@@ -80,7 +79,7 @@ router.post(
     if (format === 'excel') {
       const { buffer, filename } = await buildExcelPayload(req.body);
       await reportBot.api.sendDocument(
-        ownerId(),
+        req.telegramUser.id,
         new InputFile(buffer, filename),
         { caption: `Excel hisobot: ${reportLabel(reportType)} (${range.label})` }
       );
@@ -95,7 +94,7 @@ router.post(
     });
     const filename = reportFilename({ reportType, range, ext: 'pdf' });
     await reportBot.api.sendDocument(
-      ownerId(),
+      req.telegramUser.id,
       new InputFile(buffer, filename),
       { caption: `PDF hisobot: ${reportLabel(reportType)} (${range.label})` }
     );

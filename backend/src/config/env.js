@@ -69,6 +69,13 @@ function requestedBotMode() {
   return process.env.BOT_MODE?.trim().toLowerCase() || '';
 }
 
+function parseTelegramIds(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 // Google to'xtatgan (retired) modellar generateContent'da 404 beradi. Eski qiymat
 // (masalan Railway Variables'da qolib ketgan) avtomatik amaldagi modelga moslanadi,
 // shunda deploy kalit to'g'ri bo'lsa ham eski model nomi tufayli sinmaydi.
@@ -151,8 +158,9 @@ export function getEnvIssues() {
   if (env.BOT_TOKEN && !/^\d+:[A-Za-z0-9_-]{30,}$/.test(env.BOT_TOKEN)) {
     errors.push('BOT_TOKEN formati noto\'g\'ri. @BotFather bergan haqiqiy tokenni kiriting.');
   }
-  if (env.OWNER_TELEGRAM_ID && !/^\d+$/.test(String(env.OWNER_TELEGRAM_ID))) {
-    errors.push('OWNER_TELEGRAM_ID faqat raqamlardan iborat bo\'lishi kerak.');
+  const telegramIds = parseTelegramIds(env.OWNER_TELEGRAM_ID);
+  if (env.OWNER_TELEGRAM_ID && (telegramIds.length === 0 || telegramIds.some((id) => !/^\d+$/.test(id)))) {
+    errors.push('OWNER_TELEGRAM_ID faqat raqamli Telegram IDlardan iborat bo\'lishi kerak. Bir nechta ID bo\'lsa vergul bilan yozing: 6028715926,606578823');
   }
   if (env.MONGODB_URI && !/^mongodb(\+srv)?:\/\//i.test(env.MONGODB_URI)) {
     errors.push('MONGODB_URI mongodb:// yoki mongodb+srv:// bilan boshlanishi kerak.');
@@ -193,7 +201,9 @@ export function validateEnv() {
 }
 
 export const isProd = () => env.NODE_ENV === 'production';
-export const ownerId = () => Number(env.OWNER_TELEGRAM_ID);
+export const ownerIds = () => parseTelegramIds(env.OWNER_TELEGRAM_ID);
+export const ownerId = () => Number(ownerIds()[0] || 0);
+export const isOwnerTelegramId = (telegramId) => ownerIds().includes(String(telegramId || '').trim());
 
 // Mini App manzili: aniq MINIAPP_URL bo'lsa o'shani, bo'lmasa Railway public
 // domenini ishlatadi (backend Mini App'ni shu domen ildizida static beradi).

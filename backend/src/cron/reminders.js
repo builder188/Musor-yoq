@@ -3,7 +3,7 @@
 import cron from 'node-cron';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { notDeleted } from '../models/softDelete.js';
-import { ownerId } from '../config/env.js';
+import { ownerIds } from '../config/env.js';
 import { reminderText, serviceActionKeyboard, reminderSnoozeKeyboard } from '../bot/ui.js';
 
 // Urinishlar orasidagi kechikishlar (daqiqada) va maksimal urinishlar soni.
@@ -35,9 +35,13 @@ function reminderKeyboard(serviceId, reminder) {
 async function processReminder(bot, service, reminder, now) {
   const serviceId = service._id.toString();
   try {
-    await bot.api.sendMessage(ownerId(), reminderText(service, reminder), {
-      reply_markup: reminderKeyboard(serviceId, reminder),
-    });
+    const recipients = ownerIds();
+    if (recipients.length === 0) throw new Error('OWNER_TELEGRAM_ID topilmadi');
+    await Promise.all(
+      recipients.map((telegramId) => bot.api.sendMessage(telegramId, reminderText(service, reminder), {
+        reply_markup: reminderKeyboard(serviceId, reminder),
+      }))
+    );
     reminder.sent = true;
     reminder.sentAt = now;
     reminder.failed = false;

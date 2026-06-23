@@ -4,7 +4,7 @@ O'zbekistondagi yakka tartibdagi **musor (chiqindi) olib ketish biznesi** egasi 
 Telegram bot + Mini App tizimi. Egasi hamma narsani **faqat Telegram orqali** boshqaradi:
 ovoz, matn, rasm yoki lokatsiya yuboradi — **Google Gemini AI** uni tushunadi va bazaga yozadi.
 
-> Tizim faqat **bitta odam** (biznes egasi) uchun. Boshqa foydalanuvchilar yo'q.
+> Tizim faqat `.env` / Railway Variables ichidagi ruxsat berilgan Telegram IDlar uchun ochiladi.
 
 ---
 
@@ -97,7 +97,7 @@ npm run dev                   # http://localhost:5173
 | O'zgaruvchi | Tavsif | Misol |
 |---|---|---|
 | `BOT_TOKEN` | @BotFather bergan token | `123456:AAE...` |
-| `OWNER_TELEGRAM_ID` | Sizning Telegram ID | `123456789` |
+| `OWNER_TELEGRAM_ID` | Ruxsat berilgan Telegram IDlar. Bir nechta user bo'lsa vergul bilan yozing. | `6028715926,606578823` |
 | `MONGODB_URI` | MongoDB ulanish manzili. Kod `MONGO_URL`, `MONGO_PRIVATE_URL`, `MONGO_PUBLIC_URL`, mongodb bilan boshlanadigan `DATABASE_URL`, yoki Railway `MONGOUSER`/`MONGOPASSWORD`/`MONGOHOST`/`MONGOPORT`/`MONGODATABASE` qismlarini ham qabul qiladi. | `mongodb://127.0.0.1:27017/musiryoq` |
 | `GEMINI_API_KEY` | Google Gemini API key | `AIza...` |
 | `GEMINI_MODEL` | Model nomi (ixtiyoriy) | `gemini-2.0-flash` |

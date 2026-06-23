@@ -60,7 +60,7 @@ export function registerCommands(bot) {
   // "/kod" -> standart kodga (1990) tiklaydi; "/kod 4567" -> yangi kod o'rnatadi.
   bot.command(['kod', 'kodni_tiklash', 'resetcode'], async (ctx) => {
     const arg = String(ctx.match || '').trim();
-    const settings = await Settings.getSingleton();
+    const settings = await Settings.getSingleton(ctx.from.id);
     if (arg) {
       if (!/^\d{4}$/.test(arg)) {
         await ctx.reply("Yangi kod 4 ta raqamdan iborat bo'lishi kerak. Masalan: /kod 4567");

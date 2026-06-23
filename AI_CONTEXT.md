@@ -1,5 +1,13 @@
 # AI_CONTEXT.md
 
+## 2026-06-23 Multi-user Telegram allowlist
+- `OWNER_TELEGRAM_ID` endi bitta ID yoki vergul bilan ajratilgan bir nechta Telegram ID qabul qiladi: `6028715926,606578823`.
+- `env.js` `ownerIds()` va `isOwnerTelegramId()` helperlarini qo'shdi; validator IDlarning hammasi raqam ekanini tekshiradi.
+- Bot guard va Mini App `authMiddleware` allowlist bo'yicha ishlaydi. `AUTH_DEV_BYPASS` eski kabi birinchi IDni ishlatadi.
+- `Settings.getSingleton(telegramId)` userga bog'landi: `/kod`, Settings API va delete-code middleware so'rov yuborgan user settingsini ishlatadi.
+- Eslatma cron barcha ruxsatli IDlarga xabar yuboradi; Mini App `/reports/send` hisobotni so'rov yuborgan Telegram userga jo'natadi.
+- README va `backend/.env.example` comma-separated ID formati bilan yangilandi.
+
 ## 2026-06-22 Resilient polling (bot Railway'da javob bermaslik fix)
 - Muammo: Railway'ga deploy + MongoDB ulangan bo'lsa ham `/start`ga bot javob bermayotgan edi.
 - Jonli diagnostika (`getMe`/`getWebhookInfo`/`getUpdates`): token ✓, webhook bo'sh, Atlas Mongo ✓ ulanadi.

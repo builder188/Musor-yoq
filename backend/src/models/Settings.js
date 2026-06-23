@@ -1,6 +1,6 @@
 // Sozlamalar — har bir Telegram foydalanuvchi (egasi) uchun bitta hujjat.
 import mongoose from 'mongoose';
-import env from '../config/env.js';
+import env, { ownerId } from '../config/env.js';
 
 const settingsSchema = new mongoose.Schema(
   {
@@ -21,8 +21,8 @@ const settingsSchema = new mongoose.Schema(
 );
 
 // Egasining sozlamalarini olish (bo'lmasa — yaratish).
-settingsSchema.statics.getSingleton = async function getSingleton() {
-  const telegramUserId = String(env.OWNER_TELEGRAM_ID);
+settingsSchema.statics.getSingleton = async function getSingleton(telegramId = ownerId()) {
+  const telegramUserId = String(telegramId || ownerId());
   let doc = await this.findOne({ telegramUserId });
   if (!doc) {
     doc = await this.create({ telegramUserId });

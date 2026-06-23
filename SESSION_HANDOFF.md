@@ -1,5 +1,11 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-23 Multi-user Telegram allowlist
+- `OWNER_TELEGRAM_ID` endi comma-separated allowlist: `6028715926,606578823`. Railway Variables'da shu formatda yozilsa, shu ID egalari bot va Mini Appdan foydalana oladi.
+- O'zgargan joylar: `backend/src/config/env.js`, `backend/src/bot/bot.js`, `backend/src/middleware/auth.js`, `backend/src/models/Settings.js`, `backend/src/routes/settings.js`, `backend/src/middleware/deleteCode.js`, `backend/src/bot/handlers/commands.js`, `backend/src/cron/reminders.js`, `backend/src/routes/reports.js`.
+- Settings/delete-code endi so'rov yuborgan Telegram user bo'yicha olinadi. Eslatmalar barcha allowlist IDlarga ketadi; Mini Appdan "hisobotni botga yuborish" faqat so'rov yuborgan userga ketadi.
+- README va `backend/.env.example` yangi format bilan yangilandi.
+
 
 > Oxirgi yangilanish: 2026-06-23.
 
