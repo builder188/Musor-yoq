@@ -557,15 +557,22 @@ async function recordAgentPayment(args) {
   };
 }
 
+// Service funksiyalari sahifa bilan {items} obyekti yoki massiv qaytarishi mumkin —
+// doim massivga keltirib, .filter/.slice xatosining oldini olamiz.
+function asArray(value) {
+  if (Array.isArray(value)) return value;
+  return Array.isArray(value?.items) ? value.items : [];
+}
+
 async function searchAgentData(args) {
   const query = args.query || '';
   const filters = args.filters || {};
-  const services = await searchServices({
+  const services = asArray(await searchServices({
     text: query,
     dateFrom: filters.dateFrom || null,
     dateTo: filters.dateTo || null,
     limit: 20,
-  });
+  }));
   // listClients/listTransactions sahifa bilan {items} obyekti, sahifasiz massiv qaytarishi
   // mumkin — bu yerda hammasini massivga keltiramiz, aks holda .filter/.slice "is not a function".
   const clients = asArray(await listClients({ search: query }));

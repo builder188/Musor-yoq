@@ -343,6 +343,25 @@ function agentToolModel() {
   });
 }
 
+// Gemini ba'zan vaqtinchalik 503 (high demand) / 429 (rate limit) / 500 qaytaradi.
+// Bu o'tkinchi xatolar — qisqa backoff bilan qayta uriniladi, aks holda foydalanuvchi
+// "AI bilan bog'lanishda xatolik" oladi. Kalit/model xatolari (4xx) qayta urinilmaydi.
+async function generateWithRetry(modelInstance, request, { retries = 2, baseDelayMs = 700 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await modelInstance.generateContent(request);
+    } catch (err) {
+      lastErr = err;
+      const status = err?.status;
+      const retriable = status === 503 || status === 429 || status === 500;
+      if (!retriable || attempt === retries) throw err;
+      await new Promise((resolve) => setTimeout(resolve, baseDelayMs * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 function safeParseJson(text) {
   if (!text) return null;
   try {
@@ -508,7 +527,7 @@ function hasMeaningfulServiceRecord(record) {
 
 // STEP 1: VOICE input. Returns exact Uzbek transcription only.
 export async function transcribeAudio(audioBuffer, mime = 'audio/ogg') {
-  const res = await textModel().generateContent([
+  const res = await generateWithRetry(textModel(),[
     { text: TRANSCRIBE_PROMPT },
     {
       inlineData: {
@@ -522,7 +541,7 @@ export async function transcribeAudio(audioBuffer, mime = 'audio/ogg') {
 
 // STEP 1: IMAGE input OCR. Returns notebook records only; does not save them.
 export async function extractNotebookRecords(imageBuffer, mime = 'image/jpeg', caption = '') {
-  const res = await jsonModel().generateContent([
+  const res = await generateWithRetry(jsonModel(), [
     { text: buildImagePrompt(caption) },
     {
       inlineData: {
@@ -537,7 +556,7 @@ export async function extractNotebookRecords(imageBuffer, mime = 'image/jpeg', c
 // STEP 2: intent classification with Gemini function calling enabled.
 export async function classifyIntent(text) {
   const prompt = buildClassificationPrompt(text);
-  const res = await functionCallingModel().generateContent(prompt);
+  const res = await generateWithRetry(functionCallingModel(), prompt);
   const args = functionArgs(res.response);
   if (args) return normalizeUnderstanding(args);
 
@@ -546,7 +565,7 @@ export async function classifyIntent(text) {
 }
 
 export async function chooseAgentTool({ intent, fields = {}, rawText = '', mode = 'bot' }) {
-  const res = await agentToolModel().generateContent(`You are the action planner for Musir Yo'q.
+  const res = await generateWithRetry(agentToolModel(), `You are the action planner for Musir Yo'q.
 Choose exactly one function tool to execute for this already classified request.
 
 Intent: ${intent}
@@ -572,7 +591,7 @@ Rules:
 }
 
 export async function formulateToolResponse({ toolName, toolArgs, toolResult, rawText = '' }) {
-  const res = await textModel().generateContent(`You are Musir Yo'q assistant.
+  const res = await generateWithRetry(textModel(),`You are Musir Yo'q assistant.
 The requested MongoDB operation has already been executed by the server.
 Write a short, friendly, factual Uzbek response for the business owner.
 Do not invent data. Mention only important saved/updated/found values.
@@ -628,7 +647,7 @@ export async function understandImage(imageBuffer, mime = 'image/jpeg', caption 
 }
 
 export async function answerFromData(question, data) {
-  const res = await textModel().generateContent(buildAnswerPrompt(question, data));
+  const res = await generateWithRetry(textModel(),buildAnswerPrompt(question, data));
   return res.response.text().trim();
 }
 
