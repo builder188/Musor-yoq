@@ -69,6 +69,31 @@ function requestedBotMode() {
   return process.env.BOT_MODE?.trim().toLowerCase() || '';
 }
 
+// Google to'xtatgan (retired) modellar generateContent'da 404 beradi. Eski qiymat
+// (masalan Railway Variables'da qolib ketgan) avtomatik amaldagi modelga moslanadi,
+// shunda deploy kalit to'g'ri bo'lsa ham eski model nomi tufayli sinmaydi.
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const RETIRED_MODEL_MAP = {
+  'gemini-2.0-flash': DEFAULT_GEMINI_MODEL,
+  'gemini-2.0-flash-001': DEFAULT_GEMINI_MODEL,
+  'gemini-1.5-flash': DEFAULT_GEMINI_MODEL,
+  'gemini-1.5-flash-latest': DEFAULT_GEMINI_MODEL,
+  'gemini-1.5-flash-8b': DEFAULT_GEMINI_MODEL,
+  'gemini-1.5-pro': 'gemini-2.5-pro',
+  'gemini-1.5-pro-latest': 'gemini-2.5-pro',
+};
+let geminiModelNote = '';
+function resolveGeminiModel() {
+  const requested = process.env.GEMINI_MODEL?.trim();
+  if (!requested) return DEFAULT_GEMINI_MODEL;
+  const mapped = RETIRED_MODEL_MAP[requested];
+  if (mapped) {
+    geminiModelNote = `GEMINI_MODEL="${requested}" endi ishlamaydi (Google uni to'xtatgan), "${mapped}" ishlatilmoqda. Railway Variables'da GEMINI_MODEL ni "${mapped}" ga yangilang.`;
+    return mapped;
+  }
+  return requested;
+}
+
 function botMode() {
   const explicit = requestedBotMode();
   if (explicit === 'polling' && isRailwayRuntime() && publicDomain()) {
@@ -86,7 +111,7 @@ const env = {
   OWNER_TELEGRAM_ID: required('OWNER_TELEGRAM_ID'),
   MONGODB_URI: firstMongoUri(),
   GEMINI_API_KEY: required('GEMINI_API_KEY'),
-  GEMINI_MODEL: process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash',
+  GEMINI_MODEL: resolveGeminiModel(),
 
   NODE_ENV: process.env.NODE_ENV?.trim() || 'development',
   PORT: parseInt(process.env.PORT, 10) || 3000,
@@ -135,6 +160,14 @@ export function getEnvIssues() {
   if (env.GEMINI_API_KEY && /Example|ReplaceMe/i.test(env.GEMINI_API_KEY)) {
     errors.push('GEMINI_API_KEY namunaviy qiymatga o\'xshaydi. Google AI Studio bergan haqiqiy keyni kiriting.');
   }
+  // Google AI Studio (Gemini) kaliti ikki formatda bo'ladi: eski "AIza..." va yangi "AQ....".
+  // Bularga mos kelmasa (masalan "PAQ." kabi) — API "API key not valid" qaytaradi.
+  if (env.GEMINI_API_KEY && !/^(AIza[0-9A-Za-z_-]{30,}|AQ\.[0-9A-Za-z_.-]{20,})$/.test(env.GEMINI_API_KEY)) {
+    warnings.push("GEMINI_API_KEY Google AI Studio formatiga o'xshamaydi (odatda 'AIza' yoki 'AQ.' bilan boshlanadi). Noto'g'ri kalit bo'lsa AI 'API key not valid' xatosi beradi. To'g'ri kalitni https://aistudio.google.com/apikey dan oling.");
+  }
+  if (geminiModelNote) {
+    warnings.push(geminiModelNote);
+  }
   if (env.BOT_MODE === 'webhook' && !env.RAILWAY_STATIC_URL) {
     errors.push('BOT_MODE=webhook bo\'lsa, RAILWAY_STATIC_URL yoki RAILWAY_PUBLIC_DOMAIN kerak.');
   }
@@ -161,5 +194,14 @@ export function validateEnv() {
 
 export const isProd = () => env.NODE_ENV === 'production';
 export const ownerId = () => Number(env.OWNER_TELEGRAM_ID);
+
+// Mini App manzili: aniq MINIAPP_URL bo'lsa o'shani, bo'lmasa Railway public
+// domenini ishlatadi (backend Mini App'ni shu domen ildizida static beradi).
+// Telegram web_app tugmasi faqat HTTPS qabul qiladi.
+export function miniAppUrl() {
+  if (env.MINIAPP_URL) return env.MINIAPP_URL.replace(/\/+$/g, '');
+  if (env.RAILWAY_STATIC_URL) return `https://${env.RAILWAY_STATIC_URL}`;
+  return '';
+}
 
 export default env;

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import { webhookCallback } from 'grammy';
 
-import env, { getEnvIssues } from './config/env.js';
+import env, { getEnvIssues, miniAppUrl } from './config/env.js';
 import { connectDB } from './db/connect.js';
 import apiRouter from './routes/index.js';
 import { attachReportBot } from './routes/reports.js';
@@ -63,6 +63,7 @@ async function startRuntime(app) {
 
   const { bot } = await import('./bot/bot.js');
   attachReportBot(bot);
+  await setupMenuButton(bot);
 
   if (env.BOT_MODE === 'webhook') {
     app.use(WEBHOOK_PATH, webhookCallback(bot, 'express'));
@@ -80,6 +81,24 @@ async function startRuntime(app) {
   startCleanupCron();
   runtime.ready = true;
   console.log('Backend tayyor');
+}
+
+// Telegram "MENU" tugmasini Mini App'ga ulaydi. Tugma bosilganda Mini App ochiladi,
+// ichkarida esa telegram.js requestFullscreen() bilan butun ekranga o'tadi.
+async function setupMenuButton(bot) {
+  const url = miniAppUrl();
+  if (!url) {
+    console.warn("Menu tugmasi o'rnatilmadi: MINIAPP_URL/RAILWAY_STATIC_URL yo'q.");
+    return;
+  }
+  try {
+    await bot.api.setChatMenuButton({
+      menu_button: { type: 'web_app', text: 'Panel', web_app: { url } },
+    });
+    console.log(`Menu tugmasi Mini App'ga ulandi: ${url}`);
+  } catch (err) {
+    console.warn("Menu tugmasini sozlab bo'lmadi:", err.message);
+  }
 }
 
 function isConflictError(err) {

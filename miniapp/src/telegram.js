@@ -6,6 +6,13 @@ export function initTelegram() {
   if (tg) {
     tg.ready();
     tg.expand();
+    // Butun ekran (Bot API 8.0+). Eski klientlarda expand() bilan to'liq balandlik qoladi.
+    requestFullscreenSafely();
+    // Fullscreen/xavfsiz zona o'zgarsa — yuqori padding'ni yangilaymiz.
+    applySafeAreaInsets();
+    tg.onEvent?.('fullscreenChanged', applySafeAreaInsets);
+    tg.onEvent?.('safeAreaChanged', applySafeAreaInsets);
+    tg.onEvent?.('contentSafeAreaChanged', applySafeAreaInsets);
     // Asosiy va orqa fon ranglarini moslashtirish.
     try {
       tg.setHeaderColor('secondary_bg_color');
@@ -14,6 +21,32 @@ export function initTelegram() {
     }
   }
   return tg;
+}
+
+// Butun ekranni so'raydi. Faqat qo'llab-quvvatlanadigan klientlarda; aks holda jim o'tadi.
+function requestFullscreenSafely() {
+  try {
+    if (typeof tg.requestFullscreen === 'function' && tg.isVersionAtLeast?.('8.0')) {
+      tg.requestFullscreen();
+      // Fullscreen'da pastga surish bilan tasodifan yopilmasligi uchun.
+      tg.disableVerticalSwipes?.();
+    }
+  } catch {
+    /* qo'llab-quvvatlanmasligi mumkin */
+  }
+}
+
+// Fullscreen'da kontent status bar / Telegram tugmalari ostiga tushmasligi uchun
+// xavfsiz zona yuqori inset'ini CSS o'zgaruvchisiga yozamiz.
+function applySafeAreaInsets() {
+  try {
+    const safe = tg?.safeAreaInset || {};
+    const content = tg?.contentSafeAreaInset || {};
+    const top = (Number(safe.top) || 0) + (Number(content.top) || 0);
+    document.documentElement.style.setProperty('--tg-safe-top', `${top}px`);
+  } catch {
+    /* e'tiborsiz */
+  }
 }
 
 // API so'rovlari uchun initData.

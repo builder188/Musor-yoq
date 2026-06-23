@@ -32,6 +32,35 @@ async function getConversation(telegramId) {
   return conv;
 }
 
+// Gemini kalit/auth/kvota xatosini aniqlaydi. Bot faqat egasi uchun, shuning uchun
+// umumiy "keyinroq urinib ko'ring" o'rniga aniq sababni ko'rsatamiz.
+function isAiKeyError(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    msg.includes('api key') ||
+    msg.includes('api_key_invalid') ||
+    msg.includes('permission denied') ||
+    msg.includes('permission_denied') ||
+    msg.includes('quota') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('401') ||
+    msg.includes('403')
+  );
+}
+
+// Egaga ko'rsatiladigan AI xato matni — kalit muammosida aniq yo'riq beradi.
+async function replyAiError(ctx, err, genericText) {
+  if (isAiKeyError(err)) {
+    await ctx.reply(
+      "AI kaliti ishlamayapti (GEMINI_API_KEY noto'g'ri, muddati o'tgan yoki kvota tugagan).\n" +
+        "Railway → Variables bo'limida to'g'ri kalitni kiriting.\n" +
+        'Kalit oling: https://aistudio.google.com/apikey'
+    );
+    return;
+  }
+  await ctx.reply(genericText);
+}
+
 export function registerMessageHandler(bot) {
   bot.on('message:location', async (ctx) => {
     const conv = await getConversation(ctx.from.id);
@@ -72,7 +101,7 @@ export function registerMessageHandler(bot) {
       await routeUnderstanding(ctx, { ...understanding, transcription }, transcription);
     } catch (err) {
       console.error('Ovozni qayta ishlash xatosi:', err.message);
-      await ctx.reply("Ovozni tushunolmadim. Iltimos, qayta urinib ko'ring yoki matn yozing.");
+      await replyAiError(ctx, err, "Ovozni tushunolmadim. Iltimos, qayta urinib ko'ring yoki matn yozing.");
     }
   });
 
@@ -85,7 +114,7 @@ export function registerMessageHandler(bot) {
       await routeUnderstanding(ctx, { ...understanding, transcription }, transcription);
     } catch (err) {
       console.error('Audio xatosi:', err.message);
-      await ctx.reply("Audioni tushunolmadim. Matn ko'rinishida yuboring.");
+      await replyAiError(ctx, err, "Audioni tushunolmadim. Matn ko'rinishida yuboring.");
     }
   });
 
@@ -98,7 +127,7 @@ export function registerMessageHandler(bot) {
       await routeImageRecords(ctx, records, photo.file_id);
     } catch (err) {
       console.error('Rasm xatosi:', err.message);
-      await ctx.reply("Rasmni o'qiy olmadim. Aniqroq surat yuboring yoki matn yozing.");
+      await replyAiError(ctx, err, "Rasmni o'qiy olmadim. Aniqroq surat yuboring yoki matn yozing.");
     }
   });
 
@@ -142,7 +171,7 @@ export function registerMessageHandler(bot) {
       await routeUnderstanding(ctx, understanding, text);
     } catch (err) {
       console.error('Matn NLU xatosi:', err.message);
-      await ctx.reply("AI bilan bog'lanishda xatolik. Birozdan keyin urinib ko'ring.");
+      await replyAiError(ctx, err, "AI bilan bog'lanishda xatolik. Birozdan keyin urinib ko'ring.");
     }
   });
 

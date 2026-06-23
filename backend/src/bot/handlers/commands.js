@@ -1,5 +1,5 @@
 import { InlineKeyboard } from 'grammy';
-import env from '../../config/env.js';
+import env, { miniAppUrl } from '../../config/env.js';
 import Conversation from '../../models/Conversation.js';
 import Settings from '../../models/Settings.js';
 import { pdfFilterKeyboard } from '../ui.js';
@@ -95,8 +95,9 @@ async function clearState(ctx) {
 }
 
 function buildAppKeyboard() {
-  if (env.MINIAPP_URL) {
-    return new InlineKeyboard().webApp('Panelni ochish', env.MINIAPP_URL);
+  const url = miniAppUrl();
+  if (url) {
+    return new InlineKeyboard().webApp('Panelni ochish', url);
   }
   return undefined;
 }

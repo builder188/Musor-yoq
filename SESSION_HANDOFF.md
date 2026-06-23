@@ -1,7 +1,35 @@
 # SESSION_HANDOFF.md
 
 
-> Oxirgi yangilanish: 2026-06-22.
+> Oxirgi yangilanish: 2026-06-23.
+
+## 2026-06-23 AI ishlamasligi — 2 ta sabab: kalit typo + to'xtatilgan model + Mini App fullscreen
+- **1-sabab (kalit typo):** `GEMINI_API_KEY` dastlab `PAQ.Ab8R...` edi -> Gemini API `400 API_KEY_INVALID`.
+  Aslida to'g'ri kalit `AQ.Ab8R...` (yangi Google kalit formati; eski format `AIza...`). User boshidagi ortiqcha
+  "P" harfini olib tashlagach kalit VALID bo'ldi (ListModels 200 qaytardi).
+- **2-sabab (asosiy, isbotlangan):** `GEMINI_MODEL=gemini-2.0-flash` Google tomonidan TO'XTATILGAN ->
+  generateContent `404 "This model ... is no longer available"`. `gemini-2.0-flash-001` ham 404. Shu sabab kalit
+  to'g'ri bo'lsa ham matn/ovoz ishlamasdi. Build loglar toza edi (xato runtime'da). Jonli tekshiruv: ListModels
+  bilan `gemini-2.5-flash-lite` 3/3 marta `200` (to'g'ri o'zbekcha javob); loyiha kodi (`understandText` +
+  function calling) real kalit+yangi model bilan SERVICE_ENTRY'ni to'liq ajratdi, "salom" -> do'stona javob.
+- **Tuzatish:** Model `gemini-2.5-flash-lite` ga o'tkazildi (`.env`, `.env.example`, `env.js` + `gemini.js`
+  defaultlari). `env.js`ga `RETIRED_MODEL_MAP` qo'shildi: Railway'da eski `gemini-2.0-flash` qolib ketsa ham
+  avtomatik `gemini-2.5-flash-lite` ga moslanadi (startup warning bilan). **USER HARAKATI (ixtiyoriy):** Railway
+  Variables'da `GEMINI_MODEL` ni `gemini-2.5-flash-lite` ga yangilang yoki o'sha o'zgaruvchini o'chiring (auto-remap baribir ishlaydi).
+- **Kod mustahkamlandi (diagnostika ko'rinadigan bo'ldi):**
+  - `env.js`: `GEMINI_API_KEY` `AIza...` formatiga mos kelmasa startup warning beradi; `miniAppUrl()` helper qo'shildi
+    (MINIAPP_URL bo'lmasa Railway public domenni ishlatadi).
+  - `bot/handlers/message.js`: `isAiKeyError()` + `replyAiError()` — kalit/kvota/auth xatosida endi egaga aniq
+    "GEMINI_API_KEY noto'g'ri ... aistudio.google.com/apikey" deb yozadi (4 handler: matn/ovoz/audio/rasm).
+- **Mini App fullscreen (MENU tugmasi):**
+  - `index.js`: `setupMenuButton()` — Telegram chat MENU tugmasini Mini App web_app'ga ulaydi (`miniAppUrl()`).
+  - `miniapp/src/telegram.js`: `requestFullscreen()` (Bot API 8.0+, `isVersionAtLeast` guard) + `disableVerticalSwipes` +
+    xavfsiz zona insetlari (`--tg-safe-top` CSS var, fullscreen/safeArea event'larida yangilanadi). Eski klientda `expand()`.
+  - `miniapp/src/styles.css`: `.app` padding-top `calc(12px + var(--tg-safe-top))` — fullscreen'da kontent status bar ostiga tushmaydi.
+  - `commands.js`: inline "Panelni ochish" ham `miniAppUrl()` fallback ishlatadi.
+- Tekshirildi: `node --check` (env/index/message/commands/gemini) OK; `npm run build` (miniapp) OK; loyiha
+  kodi orqali real NLU e2e test (`understandText` + function calling, `gemini-2.5-flash-lite`) = ISHLAYDI ✓.
+  Eslatma: `env.js` kalit-format ogohlantirishi endi `AIza...` va `AQ....` ikkala formatni qabul qiladi.
 
 
 ## 2026-06-22 Bot Railway'da javob bermaslik — resilient polling fix
