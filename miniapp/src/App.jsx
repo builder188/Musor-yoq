@@ -15,6 +15,7 @@ export default function App() {
   const [tab, setTab] = useState('home');
   // Bosh sahifadagi qidiruvdan mijozni ochish uchun: Mijozlar tabiga o'tib detalni ochamiz.
   const [focusClientId, setFocusClientId] = useState(null);
+  const [openAddClient, setOpenAddClient] = useState(false);
 
   const openClient = (id) => {
     setFocusClientId(id);
@@ -38,9 +39,23 @@ export default function App() {
           <small>Backend ishlamayotgan bo'lishi yoki avtorizatsiya muammosi mumkin.</small>
         </div>
       )}
-      {tab === 'home' && <Home goToTab={setTab} onOpenClient={openClient} />}
+      {tab === 'home' && (
+        <Home
+          goToTab={setTab}
+          onOpenClient={openClient}
+          onAddClient={() => {
+            setOpenAddClient(true);
+            setTab('clients');
+          }}
+        />
+      )}
       {tab === 'clients' && (
-        <Clients focusClientId={focusClientId} onFocusHandled={() => setFocusClientId(null)} />
+        <Clients
+          focusClientId={focusClientId}
+          openAddClient={openAddClient}
+          onAddClientHandled={() => setOpenAddClient(false)}
+          onFocusHandled={() => setFocusClientId(null)}
+        />
       )}
       {tab === 'services' && <Services />}
       {tab === 'finance' && <Finance />}

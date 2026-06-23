@@ -566,8 +566,10 @@ async function searchAgentData(args) {
     dateTo: filters.dateTo || null,
     limit: 20,
   });
-  const clients = await listClients({ search: query });
-  const transactions = await listTransactions({ period: 'all', limit: 50 });
+  // listClients/listTransactions sahifa bilan {items} obyekti, sahifasiz massiv qaytarishi
+  // mumkin — bu yerda hammasini massivga keltiramiz, aks holda .filter/.slice "is not a function".
+  const clients = asArray(await listClients({ search: query }));
+  const transactions = asArray(await listTransactions({ period: 'all', limit: 50 }));
   const q = query.trim().toLowerCase();
   const filteredServices = filters.status
     ? services.filter((service) => service.status === filters.status)

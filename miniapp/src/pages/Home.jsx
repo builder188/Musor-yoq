@@ -5,8 +5,8 @@ import { formatMoney, formatDate, formatPhone } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 
-export default function Home({ onOpenClient }) {
-  const { t } = useApp();
+export default function Home({ onOpenClient, goToTab, onAddClient }) {
+  const { t, lang } = useApp();
   const [stats, setStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(true);
   const [search, setSearch] = useState('');
@@ -14,9 +14,10 @@ export default function Home({ onOpenClient }) {
   const [searching, setSearching] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
+  const [completingServiceId, setCompletingServiceId] = useState(null);
 
   const loadStats = () => {
-    api
+    return api
       .get('/stats/home')
       .then(setStats)
       .catch(() => {})
@@ -26,6 +27,19 @@ export default function Home({ onOpenClient }) {
   useEffect(() => {
     loadStats();
   }, []);
+
+  const completeTodayService = async (service) => {
+    if (!service?._id || completingServiceId) return;
+    setCompletingServiceId(service._id);
+    try {
+      await api.patch(`/services/${service._id}/complete`, { markPaid: true });
+      await loadStats();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setCompletingServiceId(null);
+    }
+  };
 
   useEffect(() => {
     const q = search.trim();
@@ -49,22 +63,44 @@ export default function Home({ onOpenClient }) {
 
   return (
     <div>
-      <h1 className="page-title">{t('home.title')}</h1>
+      <div className="greeting">
+        <div>
+          <div className="greet-date">{greetingDate(lang)}</div>
+          <div className="greet-hello">{t('home.greeting')}</div>
+        </div>
+        <button className="icon-btn" aria-label={t('settings.title')} onClick={() => goToTab?.('settings')}>
+          ⚙️
+        </button>
+      </div>
 
-      <QuickStatsRow stats={stats} loading={loadingStats} />
+      <SummaryCard stats={stats} loading={loadingStats} />
 
       <FailedReminders items={stats?.failedReminders} onChange={loadStats} />
 
-      <div className="search-box">
+      <div className="search">
+        <span className="search-icon">🔍</span>
         <input
-          className="input"
           placeholder={t('home.searchPlaceholder')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
+      <button className="btn btn-primary btn-block add-client-cta" onClick={() => onAddClient?.() || goToTab?.('clients')}>
+        <span className="cta-plus">+</span>
+        {t('home.addClientBig')}
+      </button>
+
       <SearchResults clients={clients} searching={searching} onOpenClient={onOpenClient} />
+      {!search.trim() && (
+        <TodayServices
+          items={stats?.todayServices || []}
+          loading={loadingStats}
+          busyId={completingServiceId}
+          onOpenService={setSelectedService}
+          onComplete={completeTodayService}
+        />
+      )}
 
       <FloatingAiButton onClick={() => setAiOpen(true)} />
 
@@ -74,26 +110,44 @@ export default function Home({ onOpenClient }) {
   );
 }
 
-function QuickStatsRow({ stats, loading }) {
+// Xulosa kartasi: 2 ustun — bugungi xizmatlar soni | joriy balans (yashil).
+function SummaryCard({ stats, loading }) {
   const { t } = useApp();
+  const count = loading ? '…' : stats?.todayCount ?? 0;
+  const balance = stats?.monthSummary?.balance ?? 0;
   return (
-    <div className="quick-stats">
-      <div className="quick-stat">
-        <span>📦</span>
-        <div>
-          <strong>{loading ? '...' : stats?.todayCount ?? 0}</strong>
-          <small>{t('home.todayJobs')}</small>
+    <div className="summary-card">
+      <div className="summary-col">
+        <div className="summary-label">{t('home.todayJobs')}</div>
+        <div className="summary-value">
+          {count} <span className="unit">{t('home.countSuffix')}</span>
         </div>
       </div>
-      <div className="quick-stat">
-        <span>💰</span>
-        <div>
-          <strong>{formatMoney(stats?.monthSummary?.balance ?? 0)}</strong>
-          <small>{t('home.balance')}</small>
-        </div>
+      <div className="summary-divider" />
+      <div className="summary-col wide">
+        <div className="summary-label">{t('home.balanceNow')}</div>
+        <div className="summary-value accent">{formatNumber(balance)}</div>
       </div>
     </div>
   );
+}
+
+// "Seshanba · 23-iyun" ko'rinishidagi sana.
+const UZ_WEEKDAYS = ['Yakshanba', 'Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba'];
+const UZ_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
+function greetingDate(lang) {
+  const d = new Date();
+  if (lang === 'ru') {
+    return new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
+  }
+  return `${UZ_WEEKDAYS[d.getDay()]} · ${d.getDate()}-${UZ_MONTHS[d.getMonth()]}`;
+}
+
+// Birlik ("so'm")siz raqam: 2 340 000.
+function formatNumber(n) {
+  return Math.round(Number(n) || 0)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
 // 3 urinishdan keyin ham yuborilmagan eslatmalar — qo'lda hal qilish (qayta urinish / o'chirish).
@@ -172,6 +226,79 @@ function SearchResults({ clients, searching, onOpenClient }) {
       ))}
     </div>
   );
+}
+
+function TodayServices({ items, loading, busyId, onOpenService, onComplete }) {
+  const { t } = useApp();
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="today-list">
+      <div className="section-head">
+        <div className="sec-title">{t('home.todayJobs')}</div>
+      </div>
+      {items.length === 0 ? (
+        <div className="empty">{t('services.noServices')}</div>
+      ) : (
+        items.map((service) => (
+          <TodayServiceCard
+            key={service._id}
+            service={service}
+            busy={busyId === service._id}
+            onOpen={() => onOpenService?.(service)}
+            onComplete={() => onComplete?.(service)}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function TodayServiceCard({ service, busy, onOpen, onComplete }) {
+  const { t } = useApp();
+  const isDone = service.status === 'bajarildi';
+  const isCancelled = service.status === 'bekor_qilindi';
+  const initial = (service.clientName || '?').trim().charAt(0).toUpperCase() || '?';
+
+  const stopAndComplete = (e) => {
+    e.stopPropagation();
+    onComplete?.();
+  };
+
+  return (
+    <div className={`list-item ${isDone ? 'is-done' : ''}`} onClick={onOpen}>
+      <div className={`job-card ${isDone ? 'is-done' : ''}`}>
+        <div className="avatar">{initial}</div>
+        <div className="job-main">
+          <div className="job-name">{service.clientName || '-'}</div>
+          <div className="job-sub">
+            {formatTime(service.serviceDateTime)}
+            {service.location?.address ? ` · ${service.location.address}` : ''}
+          </div>
+          <div className="job-price">{formatMoney(service.price)}</div>
+        </div>
+        {isDone ? (
+          <div className="check-circle done" aria-label={t('status.bajarildi')}>
+            ✓
+          </div>
+        ) : isCancelled ? (
+          <span className="badge badge-cancelled">{t('status.bekor_qilindi')}</span>
+        ) : (
+          <button
+            className="check-circle"
+            aria-label={t('services.markDone')}
+            disabled={busy}
+            onClick={stopAndComplete}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatTime(value) {
+  if (!value) return '';
+  return new Intl.DateTimeFormat('uz-UZ', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
 
 function ClientCard({ client, onOpen }) {

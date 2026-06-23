@@ -1,5 +1,15 @@
 # AI_CONTEXT.md
 
+## 2026-06-23 Mini App premium redesign qollandi
+- Dizayn referensi `_design_extracted/design_handoff_miniapp_redesign/README.md` va `Musir Yoq Redesign.dc.html` asosida Mini App vizual qatlami yangilandi; yangi ogir kutubxona qoshilmadi.
+- `styles.css` premium tokenlar, Hanken Grotesk, light/dark `data-theme`, bottom-nav blur, summary/job cards, reminder chiplar va bottom-sheet formalar bilan moslandi.
+- Home: salomlashish, summary card, search pill, full-width yangi mijoz CTA va `stats.todayServices` asosidagi bugungi xizmatlar royxati; checkbox `/services/:id/complete` oqimiga ulandi.
+- Services: 3 segment (`Bugun`/`Kutilmoqda`/`Bajarildi`), `Bugun` real bugungi sana oraligiga filterlanadi, kartalar avatar+checkbox premium korinishida.
+- Finance: 3 davr segmenti (`Bugun`/`Bu oy`/`Yil`), `Joriy balans`, kirim/chiqim kartalari, CSS bar grafik va `Songgi harakatlar` matni.
+- Settings: profil karta, light/dark va til segmentlari, 3 preset reminder chip (`1 kun oldin`, `1 soat oldin`, `Aynan vaqtida`), xavfsizlik qatorlari va kod ozgartirish bottom-sheet.
+- Yangi mijoz formasi: Ism/Telefon/Manzil(+Xarita)/Sana+Vaqt/Xizmat haqi/som/reminder banner tartibi; Sana/Vaqt mobil viewda ham 2 ustun saqlandi.
+- Tekshiruv: `cd miniapp && npm run build` OK; production `dist` static server `http://127.0.0.1:5175/` da Playwright bilan Home/Services/Finance/Settings/Add Client modal va dark toggle tekshirildi. Backend lokal ishlamagani sabab browserda `Failed to fetch` banneri kutilgan holat.
+
 ## 2026-06-23 Multi-user Telegram allowlist
 - `OWNER_TELEGRAM_ID` endi bitta ID yoki vergul bilan ajratilgan bir nechta Telegram ID qabul qiladi: `6028715926,606578823`.
 - `env.js` `ownerIds()` va `isOwnerTelegramId()` helperlarini qo'shdi; validator IDlarning hammasi raqam ekanini tekshiradi.

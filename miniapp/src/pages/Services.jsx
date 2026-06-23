@@ -8,10 +8,11 @@ import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
 
 const STATUSES = ['kutilmoqda', 'bajarildi', 'bekor_qilindi'];
+const SERVICE_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
 
 export default function Services() {
-  const { t } = useApp();
-  const [view, setView] = useState('kanban');
+  const { t, lang } = useApp();
+  const [view, setView] = useState('today');
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('');
@@ -30,12 +31,9 @@ export default function Services() {
   const load = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filterStatus) params.set('status', filterStatus);
-      if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
-      if (dateTo) params.set('dateTo', new Date(`${dateTo}T23:59:59`).toISOString());
-      if (searchText.trim()) params.set('search', searchText.trim());
-      setServices(await api.get(`/services${params.toString() ? `?${params.toString()}` : ''}`));
+      const params = serviceParamsForView(view);
+      const data = await api.get(`/services${params.toString() ? `?${params.toString()}` : ''}`);
+      setServices(sortServicesForView(normalizeServices(data), view));
     } catch {
       setServices([]);
     } finally {
@@ -46,105 +44,56 @@ export default function Services() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStatus]);
+  }, [view]);
 
   return (
     <div>
-      <div className="row-between">
-        <h1 className="page-title">{t('services.title')}</h1>
-        <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>
-          + {t('common.add')}
+      <div className="row-between" style={{ marginBottom: 4 }}>
+        <h1 className="page-title" style={{ marginBottom: 0 }}>{t('services.title')}</h1>
+        <button
+          className="icon-btn"
+          style={{ background: 'var(--text)', color: 'var(--card)', border: 'none', fontSize: 21, boxShadow: 'var(--shadow-btn)' }}
+          aria-label={t('common.add')}
+          onClick={() => setCreating(true)}
+        >
+          ＋
         </button>
       </div>
 
       <div className="segment">
-        <button className={view === 'kanban' ? 'active' : ''} onClick={() => setView('kanban')}>
-          {t('services.kanban')}
+        <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}>
+          {t('services.today')}
         </button>
-        <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>
-          {t('services.list')}
+        <button className={view === 'pending' ? 'active' : ''} onClick={() => setView('pending')}>
+          {t('status.kutilmoqda')}
+        </button>
+        <button className={view === 'done' ? 'active' : ''} onClick={() => setView('done')}>
+          {t('status.bajarildi')}
         </button>
       </div>
 
+      <div className="section-title compact">{serviceSectionLabel(view, t, lang)}</div>
+
       {loading ? (
         <Spinner />
-      ) : view === 'kanban' ? (
-        <div className="kanban">
-          {STATUSES.map((status) => {
-            const items = services.filter((service) => service.status === status);
-            return (
-              <div
-                key={status}
-                className="kanban-col"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const id = e.dataTransfer.getData('text/service-id');
-                  const service = services.find((item) => item._id === id);
-                  if (status === 'bajarildi' && service && service.status !== 'bajarildi') {
-                    setCompleting(service);
-                  }
-                }}
-              >
-                <h3>
-                  {t(`status.${status}`)} ({items.length})
-                </h3>
-                {items.map((service) => (
-                  <ServiceCard
-                    key={service._id}
-                    service={service}
-                    expanded={false}
-                    onToggle={() => setDetail(service)}
-                    draggable
-                    // Touch'da drag ishlamaydi — pending kartochkada tezkor "bajarildi" tugmasi.
-                    onQuickComplete={service.status === 'kutilmoqda' ? () => setCompleting(service) : undefined}
-                  />
-                ))}
-              </div>
-            );
-          })}
-        </div>
+      ) : services.length === 0 ? (
+        <div className="empty">{t('services.noServices')}</div>
       ) : (
-        <>
-          <FilterBar
-            t={t}
-            filterStatus={filterStatus}
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            searchText={searchText}
-            onStatus={setFilterStatus}
-            onDateFrom={setDateFrom}
-            onDateTo={setDateTo}
-            onSearchText={setSearchText}
-            onSearch={load}
-            onReset={() => {
-              setFilterStatus('');
-              setDateFrom('');
-              setDateTo('');
-              setSearchText('');
-            }}
-          />
-
-          {services.length === 0 ? (
-            <div className="empty">{t('services.noServices')}</div>
-          ) : (
-            services.map((service) => {
-              const expanded = expandedId === service._id;
-              return (
-                <ServiceCard
-                  key={service._id}
-                  service={service}
-                  expanded={expanded}
-                  onToggle={() => setExpandedId(expanded ? null : service._id)}
-                  onDetail={() => setDetail(service)}
-                  onComplete={() => setCompleting(service)}
-                  onReschedule={() => setRescheduling(service)}
-                  onCancel={() => setCanceling(service)}
-                />
-              );
-            })
-          )}
-        </>
+        services.map((service) => {
+          const expanded = expandedId === service._id;
+          return (
+            <ServiceCard
+              key={service._id}
+              service={service}
+              expanded={expanded}
+              onToggle={() => setExpandedId(expanded ? null : service._id)}
+              onDetail={() => setDetail(service)}
+              onComplete={() => setCompleting(service)}
+              onReschedule={() => setRescheduling(service)}
+              onCancel={() => setCanceling(service)}
+            />
+          );
+        })
       )}
 
       {detail && (
@@ -233,6 +182,51 @@ export default function Services() {
   );
 }
 
+function serviceParamsForView(view) {
+  const params = new URLSearchParams();
+  if (view === 'today') {
+    const { from, to } = todayRange();
+    params.set('dateFrom', from.toISOString());
+    params.set('dateTo', to.toISOString());
+  }
+  if (view === 'pending') params.set('status', 'kutilmoqda');
+  if (view === 'done') params.set('status', 'bajarildi');
+  return params;
+}
+
+function todayRange() {
+  const from = new Date();
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setHours(23, 59, 59, 999);
+  return { from, to };
+}
+
+function serviceSectionLabel(view, t, lang) {
+  if (view === 'pending') return t('status.kutilmoqda');
+  if (view === 'done') return t('status.bajarildi');
+  const d = new Date();
+  if (lang === 'ru') {
+    return new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
+  }
+  return `${t('services.today')} · ${d.getDate()}-${SERVICE_MONTHS[d.getMonth()]}`;
+}
+
+function normalizeServices(value) {
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.items)) return value.items;
+  return [];
+}
+
+function sortServicesForView(items, view) {
+  const direction = view === 'today' ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const left = new Date(a.serviceDateTime).getTime() || 0;
+    const right = new Date(b.serviceDateTime).getTime() || 0;
+    return (left - right) * direction;
+  });
+}
+
 function FilterBar({
   t,
   filterStatus,
@@ -287,28 +281,42 @@ function FilterBar({
 function ServiceCard({ service, expanded, onToggle, draggable = false, onDetail, onComplete, onReschedule, onCancel, onQuickComplete }) {
   const { t } = useApp();
   const isPending = service.status === 'kutilmoqda';
+  const isDone = service.status === 'bajarildi';
+  const isCancelled = service.status === 'bekor_qilindi';
+  const initial = (service.clientName || '?').trim().charAt(0).toUpperCase() || '?';
+  // Checkbox bosilganda "bajarildi" oqimi: kanban'da onQuickComplete, ro'yxatda onComplete.
+  const completeAction = onComplete || onQuickComplete;
   const stop = (fn) => (e) => {
     e.stopPropagation();
     fn?.();
   };
   return (
     <div
-      className={`list-item ${service.isDeletedByClientDeletion ? 'deleted-item' : ''}`}
+      className={`list-item ${isDone ? 'is-done' : ''} ${service.isDeletedByClientDeletion ? 'deleted-item' : ''}`}
       draggable={draggable}
       onDragStart={(e) => e.dataTransfer.setData('text/service-id', service._id)}
       onClick={onToggle}
     >
-      <div className="row-between">
-        <div className="title">{service.clientName}</div>
-        <span className={`badge badge-${badgeOf(service.status)}`}>{t(`status.${service.status}`)}</span>
+      <div className={`job-card ${isDone ? 'is-done' : ''}`}>
+        <div className="avatar">{initial}</div>
+        <div className="job-main">
+          <div className="job-name">{service.clientName}</div>
+          <div className="job-sub">
+            {formatDateTime(service.serviceDateTime)}
+            {service.location?.address ? ` · ${service.location.address}` : ''}
+          </div>
+          <div className="job-price">{formatMoney(service.price)}</div>
+        </div>
+        {isDone ? (
+          <div className="check-circle done" aria-label={t('status.bajarildi')}>✓</div>
+        ) : isCancelled ? (
+          <span className="badge badge-cancelled">{t('status.bekor_qilindi')}</span>
+        ) : completeAction ? (
+          <button className="check-circle" aria-label={t('services.markDone')} onClick={stop(completeAction)} />
+        ) : (
+          <div className="check-circle" />
+        )}
       </div>
-      <div className="sub">{formatDateTime(service.serviceDateTime)}</div>
-      <div className="sub">{service.location?.address || '-'} · {formatMoney(service.price)}</div>
-      {onQuickComplete && (
-        <button className="btn btn-primary btn-sm btn-block mt-8" onClick={stop(onQuickComplete)}>
-          ✅ {t('services.markDone')}
-        </button>
-      )}
       {expanded && (
         <div className="service-expanded">
           <div className="sub">{t('common.phone')}: {service.clientPhone}</div>

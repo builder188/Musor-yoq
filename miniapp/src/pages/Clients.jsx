@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatPhone, formatDate } from '../utils/format.js';
+import { formatMoney, formatPhone, formatDate, toInputDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 
-export default function Clients({ focusClientId, onFocusHandled }) {
+export default function Clients({ focusClientId, openAddClient, onAddClientHandled, onFocusHandled }) {
   const { t } = useApp();
   const [clients, setClients] = useState([]);
   const [search, setSearch] = useState('');
@@ -41,6 +41,12 @@ export default function Clients({ focusClientId, onFocusHandled }) {
     onFocusHandled?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusClientId]);
+
+  useEffect(() => {
+    if (!openAddClient) return;
+    setAdding(true);
+    onAddClientHandled?.();
+  }, [openAddClient, onAddClientHandled]);
 
   return (
     <div>
@@ -97,10 +103,10 @@ export default function Clients({ focusClientId, onFocusHandled }) {
       {adding && (
         <AddClientModal
           onClose={() => setAdding(false)}
-          onSaved={(created) => {
+          onSaved={() => {
             setAdding(false);
-            setClients((items) => [created, ...items]);
             setSearch('');
+            load();
           }}
         />
       )}
@@ -212,15 +218,31 @@ function ClientDetailModal({ client, onClose, onEdit, onDelete, onOpenService })
 }
 
 function AddClientModal({ onClose, onSaved }) {
-  const { t } = useApp();
-  const [form, setForm] = useState({ name: '', phone: '', location: '' });
+  const { t, lang } = useApp();
+  const initialDateTime = toInputDateTime(new Date(Date.now() + 60 * 60 * 1000));
+  const [datePart, timePart] = initialDateTime.split('T');
+  const [form, setForm] = useState({
+    name: '',
+    phone: '',
+    location: '',
+    date: datePart,
+    time: timePart,
+    price: '',
+  });
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
     setBusy(true);
     try {
-      const created = await api.post('/clients', form);
-      onSaved(created);
+      await api.post('/services', {
+        clientName: form.name,
+        clientPhone: form.phone,
+        location: form.location,
+        serviceDateTime: new Date(`${form.date}T${form.time}`).toISOString(),
+        price: Number(form.price),
+        paymentMethod: 'naqd',
+      });
+      onSaved();
     } catch (e) {
       alert(e.message);
     } finally {
@@ -230,17 +252,83 @@ function AddClientModal({ onClose, onSaved }) {
 
   return (
     <Modal title={t('clients.addClient')} onClose={onClose}>
-      <label className="label">{t('common.name')} *</label>
+      <label className="label">{t('common.name')}</label>
       <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-      <label className="label">{t('common.phone')} *</label>
-      <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+      <label className="label">{t('common.phone')}</label>
+      <input
+        className="input"
+        type="tel"
+        inputMode="tel"
+        placeholder="+998..."
+        value={form.phone}
+        onChange={(e) => setForm({ ...form, phone: e.target.value })}
+      />
       <label className="label">{t('common.location')}</label>
-      <input className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !form.name || !form.phone}>
+      <div className="input-with-action">
+        <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+        <button type="button" onClick={() => document.querySelector('.input-with-action input')?.focus()}>
+          {t('clients.mapButton')}
+        </button>
+      </div>
+      <div className="date-range">
+        <div>
+          <label className="label">{t('common.date')}</label>
+          <input className="input" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+        </div>
+        <div>
+          <label className="label">{t('common.time')}</label>
+          <input className="input" type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+        </div>
+      </div>
+      <label className="label">{t('common.serviceFee')}</label>
+      <div className="input-with-action">
+        <input
+          type="number"
+          inputMode="numeric"
+          value={form.price}
+          onChange={(e) => setForm({ ...form, price: e.target.value })}
+        />
+        <span>so'm</span>
+      </div>
+      <div className="reminder-banner">
+        <span>🔔</span>
+        <span>{reminderText(form.date, form.time, t, lang)}</span>
+      </div>
+      <button
+        className="btn btn-primary btn-block premium-save"
+        onClick={save}
+        disabled={busy || !form.name || !form.phone || !form.location || !form.date || !form.time || !form.price}
+      >
         {busy ? '...' : t('common.save')}
       </button>
     </Modal>
   );
+}
+
+const CLIENT_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
+
+function reminderText(date, time, t, lang) {
+  if (!date || !time) return t('clients.reminderDefault');
+  const value = new Date(`${date}T${time}`);
+  if (Number.isNaN(value.getTime())) return t('clients.reminderDefault');
+  const formatted = formatReminderDate(value, lang);
+  return t('clients.reminderAt').replace('{time}', formatted);
+}
+
+function formatReminderDate(value, lang) {
+  if (lang === 'ru') {
+    return new Intl.DateTimeFormat('ru-RU', {
+      day: '2-digit',
+      month: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(value);
+  }
+  const day = String(value.getDate()).padStart(2, '0');
+  const month = CLIENT_MONTHS[value.getMonth()];
+  const hour = String(value.getHours()).padStart(2, '0');
+  const minute = String(value.getMinutes()).padStart(2, '0');
+  return `${day}-${month}, ${hour}:${minute}`;
 }
 
 function EditClientModal({ client, onClose, onSaved }) {

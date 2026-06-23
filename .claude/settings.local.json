@@ -28,7 +28,27 @@
       "Bash(git credential *)",
       "Bash(echo \"exit: $?\")",
       "Bash(node --input-type=module -e ' *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(curl -s --max-time 20 https://api.telegram.org/bot8803469639:AAHOo4g-CK_1MNVJgSHTSDHlSEy4BHtDQ64/getMe)",
+      "Bash(curl -s --max-time 20 https://api.telegram.org/bot8803469639:AAHOo4g-CK_1MNVJgSHTSDHlSEy4BHtDQ64/getWebhookInfo)",
+      "Bash(curl -s --max-time 25 'https://api.telegram.org/bot8803469639:AAHOo4g-CK_1MNVJgSHTSDHlSEy4BHtDQ64/getUpdates?timeout=0&limit=3')",
+      "Bash(node --check src/index.js)",
+      "Bash(node --check src/config/env.js)",
+      "Read(//tmp/**)",
+      "Bash(break)",
+      "Bash(curl -s --max-time 2 http://localhost:3000/health)",
+      "Bash(curl -s --max-time 4 http://localhost:3000/health)",
+      "Bash(node --check src/bot/bot.js)",
+      "Bash(curl -s --max-time 15 https://api.telegram.org/bot__TRACKED_VAR__/getWebhookInfo)",
+      "Bash(curl -s --max-time 15 'https://api.telegram.org/bot__TRACKED_VAR__/getUpdates?timeout=3&limit=1')",
+      "Bash(curl -s --max-time 25 \"https://musor-yoq-production.up.railway.app/health\")",
+      "Bash(curl -s -o /dev/null -w 'HTTP_STATUS=%{http_code}\\\\n' --max-time 20 -X POST https://musor-yoq-production.up.railway.app/telegram/webhook -H 'Content-Type: application/json' -d '{\"update_id\":900000001}')",
+      "Bash(curl *)",
+      "Bash(node --check src/bot/handlers/commands.js)",
+      "Bash(grep -oE \"AIza[0-9A-Za-z_-]{8,}\")",
+      "Bash(mkdir -p \"_design_extracted\")",
+      "Bash(unzip -o \"musoryoq_designby claude  design .zip\" -d \"_design_extracted\")",
+      "Bash(node --check src/ai/gemini.js)"
     ]
   }
 }

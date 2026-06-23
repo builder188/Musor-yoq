@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
-import { Bar } from 'react-chartjs-2';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { formatMoney, formatDate, toInputDateTime } from '../utils/format.js';
@@ -8,9 +6,7 @@ import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
-
-const PERIODS = ['today', 'month', 'last_month', 'year', 'all'];
+const PERIODS = ['today', 'month', 'year'];
 const MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn', 'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek'];
 
 export default function Finance() {
@@ -49,11 +45,11 @@ export default function Finance() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period]);
 
-  const chartData = makeChartData(chart);
+  const bars = makeBars(chart);
 
   return (
     <div>
-      <h1 className="page-title">{t('finance.title')}</h1>
+      <h1 className="page-title" style={{ marginBottom: 6 }}>{t('finance.title')}</h1>
 
       <BalanceCard summary={summary} />
 
@@ -69,24 +65,10 @@ export default function Finance() {
         <Spinner />
       ) : (
         <>
-          {chartData && (
-            <div className="card">
-              <div className="mb-8">
-                <strong>{t('finance.chart')}</strong>
-              </div>
-              <Bar
-                data={chartData}
-                options={{
-                  responsive: true,
-                  plugins: { legend: { position: 'bottom' } },
-                  scales: { y: { ticks: { callback: (v) => `${Math.round(v / 1000)}k` } } },
-                }}
-              />
-            </div>
-          )}
+          <IncomeExpenseRow summary={summary} />
 
-          <div className="btn-row mb-8">
-            <button className="btn btn-primary btn-block" onClick={() => setAdding('income')}>
+          <div className="btn-row" style={{ marginBottom: 16 }}>
+            <button className="btn btn-block" onClick={() => setAdding('income')}>
               ➕ {t('finance.income')}
             </button>
             <button className="btn btn-block" onClick={() => setAdding('expense')}>
@@ -94,7 +76,21 @@ export default function Finance() {
             </button>
           </div>
 
-          <div className="section-title">{t('finance.transactions')}</div>
+          {bars && (
+            <div className="card">
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{t('finance.last6')}</div>
+              <div className="bars">
+                {bars.map((b) => (
+                  <div key={b.label} className={`bar-col ${b.current ? 'current' : ''}`}>
+                    <div className={`bar ${b.current ? 'current' : ''}`} style={{ height: `${b.h}px` }} />
+                    <div className="bar-label">{b.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="section-title">{t('finance.recentActions')}</div>
           {transactions.length === 0 ? (
             <div className="empty">{t('common.noData')}</div>
           ) : (
@@ -147,20 +143,46 @@ export default function Finance() {
 function BalanceCard({ summary }) {
   const { t } = useApp();
   const balance = Number(summary?.balance ?? 0);
-  const income = Number(summary?.income ?? summary?.totalIncome ?? 0);
-  const expense = Number(summary?.expense ?? summary?.totalExpense ?? 0);
-  const positive = balance >= 0;
-
   return (
-    <div className={`balance-card ${positive ? 'positive' : 'negative'}`}>
-      <div className="muted">{t('finance.balance')}</div>
-      <div className="balance-amount">{formatMoney(balance)}</div>
-      <div className="balance-row">
-        <span className="text-income">↑ {t('finance.income')}: {formatMoney(income)}</span>
-        <span className="text-expense">↓ {t('finance.expense')}: {formatMoney(expense)}</span>
+    <div className="balance-hero">
+      <div className="bh-label">{t('finance.balanceNow')}</div>
+      <div className={`bh-amount ${balance < 0 ? 'negative' : ''}`}>
+        {formatNumber(balance)} <span className="unit">{t('common.soum')}</span>
       </div>
     </div>
   );
+}
+
+// Kirim / Chiqim yonma-yon kartalari (davr summasi).
+function IncomeExpenseRow({ summary }) {
+  const { t } = useApp();
+  const income = Number(summary?.income ?? summary?.totalIncome ?? 0);
+  const expense = Number(summary?.expense ?? summary?.totalExpense ?? 0);
+  return (
+    <div className="io-row">
+      <div className="io-card">
+        <div className="io-head">
+          <div className="io-badge in">↑</div>
+          <span className="io-label">{t('finance.income')}</span>
+        </div>
+        <div className="io-value in">+{formatNumber(income)}</div>
+      </div>
+      <div className="io-card">
+        <div className="io-head">
+          <div className="io-badge out">↓</div>
+          <span className="io-label">{t('finance.expense')}</span>
+        </div>
+        <div className="io-value out">−{formatNumber(expense)}</div>
+      </div>
+    </div>
+  );
+}
+
+// Birlik ("so'm")siz raqam: 2 340 000.
+function formatNumber(n) {
+  return Math.round(Number(n) || 0)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
 function TransactionGroups({ groups, t, onEdit, onDelete }) {
@@ -218,15 +240,12 @@ function SwipeTransaction({ tx, t, onEdit, onDelete }) {
           swipedRef.current = false;
         }}
       >
-        <div className={`tx-line ${tx.type === 'income' ? 'income' : 'expense'}`} />
+        <div className={`tx-icon ${tx.type === 'income' ? 'in' : 'out'}`}>{tx.type === 'income' ? '↑' : '↓'}</div>
         <div className="tx-main">
           <div className="row-between">
-            <div className="title">
-              <span className={tx.type === 'income' ? 'text-income' : 'text-expense'}>{tx.type === 'income' ? '↑' : '↓'}</span>{' '}
-              {transactionTitle(tx, t)}
-            </div>
+            <div className="title" style={{ fontSize: '14.5px' }}>{transactionTitle(tx, t)}</div>
             <span className={tx.type === 'income' ? 'text-income' : 'text-expense'}>
-              {tx.type === 'income' ? '+' : '-'}{formatMoney(tx.amount)}
+              {tx.type === 'income' ? '+' : '−'}{formatNumber(tx.amount)}
             </span>
           </div>
           <div className="sub">{formatDate(tx.date)} · {tx.description || tx.note || t('category.boshqa')}</div>
@@ -374,21 +393,22 @@ function groupDateLabel(date) {
   return new Intl.DateTimeFormat('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
 }
 
-function makeChartData(chart) {
-  if (!chart) return null;
+// Oxirgi 6 oy uchun yengil CSS bar grafigi (Chart.js o'rniga). Joriy oy — siyoh, qolgani yumshoq yashil.
+function makeBars(chart) {
+  if (!chart || !chart.income) return null;
   const now = new Date();
   const months = [];
   for (let i = 5; i >= 0; i -= 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({ index: d.getMonth(), label: MONTHS[d.getMonth()] });
+    months.push({ index: d.getMonth(), label: MONTHS[d.getMonth()], current: i === 0 });
   }
-  return {
-    labels: months.map((m) => m.label),
-    datasets: [
-      { label: 'Kirim', data: months.map((m) => chart.income[m.index] || 0), backgroundColor: '#2f8f4e' },
-      { label: 'Chiqim', data: months.map((m) => chart.expense[m.index] || 0), backgroundColor: '#e0484d' },
-    ],
-  };
+  const values = months.map((m) => Number(chart.income[m.index] || 0));
+  const max = Math.max(...values, 1);
+  return months.map((m, i) => ({
+    label: m.label,
+    current: m.current,
+    h: Math.max(6, Math.round((values[i] / max) * 80)), // 6..80px
+  }));
 }
 
 function normalizeTransactions(value) {

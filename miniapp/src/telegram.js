@@ -54,6 +54,11 @@ export function getInitData() {
   return tg?.initData || '';
 }
 
+// Telegram foydalanuvchisi (profil uchun ism/harf). Brauzerda (dev) — null.
+export function getTgUser() {
+  return tg?.initDataUnsafe?.user || null;
+}
+
 // Telegram mavzu parametrlari (light/dark aniqlash uchun).
 export function getColorScheme() {
   return tg?.colorScheme || 'light';

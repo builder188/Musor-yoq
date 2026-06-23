@@ -5,11 +5,13 @@ import { LANGUAGES } from '../i18n/index.js';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import { formatDate } from '../utils/format.js';
+import { getTgUser } from '../telegram.js';
 
 export default function Settings() {
   const { t, lang, setLang, theme, setTheme, settings, setSettings } = useApp();
   const [bulkTarget, setBulkTarget] = useState(null);
   const [showRestore, setShowRestore] = useState(false);
+  const [showCodeModal, setShowCodeModal] = useState(false);
   const [busyAction, setBusyAction] = useState('');
   const [oldDeleteCode, setOldDeleteCode] = useState('');
   const [newDeleteCode, setNewDeleteCode] = useState('');
@@ -24,6 +26,20 @@ export default function Settings() {
     setSettings(s);
   };
 
+  const toggleReminderPreset = async (minutes) => {
+    setBusyAction(`reminder:${minutes}`);
+    setStatus('');
+    try {
+      const next = offsets.includes(minutes) ? offsets.filter((m) => m !== minutes) : [...offsets, minutes];
+      await updateOffsets(next);
+      setStatus(t('common.saved'));
+    } catch (err) {
+      setStatus(err.message);
+    } finally {
+      setBusyAction('');
+    }
+  };
+
   const changeDeleteCode = async () => {
     setBusyAction('code');
     setStatus('');
@@ -33,6 +49,7 @@ export default function Settings() {
       setOldDeleteCode('');
       setNewDeleteCode('');
       setStatus(t('common.saved'));
+      setShowCodeModal(false);
     } catch (err) {
       setStatus(err.message);
     } finally {
@@ -67,60 +84,87 @@ export default function Settings() {
     }
   };
 
+  const user = getTgUser();
+  const ownerName = user?.first_name || settings?.ownerName || t('settings.ownerDefault');
+  const ownerInitial = (ownerName || '•').trim().charAt(0).toUpperCase() || '•';
+
   return (
     <div>
       <h1 className="page-title">{t('settings.title')}</h1>
 
-      <div className="card">
-        <div className="section-title compact">{t('settings.appearance')}</div>
-        <label className="label">{t('settings.language')}</label>
-        <div className="segment">
-          {LANGUAGES.map((l) => (
-            <button key={l.code} className={lang === l.code ? 'active' : ''} onClick={() => setLang(l.code)}>
-              {l.label}
+      {/* Profil */}
+      <div className="profile-card">
+        <div className="profile-avatar">{ownerInitial}</div>
+        <div>
+          <div className="profile-name">{ownerName}</div>
+          <div className="profile-role">{t('settings.role')}</div>
+        </div>
+      </div>
+
+      {/* Ko'rinish: Mavzu + Til */}
+      <div className="group-label">{t('settings.appearance')}</div>
+      <div className="rows-card">
+        <div className="setting-row" style={{ cursor: 'default' }}>
+          <div className="sr-left">
+            <span className="sr-emoji">🌗</span>
+            {t('settings.theme')}
+          </div>
+          <div className="segment mini">
+            <button className={theme === 'light' ? 'active' : ''} onClick={() => setTheme('light')}>
+              {t('settings.light')}
+            </button>
+            <button className={theme === 'dark' ? 'active' : ''} onClick={() => setTheme('dark')}>
+              {t('settings.dark')}
+            </button>
+          </div>
+        </div>
+        <div className="setting-row" style={{ cursor: 'default' }}>
+          <div className="sr-left">
+            <span className="sr-emoji">🌐</span>
+            {t('settings.language')}
+          </div>
+          <div className="segment mini">
+            {LANGUAGES.map((l) => (
+              <button key={l.code} className={lang === l.code ? 'active' : ''} onClick={() => setLang(l.code)}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="group-label">{t('settings.reminders')}</div>
+      <div className="rows-card reminder-presets-card">
+        <div className="reminder-presets">
+          {reminderPresets(t).map((preset) => (
+            <button
+              key={preset.minutes}
+              className={`reminder-select ${offsets.includes(preset.minutes) ? 'active' : ''}`}
+              disabled={busyAction === `reminder:${preset.minutes}`}
+              onClick={() => toggleReminderPreset(preset.minutes)}
+            >
+              {preset.label}
             </button>
           ))}
         </div>
-        <label className="label">{t('settings.theme')}</label>
-        <div className="segment">
-          <button className={theme === 'auto' ? 'active' : ''} onClick={() => setTheme('auto')}>
-            🔄 {t('settings.auto')}
-          </button>
-          <button className={theme === 'light' ? 'active' : ''} onClick={() => setTheme('light')}>
-            ☀️ {t('settings.light')}
-          </button>
-          <button className={theme === 'dark' ? 'active' : ''} onClick={() => setTheme('dark')}>
-            🌙 {t('settings.dark')}
-          </button>
-        </div>
       </div>
 
-      <div className="card">
-        <div className="section-title compact">{t('settings.reminders')}</div>
-        <div className="chip-list">
-          {offsets.length === 0 && <span className="muted">-</span>}
-          {offsets.map((m) => (
-            <span key={m} className="badge badge-done badge-action">
-              {offsetLabel(m, t)}
-              <button onClick={() => updateOffsets(offsets.filter((x) => x !== m))} aria-label={t('common.delete')}>
-                x
-              </button>
-            </span>
-          ))}
-        </div>
-        <AddReminder t={t} onAdd={(m) => updateOffsets([...offsets, m])} />
-      </div>
-
-      <div className="card">
-        <div className="section-title compact">{t('settings.security')}</div>
-        <label className="label">{t('settings.currentCode')}</label>
-        <input className="input" type="password" inputMode="numeric" value={oldDeleteCode} onChange={(e) => setOldDeleteCode(e.target.value)} />
-        <label className="label">{t('settings.newCode')}</label>
-        <input className="input" type="password" inputMode="numeric" maxLength="4" value={newDeleteCode} onChange={(e) => setNewDeleteCode(e.target.value)} />
-        <button className="btn btn-block" onClick={changeDeleteCode} disabled={busyAction === 'code' || !oldDeleteCode || !newDeleteCode}>
-          {busyAction === 'code' ? '...' : t('settings.changeCode')}
+      <div className="group-label">{t('settings.security')}</div>
+      <div className="rows-card">
+        <button className="setting-row" onClick={() => setShowCodeModal(true)}>
+          <div className="sr-left">
+            <span className="sr-emoji">#</span>
+            {t('settings.deleteCode')}
+          </div>
+          <div className="sr-right">›</div>
         </button>
-        <div className="muted mt-8" style={{ fontSize: 13 }}>{t('settings.forgotCode')}</div>
+        <button className="setting-row danger" onClick={() => setShowRestore(true)}>
+          <div className="sr-left">
+            <span className="sr-emoji">!</span>
+            {t('settings.deletedItems')}
+          </div>
+          <div className="sr-right">›</div>
+        </button>
       </div>
 
       <div className="card">
@@ -140,6 +184,19 @@ export default function Settings() {
 
       {status && <div className={status === t('common.saved') || status === t('reports.sentToBot') ? 'success-banner' : 'error-banner'}>{status}</div>}
 
+      {showCodeModal && (
+        <CodeChangeModal
+          t={t}
+          oldDeleteCode={oldDeleteCode}
+          newDeleteCode={newDeleteCode}
+          setOldDeleteCode={setOldDeleteCode}
+          setNewDeleteCode={setNewDeleteCode}
+          busy={busyAction === 'code'}
+          onSave={changeDeleteCode}
+          onClose={() => setShowCodeModal(false)}
+        />
+      )}
+
       <div className="card danger-card">
         <div className="section-title compact danger-text">{t('settings.dangerZone')}</div>
         <div className="danger-targets">
@@ -148,9 +205,6 @@ export default function Settings() {
           <button className="btn" onClick={() => setBulkTarget('finance')}>{t('settings.deleteFinance')}</button>
           <button className="btn btn-danger" onClick={() => setBulkTarget('all')}>{t('settings.deleteAll')}</button>
         </div>
-        <button className="btn btn-block mt-12" onClick={() => setShowRestore(true)}>
-          {t('settings.deletedItems')}
-        </button>
       </div>
 
       {bulkTarget && (
@@ -169,6 +223,41 @@ export default function Settings() {
       {showRestore && <RestoreModal t={t} onClose={() => setShowRestore(false)} />}
     </div>
   );
+}
+
+function CodeChangeModal({ t, oldDeleteCode, newDeleteCode, setOldDeleteCode, setNewDeleteCode, busy, onSave, onClose }) {
+  return (
+    <Modal title={t('settings.changeCode')} onClose={onClose}>
+      <label className="label">{t('settings.currentCode')}</label>
+      <input
+        className="input"
+        type="password"
+        inputMode="numeric"
+        value={oldDeleteCode}
+        onChange={(e) => setOldDeleteCode(e.target.value)}
+      />
+      <label className="label">{t('settings.newCode')}</label>
+      <input
+        className="input"
+        type="password"
+        inputMode="numeric"
+        maxLength="4"
+        value={newDeleteCode}
+        onChange={(e) => setNewDeleteCode(e.target.value)}
+      />
+      <button className="btn btn-primary btn-block" onClick={onSave} disabled={busy || !oldDeleteCode || !newDeleteCode}>
+        {busy ? '...' : t('common.save')}
+      </button>
+    </Modal>
+  );
+}
+
+function reminderPresets(t) {
+  return [
+    { minutes: 1440, label: t('settings.oneDayBefore') },
+    { minutes: 60, label: t('settings.oneHourBefore') },
+    { minutes: 0, label: t('settings.onTime') },
+  ];
 }
 
 function AddReminder({ t, onAdd }) {

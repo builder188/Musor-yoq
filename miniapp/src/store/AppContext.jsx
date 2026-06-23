@@ -2,15 +2,26 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { api } from '../api/client.js';
 import { makeT } from '../i18n/index.js';
-import { getColorScheme, applyTelegramTheme, clearTelegramTheme, onThemeChanged } from '../telegram.js';
+import { clearTelegramTheme } from '../telegram.js';
 
 const AppContext = createContext(null);
+
+// Faqat 'light' yoki 'dark' — boshqa har qanday qiymat (eski 'auto' ham) yorug'ga aylanadi.
+function normalizeTheme(value) {
+  return value === 'dark' ? 'dark' : 'light';
+}
 
 export function AppProvider({ children }) {
   const [settings, setSettings] = useState(null);
   const [lang, setLangState] = useState('uz');
-  // theme: 'auto' (Telegram bilan sinxron) | 'light' | 'dark'
-  const [theme, setThemeState] = useState('auto');
+  // theme: 'light' (default) | 'dark' — har doim o'z premium palitramiz ishlaydi.
+  const [theme, setThemeState] = useState(() => {
+    try {
+      return normalizeTheme(localStorage.getItem('theme'));
+    } catch {
+      return 'light';
+    }
+  });
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
 
@@ -20,7 +31,7 @@ export function AppProvider({ children }) {
       const s = await api.get('/settings');
       setSettings(s);
       setLangState(s.language || 'uz');
-      setThemeState(s.theme || 'auto');
+      setThemeState(normalizeTheme(s.theme));
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -33,22 +44,16 @@ export function AppProvider({ children }) {
     loadSettings();
   }, [loadSettings]);
 
-  // Mavzuni <html> ga qo'llash.
-  // 'auto' — Telegram colorScheme + themeParams bilan sinxron (o'zgarishini ham kuzatamiz).
-  // 'light'/'dark' — foydalanuvchi tanlovi, o'z palitramiz ishlaydi.
+  // Mavzuni <html> ga qo'llash + localStorage (qayta ochilganda miltillamasin).
+  // Telegram'ning o'z ranglarini ishlatmaymiz — premium palitra doim ko'rinadi.
   useEffect(() => {
-    const applyAuto = () => {
-      document.documentElement.setAttribute('data-theme', getColorScheme());
-      applyTelegramTheme();
-    };
-
-    if (theme === 'auto') {
-      applyAuto();
-      return onThemeChanged(applyAuto);
-    }
-
     document.documentElement.setAttribute('data-theme', theme);
     clearTelegramTheme();
+    try {
+      localStorage.setItem('theme', theme);
+    } catch {
+      /* localStorage mavjud bo'lmasligi mumkin */
+    }
   }, [theme]);
 
   const setLang = async (newLang) => {

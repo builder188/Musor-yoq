@@ -1,5 +1,12 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-23 Mini App premium redesign
+- Promptdagi dizayn paketi `_design_extracted/design_handoff_miniapp_redesign` oqildi; HTML referens lokal server orqali brauzerda ochildi.
+- Mini App file structure saqlandi; asosiy ozgarishlar `miniapp/src/styles.css`, `Home.jsx`, `Clients.jsx`, `Services.jsx`, `Finance.jsx`, `Settings.jsx`, `i18n/uz.js`, `i18n/ru.js`. Yangi dependency qoshilmadi.
+- Home/Services/Finance/Settings va yangi mijoz bottom-sheet README bolim 4 spetsifikatsiyasiga yaqinlashtirildi; light default + Settings orqali dark toggle ishlaydi (`data-theme=dark` tekshirildi).
+- Services `Bugun` segmenti endi bugungi sana oraligini soraydi; Home bugungi xizmat checkboxi mavjud complete APIni chaqiradi.
+- Tekshiruv: `npm run build` OK; Playwright production build static serverda Home, Services, Finance, Settings, Add Client modal, mobile/desktop screenshots tekshirildi. Backend ishlamagani uchun `Failed to fetch` banneri kutilgan, runtime UI crash kuzatilmadi.
+
 ## 2026-06-23 Multi-user Telegram allowlist
 - `OWNER_TELEGRAM_ID` endi comma-separated allowlist: `6028715926,606578823`. Railway Variables'da shu formatda yozilsa, shu ID egalari bot va Mini Appdan foydalana oladi.
 - O'zgargan joylar: `backend/src/config/env.js`, `backend/src/bot/bot.js`, `backend/src/middleware/auth.js`, `backend/src/models/Settings.js`, `backend/src/routes/settings.js`, `backend/src/middleware/deleteCode.js`, `backend/src/bot/handlers/commands.js`, `backend/src/cron/reminders.js`, `backend/src/routes/reports.js`.

@@ -1,9 +1,27 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="uz" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Musir Yo'q</title>
+    <!-- Premium shrift: Hanken Grotesk (faqat kerakli og'irliklar — yengil). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Mavzuni React yuklanishidan oldin qo'yamiz — tungi rang miltillamasin. Default: yorug'. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('theme');
+          document.documentElement.setAttribute('data-theme', saved === 'dark' ? 'dark' : 'light');
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
