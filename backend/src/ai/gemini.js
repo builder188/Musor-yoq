@@ -289,15 +289,15 @@ const agentTools = {
   ],
 };
 
-function model(options = {}) {
+function model(modelName, options = {}) {
   return genAI.getGenerativeModel({
-    model: env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
+    model: modelName,
     ...options,
   });
 }
 
-function jsonModel() {
-  return model({
+function jsonModel(modelName) {
+  return model(modelName, {
     generationConfig: {
       temperature: 0.1,
       responseMimeType: 'application/json',
@@ -305,16 +305,16 @@ function jsonModel() {
   });
 }
 
-function textModel() {
-  return model({
+function textModel(modelName) {
+  return model(modelName, {
     generationConfig: {
       temperature: 0.1,
     },
   });
 }
 
-function functionCallingModel() {
-  return model({
+function functionCallingModel(modelName) {
+  return model(modelName, {
     tools: [classifyTool],
     toolConfig: {
       functionCallingConfig: {
@@ -328,8 +328,8 @@ function functionCallingModel() {
   });
 }
 
-function agentToolModel() {
-  return model({
+function agentToolModel(modelName) {
+  return model(modelName, {
     tools: [agentTools],
     toolConfig: {
       functionCallingConfig: {
@@ -343,20 +343,29 @@ function agentToolModel() {
   });
 }
 
-// Gemini ba'zan vaqtinchalik 503 (high demand) / 429 (rate limit) / 500 qaytaradi.
-// Bu o'tkinchi xatolar — qisqa backoff bilan qayta uriniladi, aks holda foydalanuvchi
-// "AI bilan bog'lanishda xatolik" oladi. Kalit/model xatolari (4xx) qayta urinilmaydi.
-async function generateWithRetry(modelInstance, request, { retries = 2, baseDelayMs = 700 } = {}) {
+// Asosiy model + zaxira modellar. Asosiysi vaqtinchalik 503 (high demand) bersa,
+// boshqa model (alohida quvvat puli) ko'pincha ishlaydi — shu sabab fallback zanjiri.
+const PRIMARY_MODEL = env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+const CANDIDATE_MODELS = [...new Set([PRIMARY_MODEL, 'gemini-2.5-flash', 'gemini-flash-latest'])];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Gemini ba'zan vaqtinchalik 503/429/500 qaytaradi. Har bir modelda qisqa backoff bilan
+// qayta uriniladi; baribir o'tkinchi xato bo'lsa — keyingi zaxira modelga o'tadi. Kalit/model
+// xatolari (4xx) darhol uzatiladi (qayta urinish foydasiz). buildModel(modelName) -> instance.
+async function generate(buildModel, request, { retriesPerModel = 1, baseDelayMs = 600 } = {}) {
   let lastErr;
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    try {
-      return await modelInstance.generateContent(request);
-    } catch (err) {
-      lastErr = err;
-      const status = err?.status;
-      const retriable = status === 503 || status === 429 || status === 500;
-      if (!retriable || attempt === retries) throw err;
-      await new Promise((resolve) => setTimeout(resolve, baseDelayMs * (attempt + 1)));
+  for (const modelName of CANDIDATE_MODELS) {
+    for (let attempt = 0; attempt <= retriesPerModel; attempt += 1) {
+      try {
+        return await buildModel(modelName).generateContent(request);
+      } catch (err) {
+        lastErr = err;
+        const status = err?.status;
+        const retriable = status === 503 || status === 429 || status === 500;
+        if (!retriable) throw err;
+        if (attempt < retriesPerModel) await sleep(baseDelayMs * (attempt + 1));
+      }
     }
   }
   throw lastErr;
@@ -527,7 +536,7 @@ function hasMeaningfulServiceRecord(record) {
 
 // STEP 1: VOICE input. Returns exact Uzbek transcription only.
 export async function transcribeAudio(audioBuffer, mime = 'audio/ogg') {
-  const res = await generateWithRetry(textModel(),[
+  const res = await generate(textModel,[
     { text: TRANSCRIBE_PROMPT },
     {
       inlineData: {
@@ -541,7 +550,7 @@ export async function transcribeAudio(audioBuffer, mime = 'audio/ogg') {
 
 // STEP 1: IMAGE input OCR. Returns notebook records only; does not save them.
 export async function extractNotebookRecords(imageBuffer, mime = 'image/jpeg', caption = '') {
-  const res = await generateWithRetry(jsonModel(), [
+  const res = await generate(jsonModel, [
     { text: buildImagePrompt(caption) },
     {
       inlineData: {
@@ -556,7 +565,7 @@ export async function extractNotebookRecords(imageBuffer, mime = 'image/jpeg', c
 // STEP 2: intent classification with Gemini function calling enabled.
 export async function classifyIntent(text) {
   const prompt = buildClassificationPrompt(text);
-  const res = await generateWithRetry(functionCallingModel(), prompt);
+  const res = await generate(functionCallingModel, prompt);
   const args = functionArgs(res.response);
   if (args) return normalizeUnderstanding(args);
 
@@ -565,7 +574,7 @@ export async function classifyIntent(text) {
 }
 
 export async function chooseAgentTool({ intent, fields = {}, rawText = '', mode = 'bot' }) {
-  const res = await generateWithRetry(agentToolModel(), `You are the action planner for Musir Yo'q.
+  const res = await generate(agentToolModel, `You are the action planner for Musir Yo'q.
 Choose exactly one function tool to execute for this already classified request.
 
 Intent: ${intent}
@@ -591,7 +600,7 @@ Rules:
 }
 
 export async function formulateToolResponse({ toolName, toolArgs, toolResult, rawText = '' }) {
-  const res = await generateWithRetry(textModel(),`You are Musir Yo'q assistant.
+  const res = await generate(textModel,`You are Musir Yo'q assistant.
 The requested MongoDB operation has already been executed by the server.
 Write a short, friendly, factual Uzbek response for the business owner.
 Do not invent data. Mention only important saved/updated/found values.
@@ -647,7 +656,7 @@ export async function understandImage(imageBuffer, mime = 'image/jpeg', caption 
 }
 
 export async function answerFromData(question, data) {
-  const res = await generateWithRetry(textModel(),buildAnswerPrompt(question, data));
+  const res = await generate(textModel,buildAnswerPrompt(question, data));
   return res.response.text().trim();
 }
 
