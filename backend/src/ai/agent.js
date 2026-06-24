@@ -33,7 +33,14 @@ import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { formatMoney, parseMoney } from '../utils/money.js';
 import { formatDateTime, formatDate, parseHumanDateTime } from '../utils/dates.js';
 import { formatPhone, normalizePhone } from '../utils/phone.js';
-import { editConfirmKeyboard, paymentMethodKeyboard, clientPickKeyboard, clarifyKeyboard, saveKeyboard } from '../bot/ui.js';
+import {
+  editConfirmKeyboard,
+  paymentMethodKeyboard,
+  clientPickKeyboard,
+  clarifyKeyboard,
+  entrySummaryText,
+  entryConfirmKeyboard,
+} from '../bot/ui.js';
 
 // Yetishmayotgan maydonni so'rash — paymentMethod uchun tugmalar bilan.
 function askField(field) {
@@ -368,6 +375,8 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
   return finalizeEntry({ conversation, intent, collected, rawText, mode });
 }
 
+// Barcha majburiy maydonlar yig'ilgach — DARHOL saqlamaymiz. Avval yakuniy tekshirish
+// xulosasini ko'rsatamiz (3 tugma); foydalanuvchi tasdiqlagandan keyingina saqlanadi.
 async function finalizeEntry({ conversation, intent, collected, rawText, mode }) {
   if (conversation && mode === 'bot') {
     conversation.pendingIntent = 'ENTRY_CONFIRM';
@@ -375,12 +384,81 @@ async function finalizeEntry({ conversation, intent, collected, rawText, mode })
     conversation.awaitingField = 'confirmEntry';
     conversation.markModified('collected');
     await conversation.save();
-    return { text: entryConfirmationText(intent, collected), keyboard: saveKeyboard() };
+    return { text: entrySummaryText(intent, collected), keyboard: entryConfirmKeyboard() };
   }
 
   const result = await executeToolFlow({ intent, fields: collected, rawText, mode });
   if (conversation) await conversation.reset();
   return result;
+}
+
+// Foydalanuvchi aytadigan "tahrir maydoni" -> yozuv maydoni (yakuniy tasdiqdagi tuzatish uchun).
+const ENTRY_FIELD_KEYS = [
+  'clientName', 'clientPhone', 'location', 'serviceDateTime', 'price', 'paymentMethod',
+  'notes', 'isHistorical', 'amount', 'category', 'description', 'date', 'incomeSource',
+];
+const EDIT_FIELD_TO_ENTRY = {
+  narx: 'price', narxi: 'price', price: 'price',
+  sana: 'serviceDateTime', vaqt: 'serviceDateTime', date: 'serviceDateTime',
+  manzil: 'location', location: 'location', address: 'location',
+  ism: 'clientName', name: 'clientName',
+  telefon: 'clientPhone', tel: 'clientPhone', phone: 'clientPhone', raqam: 'clientPhone',
+  summa: 'amount', summasi: 'amount', amount: 'amount',
+  izoh: 'description', description: 'description', notes: 'description',
+  toifa: 'category', category: 'category',
+};
+
+function pickEntryFields(fields = {}) {
+  const out = {};
+  for (const key of ENTRY_FIELD_KEYS) {
+    if (fields[key] !== undefined && fields[key] !== null && fields[key] !== '') out[key] = fields[key];
+  }
+  return out;
+}
+
+// AI ajratgan maydonlarni mavjud yozuv USTIGA yozadi (overwrite); editField+newValue ham qo'llaniladi.
+function buildEditedFields(intent, current, understanding) {
+  const u = understanding?.fields || {};
+  let fields = mergeFields(current, pickEntryFields(u), { overwrite: true });
+
+  if (u.editField && u.newValue !== undefined && u.newValue !== null && u.newValue !== '') {
+    const key = EDIT_FIELD_TO_ENTRY[String(u.editField).toLowerCase()];
+    if (key === 'serviceDateTime') {
+      const d = parseHumanDateTime(u.newValue);
+      if (d && !Number.isNaN(d.getTime())) {
+        fields = mergeFields(fields, { serviceDateTime: d.toISOString() }, { overwrite: true });
+      }
+    } else if (key) {
+      fields = mergeFields(fields, { [key]: u.newValue }, { overwrite: true });
+    }
+  }
+  return applyEntryDefaults(intent, fields);
+}
+
+// Yakuniy tasdiqdagi tahrir bosqichi: tuzatilgan maydonlar bilan xulosani QAYTA ko'rsatadi
+// (xuddi shu 3 tugma bilan). Tuzatishdan keyin majburiy maydon yetishmasa — uni so'raydi.
+export async function editPendingEntry({ conversation, understanding, rawText = '' }) {
+  const pending = conversation?.collected || {};
+  const intent = pending.confirmIntent;
+  if (!conversation || conversation.pendingIntent !== 'ENTRY_CONFIRM' || !intent) {
+    throw new Error("Tahrirlanadigan ma'lumot topilmadi");
+  }
+  const updated = buildEditedFields(intent, pending.fields || {}, understanding);
+  const missing = nextMissing(intent, updated);
+  if (missing) {
+    conversation.pendingIntent = intent;
+    conversation.collected = updated;
+    conversation.awaitingField = missing;
+    conversation.markModified('collected');
+    await conversation.save();
+    return askField(missing);
+  }
+  conversation.pendingIntent = 'ENTRY_CONFIRM';
+  conversation.collected = { confirmIntent: intent, fields: updated, rawText: pending.rawText || rawText };
+  conversation.awaitingField = 'confirmEntry';
+  conversation.markModified('collected');
+  await conversation.save();
+  return { text: entrySummaryText(intent, updated), keyboard: entryConfirmKeyboard() };
 }
 
 async function handleStatusUpdate({ fields, rawText, conversation, mode }) {
@@ -561,42 +639,6 @@ export async function confirmPendingEntry({ conversation, mode = 'bot' }) {
   const result = await executeToolFlow({ intent, fields, rawText: pending.rawText || '', mode });
   await conversation.reset();
   return result;
-}
-
-function entryConfirmationText(intent, fields = {}) {
-  const rows = [];
-
-  if (intent === 'SERVICE_ENTRY') {
-    rows.push(['Mijoz', fields.clientName]);
-    rows.push(['Telefon', formatPhone(fields.clientPhone) || fields.clientPhone]);
-    rows.push(['Manzil', locationText(fields.location)]);
-    rows.push(['Sana/vaqt', fields.serviceDateTime ? formatDateTime(fields.serviceDateTime) : '-']);
-    rows.push(['Narx', fields.price ? formatMoney(fields.price) : '-']);
-    rows.push(["To'lov", fields.paymentMethod || '-']);
-    if (fields.notes) rows.push(['Izoh', fields.notes]);
-  } else if (intent === 'EXPENSE_ENTRY') {
-    rows.push(['Turi', 'Xarajat']);
-    rows.push(['Summa', fields.amount ? formatMoney(fields.amount) : '-']);
-    rows.push(['Toifa', CATEGORY_LABEL[fields.category] || 'Boshqa']);
-    rows.push(['Sana', fields.date ? formatDateTime(fields.date) : 'Bugun']);
-    if (fields.description || fields.notes) rows.push(['Izoh', fields.description || fields.notes]);
-  } else if (intent === 'INCOME_ENTRY') {
-    rows.push(['Turi', 'Daromad']);
-    rows.push(['Summa', fields.amount ? formatMoney(fields.amount) : '-']);
-    rows.push(['Sana', fields.date ? formatDateTime(fields.date) : 'Bugun']);
-    if (fields.description || fields.notes || fields.incomeSource) {
-      rows.push(['Izoh', fields.description || fields.notes || fields.incomeSource]);
-    }
-  }
-
-  const body = rows.map(([label, value]) => `${label}: ${value || '-'}`).join('\n');
-  return `Tekshirib oling oka. Shu ma'lumotni saqlaymi?\n\n${body}`;
-}
-
-function locationText(location) {
-  if (!location) return '-';
-  if (typeof location === 'object') return location.address || location.name || '-';
-  return String(location);
 }
 
 async function executeToolFlow({ intent, fields, rawText, mode }) {

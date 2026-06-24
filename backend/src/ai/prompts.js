@@ -150,10 +150,27 @@ Input: "Sardor 300 ming berdi"
 Args: {"intent":"CLARIFY","subIntent":"PAYMENT_UPDATE","confidence":0.55,"reason":"payment for a service vs other income is ambiguous","clarifyingQuestion":"Sardorning 300 ming so'mi nima edi?","clarifyOptions":[{"label":"Xizmat uchun to'lov","intent":"PAYMENT_UPDATE"},{"label":"Boshqa daromad","intent":"INCOME_ENTRY"}],"fields":{"targetClientName":"Sardor","paymentAmount":300000}}`;
 }
 
-export function buildClassificationPrompt(text) {
-  return `${buildSystemPrompt()}
+// Oxirgi ~10 xabarni (egasi + bot, eng eskidan yangiga) Gemini'ga kontekst sifatida beradi.
+// Qisqa javoblar ("ha", "naqd", "200 ming") ko'pincha botning oldingi savoliga bog'liq.
+function formatHistory(history = []) {
+  if (!Array.isArray(history) || history.length === 0) return '';
+  const lines = history
+    .filter((m) => m && m.text)
+    .slice(-10)
+    .map((m) => `${m.role === 'bot' ? 'Bot' : 'Egasi'}: ${String(m.text).replace(/\s+/g, ' ').trim()}`);
+  if (!lines.length) return '';
+  return `
+--- RECENT CONVERSATION (oldest to newest) ---
+The owner's NEW message below may be a short reply to the Bot's last question
+(a payment method, a yes/no, an amount, a date, a name). Read it in this context.
+${lines.join('\n')}
+`;
+}
 
---- USER INPUT ---
+export function buildClassificationPrompt(text, history = []) {
+  return `${buildSystemPrompt()}
+${formatHistory(history)}
+--- USER INPUT (the owner's new message) ---
 ${text}`;
 }
 

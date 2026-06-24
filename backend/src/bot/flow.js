@@ -66,7 +66,9 @@ export function hasValue(field, collected) {
   }
 }
 
-export function mergeFields(collected, incoming = {}) {
+// `overwrite=false` (default): faqat bo'sh maydonni to'ldiradi (slot-filling).
+// `overwrite=true`: mavjud qiymat ustiga yozadi (yakuniy tasdiqdagi tahrir loop'i uchun).
+export function mergeFields(collected, incoming = {}, { overwrite = false } = {}) {
   const out = { ...collected };
   for (const [key, raw] of Object.entries(incoming)) {
     if (raw === null || raw === undefined || raw === '' || raw === false) continue;
@@ -77,7 +79,7 @@ export function mergeFields(collected, incoming = {}) {
     else if (key === 'category') value = normalizeExpenseCategory(raw) || raw;
     if (value === null || value === undefined || value === '') continue;
 
-    if (out[key] === undefined || out[key] === '' || out[key] === null) {
+    if (overwrite || out[key] === undefined || out[key] === '' || out[key] === null) {
       out[key] = value;
     }
   }

@@ -107,6 +107,47 @@ export function editConfirmKeyboard() {
   return new InlineKeyboard().text('Ha', 'edit_confirm').text("Yo'q", 'edit_cancel');
 }
 
+// Xarajat toifasi -> ko'rsatiladigan o'zbekcha nom (yakuniy tasdiq xulosasi uchun).
+const ENTRY_CATEGORY_LABEL = {
+  yoqilgi: "Yoqilg'i",
+  tamirlash: "Ta'mirlash",
+  'oziq-ovqat': 'Oziq-ovqat',
+  boshqa_chiqim: 'Boshqa',
+};
+
+// Yangi yozuv (SERVICE/EXPENSE/INCOME) saqlashdan OLDINGI yakuniy tekshirish xulosasi.
+// Barcha majburiy maydonlar yig'ilgach ko'rsatiladi; entryConfirmKeyboard bilan birga.
+export function entrySummaryText(intent, fields = {}) {
+  if (intent === 'SERVICE_ENTRY') {
+    const location = fields.location?.address || fields.location || '-';
+    return [
+      'Tekshirib chiqing oka:',
+      `👤 ${fields.clientName || '-'}  📱 ${formatPhone(fields.clientPhone) || fields.clientPhone || '-'}  📍 ${location}`,
+      `📅 ${fields.serviceDateTime ? formatBotDateTime(fields.serviceDateTime) : '-'}  💰 ${formatMoney(fields.price)}  💳 ${fields.paymentMethod || '-'}`,
+      "Hammasi to'g'rimi?",
+    ].join('\n');
+  }
+  if (intent === 'INCOME_ENTRY') {
+    const desc = fields.description || fields.notes || fields.incomeSource || '-';
+    return ['Tekshirib chiqing:', `💰 ${formatMoney(fields.amount)} | Kirim`, `📝 ${desc}`, "To'g'rimi?"].join('\n');
+  }
+  // EXPENSE_ENTRY
+  const desc = fields.description || fields.notes || '-';
+  const category = ENTRY_CATEGORY_LABEL[fields.category] || 'Boshqa';
+  return ['Tekshirib chiqing:', `💸 ${formatMoney(fields.amount)} | ${category}`, `📝 ${desc}`, "To'g'rimi?"].join('\n');
+}
+
+// Yakuniy tasdiq tugmalari: [✅ Ha, to'g'ri][✏️ Yo'q, tahrirlash kerak][❌ Bekor qilish].
+// Matn/ovoz javobi ham qabul qilinadi (message.routeEntryConfirmation).
+export function entryConfirmKeyboard() {
+  return new InlineKeyboard()
+    .text("✅ Ha, to'g'ri", 'entry_save')
+    .row()
+    .text("✏️ Yo'q, tahrirlash kerak", 'entry_edit')
+    .row()
+    .text('❌ Bekor qilish', 'entry_cancel');
+}
+
 // CLARIFY — niyat noaniq bo'lganda tezkor tanlov tugmalari.
 // Tanlovlar conversationda saqlanadi; callback faqat indeksni yuboradi (clarify_0, clarify_1, ...).
 export function clarifyKeyboard(options = []) {

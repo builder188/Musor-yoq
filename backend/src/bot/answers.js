@@ -22,6 +22,24 @@ export function interpretYesNo(text) {
   return null;
 }
 
+// Yakuniy tasdiq (yangi yozuv xulosasi) javobi: 'save' | 'edit' | 'cancel' | null.
+// 3 tugma: [✅ Ha, to'g'ri][✏️ Yo'q, tahrirlash kerak][❌ Bekor qilish] — matn/ovoz bilan ham.
+// Tartib muhim: avval bekor, keyin tahrir ("yo'q"/"noto'g'ri"/"tahrirla"), keyin saqlash ("ha"/"to'g'ri").
+export function interpretEntryConfirm(text) {
+  const v = norm(text);
+  if (!v) return null;
+  if (/^(bekor|otmen|otmena|cancel|saqlama|qoldir|kerakmas|kerak emas|hammasini bekor)\b/.test(v)) {
+    return 'cancel';
+  }
+  if (/(tahrir|o'?zgartir|noto'?g'?ri|notog'?ri|xato|edit|to'?g'?rila|almashtir|^yo'?q\b|^yoq\b|^emas\b)/.test(v)) {
+    return 'edit';
+  }
+  if (/^(ha+|xa+|to'?g'?ri|to'?gri|bo'?ladi|bo'?pti|mayli|saqla|saqlang|yoz|yozing|tasdiq|tasdiqla|ok|okey|xo'?p|zo'?r|albatta|durust)\b/.test(v)) {
+    return 'save';
+  }
+  return null;
+}
+
 // "bajarildimi?" tasdiq so'roviga javob: done / cancel / reschedule / null.
 // Reschedule belgilarini avval tekshiramiz ("keyinroq boraman" — bekor emas, surish).
 export function interpretConfirmAction(text) {
@@ -80,6 +98,7 @@ function ordinalIndex(v) {
 
 export default {
   interpretYesNo,
+  interpretEntryConfirm,
   interpretConfirmAction,
   interpretPaymentMethod,
   matchClarifyOption,

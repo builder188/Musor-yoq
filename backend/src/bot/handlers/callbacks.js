@@ -47,18 +47,58 @@ export function registerCallbacks(bot) {
     await askForReschedule(ctx, id);
   });
 
+  // Yakuniy tasdiq (yangi yozuv): "✅ Ha, to'g'ri" -> MongoDB'ga saqlanadi.
+  bot.callbackQuery('entry_save', async (ctx) => {
+    try {
+      const conv = await Conversation.findOne({ telegramId: ctx.from.id });
+      if (conv?.pendingIntent !== 'ENTRY_CONFIRM') {
+        await ctx.answerCallbackQuery({ text: 'Bu so\'rov eskirgan' });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        return;
+      }
+      const res = await confirmPendingEntry({ conversation: conv });
+      clearSession(ctx);
+      await ctx.answerCallbackQuery({ text: res?.error ? 'Xatolik' : 'Saqlandi ✅' });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      await sendAgentResult(ctx, res);
+    } catch (err) {
+      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
+    }
+  });
+
+  // "✏️ Yo'q, tahrirlash kerak" -> tahrir rejimi: keyingi matn/ovoz maydonni yangilaydi.
+  bot.callbackQuery('entry_edit', async (ctx) => {
+    try {
+      const conv = await Conversation.findOne({ telegramId: ctx.from.id });
+      if (conv?.pendingIntent !== 'ENTRY_CONFIRM') {
+        await ctx.answerCallbackQuery({ text: 'Bu so\'rov eskirgan' });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        return;
+      }
+      conv.awaitingField = 'editEntry';
+      await conv.save();
+      if (ctx.session) ctx.session.pendingField = 'editEntry';
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      await ctx.reply('Nimani tahrirlash kerak, ayting oka');
+    } catch (err) {
+      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
+    }
+  });
+
+  // "❌ Bekor qilish" -> hech narsa saqlanmaydi, sessiya to'liq tozalanadi.
+  bot.callbackQuery('entry_cancel', async (ctx) => {
+    const conv = await Conversation.findOne({ telegramId: ctx.from.id });
+    if (conv) await conv.reset();
+    clearSession(ctx);
+    await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    await ctx.reply("Bo'ldi, bekor qildim oka, hech narsa saqlanmadi");
+  });
+
   bot.callbackQuery('save_yes', async (ctx) => {
     try {
       const conv = await Conversation.findOne({ telegramId: ctx.from.id });
-      if (conv?.pendingIntent === 'ENTRY_CONFIRM') {
-        const res = await confirmPendingEntry({ conversation: conv });
-        clearSession(ctx);
-        await ctx.answerCallbackQuery({ text: res?.error ? 'Xatolik' : 'Saqlandi' });
-        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-        await sendAgentResult(ctx, res);
-        return;
-      }
-
       const pending = conv?.collected?.pendingData || ctx.session?.collectedData?.pendingData || ctx.session?.collectedData;
       const records = conv?.collected?.records || ctx.session?.collectedData?.records || null;
       if ((!pending || Object.keys(pending).length === 0) && !records?.length) {
@@ -601,6 +641,9 @@ async function askForReschedule(ctx, serviceId) {
       pendingIntent: 'SERVICE_RESCHEDULE',
       collected: { serviceId },
       awaitingField: 'serviceDateTime',
+      // Tugma bosildi — endi "bajarildimi?" matn javobi bu xizmatga qayta tegmaydi.
+      lastConfirmServiceId: null,
+      lastConfirmAt: null,
     },
     { upsert: true, new: true }
   );

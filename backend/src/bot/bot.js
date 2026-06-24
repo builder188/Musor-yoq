@@ -9,8 +9,24 @@ const db = mongoose.connection;
 import { registerCommands } from './handlers/commands.js';
 import { registerMessageHandler } from './handlers/message.js';
 import { registerCallbacks } from './handlers/callbacks.js';
+import Conversation from '../models/Conversation.js';
 
 export const bot = new Bot(env.BOT_TOKEN || 'missing:token');
+
+// Botning HAR bir chiqar xabarini (sendMessage/editMessageText) suhbat tarixiga yozadi.
+// Shu orqali egasi keyin matn/ovoz bilan qisqa javob berganda, Gemini botning oldingi
+// savolini kontekst sifatida ko'radi. Tugmali savollar ham shu yerda qayd etiladi.
+bot.api.config.use(async (prev, method, payload, signal) => {
+  const result = await prev(method, payload, signal);
+  if ((method === 'sendMessage' || method === 'editMessageText') && typeof payload?.text === 'string') {
+    const chatId = Number(payload.chat_id);
+    if (Number.isFinite(chatId) && isOwnerTelegramId(chatId)) {
+      // Atomar $push/$slice; xatosi suhbatni to'xtatmaydi (fire-and-forget).
+      Conversation.pushHistory(chatId, 'bot', payload.text);
+    }
+  }
+  return result;
+});
 
 bot.use(async (ctx, next) => {
   if (!isOwnerTelegramId(ctx.from?.id)) {

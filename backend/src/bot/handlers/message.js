@@ -1,8 +1,10 @@
 // Route Telegram messages: text / voice / image / location -> Gemini -> agent.
 import Conversation from '../../models/Conversation.js';
+import Client from '../../models/Client.js';
+import Service, { SERVICE_STATUS } from '../../models/Service.js';
 import { extractNotebookRecords, transcribeAudio, understandText } from '../../ai/gemini.js';
-import { confirmPendingEntry, runAgent } from '../../ai/agent.js';
-import { editService } from '../../services/serviceService.js';
+import { confirmPendingEntry, runAgent, applyConfirmedEdit, editPendingEntry } from '../../ai/agent.js';
+import { editService, completeService, cancelService } from '../../services/serviceService.js';
 import { mergeFields, nextMissing, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
 import {
@@ -11,6 +13,7 @@ import {
   locationReviewKeyboard,
   paymentMethodKeyboard,
   saveKeyboard,
+  editConfirmKeyboard,
   serviceConfirmationText,
   ocrRecordKeyboard,
   ocrRecordText,
@@ -19,7 +22,7 @@ import {
 import { formatMoney } from '../../utils/money.js';
 import { parseHumanDateTime } from '../../utils/dates.js';
 import { normalizeLocationData, reverseGeocode } from '../location.js';
-import { interpretYesNo } from '../answers.js';
+import { interpretYesNo, interpretEntryConfirm, interpretConfirmAction, matchClarifyOption } from '../answers.js';
 import {
   IMAGE_LIMIT_BYPASS_REPLY,
   UNSUPPORTED_MEDIA_REPLY,
@@ -34,6 +37,16 @@ import {
 
 const PHOTO_GROUP_SETTLE_MS = 1_000;
 const pendingPhotoGroups = new Map();
+
+// Gemini'ga yuboriladigan suhbat kontekstining uzunligi (oxirgi N xabar).
+const HISTORY_LIMIT = 10;
+// "Bajarildimi?" so'roviga tugmasiz (matn/ovoz) javob qabul qilinadigan oyna.
+const CONFIRM_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+function isRecentConfirm(at) {
+  if (!at) return false;
+  const t = new Date(at).getTime();
+  return Number.isFinite(t) && Date.now() - t <= CONFIRM_REPLY_WINDOW_MS;
+}
 
 async function getConversation(telegramId) {
   let conv = await Conversation.findOne({ telegramId });
@@ -229,6 +242,14 @@ async function processSinglePhoto(ctx) {
 // Ovoz/audio ham shu yerga keladi — shuning uchun "vaqt surildi" ovoz bilan ham ishlaydi.
 async function handleTextInput(ctx, text) {
   const conv = await getConversation(ctx.from.id);
+  // Joriy xabardan OLDINGI tarixni olamiz (Gemini'ga kontekst); keyin xabarni yozamiz.
+  const priorHistory = Array.isArray(conv.history) ? conv.history.slice(-HISTORY_LIMIT) : [];
+  // Boshida faol oqim bormidi? (CLARIFY/disambiguatsiya tashlangach cron-tasdiqni
+  // noto'g'ri qo'zg'atmaslik uchun asl holatni eslab qolamiz.)
+  const hadPendingIntent = !!conv.pendingIntent;
+  // Egasi xabarini suhbat tarixiga yozamiz (atomar; xatosi oqimni to'xtatmaydi).
+  Conversation.pushHistory(ctx.from.id, 'user', text);
+
   // Universal chiqish: istalgan yarim qolgan oqimdan "bekor" bilan chiqish.
   if (/^(bekor|otmen|otmena|cancel|to'?xtat|toxtat|stop)\b/i.test(text.trim())) {
     await conv.reset();
@@ -241,10 +262,23 @@ async function handleTextInput(ctx, text) {
     return routeServiceReschedule(ctx, conv, text);
   }
   if (conv.pendingIntent === 'ENTRY_CONFIRM') {
-    return routeEntryConfirmation(ctx, conv, text);
+    return routeEntryConfirmation(ctx, conv, text, priorHistory);
   }
   if (conv.pendingIntent === 'IMAGE_RECORD_CONFIRM') {
     return routeImageConfirmation(ctx, conv, text);
+  }
+  // Tugmali savollarga MATN/OVOZ bilan javob — tugma bosish SHART emas (callback bilan bir xil natija).
+  if (conv.pendingIntent === 'EDIT_CONFIRM') {
+    return routeEditConfirmation(ctx, conv, text);
+  }
+  if (conv.pendingIntent === 'LOCATION_QUESTION') {
+    return routeLocationQuestion(ctx, conv, text);
+  }
+  if (conv.pendingIntent === 'CLARIFY') {
+    // Tugmalardan birini matn bilan tanladimi? Ha — davom etamiz; yo'q — oddiy NLU.
+    if (await routeClarifyChoice(ctx, conv, text)) return;
+  } else if (conv.pendingIntent === 'CLIENT_DISAMBIGUATION') {
+    if (await routeClientDisambiguation(ctx, conv, text)) return;
   }
   if (ctx.session?.pendingLocationRename) {
     return routeLocationRename(ctx, conv, text);
@@ -254,8 +288,13 @@ async function handleTextInput(ctx, text) {
     ctx.session.ocrQueue = [];
     ctx.session.currentOcrIndex = 0;
   }
+  // Faol oqim yo'q + yaqinda "bajarildimi?" so'ralgan bo'lsa — matn/ovoz javobini shu xizmatga bog'laymiz.
+  if (!hadPendingIntent && conv.lastConfirmServiceId && isRecentConfirm(conv.lastConfirmAt)) {
+    const action = interpretConfirmAction(text);
+    if (action && (await routeServiceConfirm(ctx, conv, action))) return;
+  }
 
-  const understanding = await understandText(text);
+  const understanding = await understandText(text, priorHistory);
   await routeUnderstanding(ctx, understanding, text);
 }
 
@@ -350,24 +389,236 @@ async function routeImageRecords(ctx, records, fileId) {
   await ctx.reply(`${summary}\n\nSaqlashimmi?`, { reply_markup: saveKeyboard() });
 }
 
-async function routeEntryConfirmation(ctx, conv, text) {
-  const answer = interpretYesNo(text);
+// Yakuniy tasdiq xulosasiga matn/ovoz javobi (3 tugma bilan bir xil natija):
+//  - "ha, to'g'ri"  -> saqlaydi
+//  - "yo'q, tahrirlash" -> tahrir rejimiga o'tadi ("Nimani tahrirlash kerak?")
+//  - "bekor"        -> hech narsa saqlamaydi (universal bekor yuqorida ham ushlaydi)
+//  - boshqa har qanday matn -> to'g'ridan-to'g'ri maydon tuzatish deb qabul qilinadi.
+async function routeEntryConfirmation(ctx, conv, text, priorHistory) {
+  // Tahrir rejimida — keyingi gap to'g'ridan-to'g'ri maydon tuzatishdir.
+  if (conv.awaitingField === 'editEntry') {
+    return routeEntryEdit(ctx, conv, text, priorHistory);
+  }
 
-  if (answer === 'no') {
+  const choice = interpretEntryConfirm(text);
+
+  if (choice === 'cancel') {
     await conv.reset();
     clearAllSessionState(ctx);
-    await ctx.reply('Mayli oka, saqlamadim.');
+    await ctx.reply("Bo'ldi, bekor qildim oka, hech narsa saqlanmadi");
     return;
   }
 
-  if (answer === 'yes') {
+  if (choice === 'save') {
     const res = await confirmPendingEntry({ conversation: conv });
     clearAllSessionState(ctx);
     await sendAgentResult(ctx, res);
     return;
   }
 
-  await ctx.reply("Saqlaymi yoki bekor qilaymi? 'ha' yoki 'yo\'q' deb yozing.", { reply_markup: saveKeyboard() });
+  if (choice === 'edit') {
+    conv.awaitingField = 'editEntry';
+    await conv.save();
+    if (ctx.session) ctx.session.pendingField = 'editEntry';
+    await ctx.reply('Nimani tahrirlash kerak, ayting oka');
+    return;
+  }
+
+  // Aniq tugma so'zi emas — buni to'g'ridan-to'g'ri maydon tuzatish deb qabul qilamiz
+  // ("narxi 200 ming", "telefon 90 123 45 67"); yangilangan xulosa qayta ko'rsatiladi.
+  return routeEntryEdit(ctx, conv, text, priorHistory);
+}
+
+// Tahrir loop'i: AI tuzatilgan maydonni collected.fields ichida yangilaydi, keyin
+// yangilangan xulosa xuddi shu 3 tugma bilan QAYTA ko'rsatiladi ("Ha, to'g'ri" bosilmaguncha).
+async function routeEntryEdit(ctx, conv, text, priorHistory) {
+  const understanding = await understandText(text, priorHistory || []);
+  const res = await editPendingEntry({ conversation: conv, understanding, rawText: text });
+  await syncSessionFromConversation(ctx, conv);
+  await ctx.reply(res.text, res.keyboard ? { reply_markup: res.keyboard } : undefined);
+}
+
+// EDIT_CONFIRM (narx/sana/manzil/ism/telefon tahriri) — [Ha][Yo'q] tugmasiga matn/ovoz javobi.
+// edit_confirm / edit_cancel callbacklari bilan bir xil natija.
+async function routeEditConfirmation(ctx, conv, text) {
+  const answer = interpretYesNo(text);
+  if (answer === 'no') {
+    await conv.reset();
+    clearAllSessionState(ctx);
+    await ctx.reply("Mayli oka, o'zgartirmadim.");
+    return;
+  }
+  if (answer === 'yes') {
+    const pending = conv.collected || {};
+    if (!pending.editType || !pending.targetId) {
+      await conv.reset();
+      clearAllSessionState(ctx);
+      await ctx.reply("O'zgartirish ma'lumotini topolmadim oka.");
+      return;
+    }
+    try {
+      const result = await applyConfirmedEdit(pending);
+      await conv.reset();
+      clearAllSessionState(ctx);
+      const name = result.service?.clientName || result.client?.name || '';
+      await ctx.reply(`Boldi oka, ${name} ma'lumotini yangiladim ✅`);
+    } catch (err) {
+      await ctx.reply('Xatolik: ' + err.message);
+    }
+    return;
+  }
+  await ctx.reply("O'zgartiraymi, oka? 'ha' yoki 'yo\'q' deb ayting.", { reply_markup: editConfirmKeyboard() });
+}
+
+// LOCATION_QUESTION ("Bu manzil yangi xizmat uchunmi?") — [Ha][Yo'q] tugmasiga matn/ovoz javobi.
+// location_service_yes / location_service_no callbacklari bilan bir xil natija.
+async function routeLocationQuestion(ctx, conv, text) {
+  const answer = interpretYesNo(text);
+  if (answer === 'no') {
+    await conv.reset();
+    clearAllSessionState(ctx);
+    await ctx.reply("Mayli oka, joylashuvni qo'ydim ✅");
+    return;
+  }
+  if (answer === 'yes') {
+    const location = conv.collected?.location;
+    if (!location) {
+      await conv.reset();
+      clearAllSessionState(ctx);
+      await ctx.reply('Joylashuvni topolmadim oka.');
+      return;
+    }
+    const missing = nextMissing('SERVICE_ENTRY', { location });
+    conv.pendingIntent = 'SERVICE_ENTRY';
+    conv.collected = { location };
+    conv.awaitingField = missing;
+    conv.markModified('collected');
+    await conv.save();
+    await syncSessionFromConversation(ctx, conv);
+    await ctx.reply(
+      QUESTIONS[missing],
+      missing === 'paymentMethod' ? { reply_markup: paymentMethodKeyboard() } : undefined
+    );
+    return;
+  }
+  await ctx.reply("Bu manzil yangi xizmat uchunmi, oka? 'ha' yoki 'yo\'q' deb ayting.", {
+    reply_markup: locationQuestionKeyboard(),
+  });
+}
+
+// CLARIFY — tugmalardan birini matn/ovoz bilan tanlash (clarify_N callback bilan bir xil).
+// true: tanlov topildi va bajarildi. false: mos kelmadi — CLARIFY tashlandi, oddiy NLU davom etadi.
+async function routeClarifyChoice(ctx, conv, text) {
+  const options = Array.isArray(conv.collected?.options) ? conv.collected.options : [];
+  const choice = matchClarifyOption(text, options);
+  if (!choice) {
+    await conv.reset();
+    return false;
+  }
+  const rawText = conv.collected?.rawText || '';
+  const fields = conv.collected?.fields || {};
+  await conv.reset();
+  const res = await runAgent({
+    understanding: { intent: choice.subIntent, fields, confidence: 1, reply: '' },
+    rawText,
+    conversation: conv,
+  });
+  await syncSessionFromConversation(ctx, conv);
+  await sendAgentResult(ctx, res);
+  return true;
+}
+
+// CLIENT_DISAMBIGUATION — bir xil ismli mijozlardan birini matn/ovoz bilan tanlash
+// (tartib raqami "birinchi" yoki ism bo'yicha). pick_client_ callback bilan bir xil natija.
+async function routeClientDisambiguation(ctx, conv, text) {
+  const ids = Array.isArray(conv.collected?.candidateIds) ? conv.collected.candidateIds : [];
+  const intent = conv.collected?.disambIntent;
+  if (!ids.length || !intent) {
+    await conv.reset();
+    return false;
+  }
+  const found = await Client.find({ _id: { $in: ids }, isDeleted: { $ne: true } });
+  const ordered = ids.map((id) => found.find((c) => String(c._id) === String(id))).filter(Boolean);
+  if (!ordered.length) {
+    await conv.reset();
+    return false;
+  }
+  const match = matchClarifyOption(text, ordered.map((c, i) => ({ label: c.name || '', idx: i })));
+  if (!match) {
+    await conv.reset();
+    return false;
+  }
+  const client = ordered[match.idx];
+  const fields = {
+    ...(conv.collected?.disambFields || {}),
+    targetPhone: client.phone,
+    clientPhone: client.phone,
+    targetIdentifier: client.phone,
+  };
+  await conv.reset();
+  const res = await runAgent({
+    understanding: { intent, fields, reply: '', confidence: 1 },
+    rawText: '',
+    conversation: conv,
+  });
+  await syncSessionFromConversation(ctx, conv);
+  await sendAgentResult(ctx, res);
+  return true;
+}
+
+// "Bajarildimi?" cron so'roviga tugmasiz (matn/ovoz) javob: done/cancel/reschedule.
+// complete_ / cancel_direct_ / reschedule_ callbacklari bilan bir xil natija.
+// false qaytarsa — so'rov eskirgan (xizmat allaqachon hal qilingan), oddiy NLU davom etadi.
+async function routeServiceConfirm(ctx, conv, action) {
+  const serviceId = conv.lastConfirmServiceId;
+  const service = await Service.findOne({ _id: serviceId, isDeleted: { $ne: true } });
+  if (!service || service.status !== SERVICE_STATUS.PENDING) {
+    conv.lastConfirmServiceId = null;
+    conv.lastConfirmAt = null;
+    await conv.save();
+    return false;
+  }
+  try {
+    if (action === 'reschedule') {
+      conv.pendingIntent = 'SERVICE_RESCHEDULE';
+      conv.collected = { serviceId: String(service._id) };
+      conv.awaitingField = 'serviceDateTime';
+      conv.lastConfirmServiceId = null;
+      conv.lastConfirmAt = null;
+      conv.markModified('collected');
+      await conv.save();
+      if (ctx.session) {
+        ctx.session.intent = 'SERVICE_RESCHEDULE';
+        ctx.session.collectedData = { serviceId: String(service._id) };
+        ctx.session.pendingField = 'serviceDateTime';
+        ctx.session.awaitingReschedule = String(service._id);
+      }
+      await ctx.reply("Qachonga ko'chiramiz oka? Sana va vaqtni yozing yoki ayting.");
+      return true;
+    }
+    if (action === 'done') {
+      const updated = await completeService(service._id, { markPaid: true });
+      conv.lastConfirmServiceId = null;
+      conv.lastConfirmAt = null;
+      await conv.save();
+      await ctx.reply(
+        `Zo'r oka, ${updated.clientName} xizmatini bajarildi deb belgiladim ✅\nDaromad: ${formatMoney(updated.price)}`
+      );
+      return true;
+    }
+    if (action === 'cancel') {
+      const updated = await cancelService(service._id);
+      conv.lastConfirmServiceId = null;
+      conv.lastConfirmAt = null;
+      await conv.save();
+      await ctx.reply(`Mayli oka, ${updated.clientName} xizmatini bekor qildim. Balansga hech narsa yozilmadi.`);
+      return true;
+    }
+  } catch (err) {
+    await ctx.reply('Xatolik: ' + err.message);
+    return true;
+  }
+  return false;
 }
 
 async function routeImageConfirmation(ctx, conv, text) {

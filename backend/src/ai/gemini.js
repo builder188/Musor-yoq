@@ -623,8 +623,10 @@ export async function extractNotebookRecords(imageBuffer, mime = 'image/jpeg', c
 }
 
 // STEP 2: intent classification with Gemini function calling enabled.
-export async function classifyIntent(text) {
-  const prompt = buildClassificationPrompt(text);
+// `history` — oxirgi ~10 xabar ([{role, text}]); qisqa javoblarni botning oldingi
+// savoli kontekstida talqin qilish uchun prompt'ga qo'shiladi (ixtiyoriy).
+export async function classifyIntent(text, history = []) {
+  const prompt = buildClassificationPrompt(text, history);
   const res = await generate(functionCallingModel, prompt);
   const args = functionArgs(res.response);
   if (args) return normalizeUnderstanding(args);
@@ -684,8 +686,9 @@ Uzbek response (samimiy "oka" ohangida, qisqa):`);
 }
 
 // Backward-compatible NLU entry point used by bot and Mini App.
-export async function understandText(text) {
-  return classifyIntent(text);
+// `history` ixtiyoriy — bot suhbat kontekstini beradi; Mini App bo'sh yuboradi.
+export async function understandText(text, history = []) {
+  return classifyIntent(text, history);
 }
 
 // Backward-compatible audio entry point: transcribe first, then classify text.

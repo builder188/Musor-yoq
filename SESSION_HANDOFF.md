@@ -1,5 +1,54 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-24 Yangi yozuvga YAKUNIY TASDIQLASH bosqichi (3 tugma + tahrir loop)
+- **Maqsad:** SERVICE_ENTRY / EXPENSE_ENTRY / INCOME_ENTRY — barcha majburiy maydon yig'ilgach
+  DARHOL saqlamaydi; avval xulosa + 3 tugma ko'rsatiladi, tasdiqdan keyingina MongoDB'ga yoziladi.
+- **Bug tekshiruvi:** "maydon to'lgach bot hech narsa qaytarmaydi" — joriy kodda
+  `agent.finalizeEntry` (bot mode) allaqachon `ENTRY_CONFIRM` + xulosa qaytaradi (continueEntry/startEntry →
+  finalizeEntry, save_yes/text "ha" → confirmPendingEntry → executeToolFlow → createService/createTransaction).
+  Static traceda saqlash zanjiri uzilmagan; muammo eski 2-tugmali (Saqlash/Bekor) UX yoki eskirgan deploy edi.
+  Shunга qaramay oqim spec bo'yicha aniq 3-tugmali + tahrir-loop bilan QAYTA yozildi, eski kod tozalandi.
+- **Yangi oqim:** `ui.entrySummaryText(intent, fields)` (Service: 👤📱📍/📅💰💳 + "Hammasi to'g'rimi?";
+  Xarajat/kirim: 💸/💰 summa | toifa + 📝izoh + "To'g'rimi?") + `ui.entryConfirmKeyboard()`
+  [✅ Ha, to'g'ri=entry_save][✏️ Yo'q, tahrirlash kerak=entry_edit][❌ Bekor qilish=entry_cancel].
+  `agent.finalizeEntry` endi shularni qaytaradi (eski `entryConfirmationText`/`locationText` o'chirildi).
+- **Callbacklar (`callbacks.js`):** `entry_save`→`confirmPendingEntry` (saqlaydi, "Saqlandi ✅", sessiya reset);
+  `entry_edit`→`awaitingField='editEntry'` + "Nimani tahrirlash kerak, ayting oka"; `entry_cancel`→reset +
+  "Bo'ldi, bekor qildim oka, hech narsa saqlanmadi". Eski `save_yes` ichidagi o'lik ENTRY_CONFIRM shoxi olib
+  tashlandi (save_yes/save_no endi faqat OCR rasm tasdig'i uchun).
+- **Matn/ovoz (Prompt 9 qoidasi):** `message.routeEntryConfirmation` `answers.interpretEntryConfirm`
+  (save/edit/cancel) bilan tugma bilan bir xil ishlaydi; aniqlanmagan matn ("narxi 200 ming") to'g'ridan
+  `routeEntryEdit`ga boradi. **Tahrir loop:** `routeEntryEdit`→`understandText(text, history)`→
+  `agent.editPendingEntry` AI ajratgan maydonni `collected.fields` USTIGA yozadi (`flow.mergeFields(...,{overwrite:true})`
+  + editField→entry map + sana `parseHumanDateTime`), yangilangan xulosani xuddi shu 3 tugma bilan QAYTA ko'rsatadi
+  ("Ha, to'g'ri" bosilmaguncha). Tahrirdan keyin majburiy maydon yetishmasa — normal so'rashga qaytadi.
+- **Tekshiruv:** barcha backend `node --check` OK; modul-load smoke OK; offline xulosa/merge/interpret testi OK;
+  fake-conversation orqali to'liq zanjir integratsiya testi 16/16 (SERVICE/EXPENSE/INCOME → ENTRY_CONFIRM →
+  editField/direct/phone overwrite, boshqa maydonlar saqlanadi). Mini App (mode='query') tegilmadi.
+
+## 2026-06-24 Umumiy suhbat qoidalari: matn/ovoz = tugma + oxirgi 10 xabar konteksti
+- **Qoida 1 (tugma o'rniga matn/ovoz):** har qanday tugmali savolga endi matn/ovoz bilan ham javob
+  bersa bo'ladi, callback bilan AYNAN bir xil natija. `message.handleTextInput` `conv.pendingIntent`ga
+  qarab yangi handlerlarga yo'naltiradi: `routeEditConfirmation` (EDIT_CONFIRM ↔ edit_confirm/edit_cancel),
+  `routeLocationQuestion` (LOCATION_QUESTION ↔ location_service_yes/no), `routeClarifyChoice`
+  (CLARIFY ↔ clarify_N, `matchClarifyOption` orqali ordinal/label), `routeClientDisambiguation`
+  (CLIENT_DISAMBIGUATION ↔ pick_client_, ism/tartib bo'yicha). Cron "bajarildimi?" so'rovi:
+  `routeServiceConfirm` `interpretConfirmAction` (done/cancel/reschedule) + `conv.lastConfirmServiceId`
+  (cron `markConfirmContext` yozadi; 24h oyna; xizmat hali `kutilmoqda` bo'lsa). To'lov usuli/ENTRY tasdiq
+  allaqachon matn qabul qilardi. `answers.js` helperlari (avval o'lik) endi ulangan.
+- **Qoida 2 (oxirgi 10 xabar konteksti):** `Conversation.history` (rolling, `pushHistory` $push/$slice -10)
+  endi yoziladi va Gemini'ga beriladi. Egasi xabari `handleTextInput`da, botning HAR bir chiqar xabari
+  `bot.js` `bot.api.config.use` transformeri orqali (sendMessage/editMessageText, owner-only) yoziladi.
+  `understandText(text, history)` → `classifyIntent` → `prompts.buildClassificationPrompt` endi
+  "RECENT CONVERSATION (oldest→newest)" blokini joriy xabardan oldin qo'yadi. Mini App (`routes/ai.js`)
+  history bermaydi — orqaga mos. Joriy xabar tarixga qo'shilishidan OLDIN `priorHistory` olinadi (dublikat yo'q).
+- **O'zgargan fayllar:** `ai/prompts.js`, `ai/gemini.js`, `bot/bot.js`, `cron/reminders.js`,
+  `bot/handlers/callbacks.js` (reschedule tugmasi lastConfirm tozalaydi), `bot/handlers/message.js`.
+  `models/Conversation.js` (history/pushHistory/lastConfirm* — o'tgan sessiyada qo'shilgan, endi ulangan).
+- **Tekshiruv:** 6 ta o'zgargan backend fayl `node --check` OK; modul-load smoke (message/callbacks/cron/bot/agent)
+  barcha yangi importlar resolve OK; offline xulq testi 16/17 (1 "fail" — test stringi noto'g'ri edi, "boshqa"
+  tokeni label bilan to'g'ri mos keldi; kod mavjud `matchClarifyOption` xulqiga sodiq).
+
 ## 2026-06-24 Responsive shell + barcha yangi yozuvlarga yakuniy tasdiq
 - Responsive Mini App shell: `App.jsx` viewport listener bilan desktop/mobile rejimni aniqlaydi; `SidebarNav.jsx` desktop uchun sticky left nav (collapse localStorage), `BottomNav` faqat mobileda render bo'ladi. `Modal` va Home AI panel `useNavigationView` orqali internal back stackga ulandi.
 - Bot create flow: `agent.finalizeEntry()` endi bot mode'da `ENTRY_CONFIRM` yaratadi va xulosa + `saveKeyboard()` qaytaradi. `confirmPendingEntry()` tasdiqdan keyin saqlaydi. `message.js` matn/ovoz `ha|saqla|tasdiq` va `yo'q|saqlama|yozma` javoblarini, `callbacks.js` esa `save_yes/save_no` tugmalarini ushlaydi.

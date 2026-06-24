@@ -5,6 +5,7 @@
 // (findOneAndUpdate sent:false -> true). Yuborish xato bo'lsa, bayroq qaytariladi (keyingi tik qayta uradi).
 import cron from 'node-cron';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
+import Conversation from '../models/Conversation.js';
 import { ownerIds } from '../config/env.js';
 import { serviceReminderText, serviceConfirmText, confirmServiceKeyboard } from '../bot/ui.js';
 
@@ -24,6 +25,21 @@ async function broadcast(bot, text, extra) {
   const recipients = ownerIds();
   if (recipients.length === 0) throw new Error('OWNER_TELEGRAM_ID topilmadi');
   await Promise.all(recipients.map((telegramId) => bot.api.sendMessage(telegramId, text, extra)));
+}
+
+// "Bajarildimi?" so'rovi yuborilgan xizmatni eslab qoladi — egasi tugma bosmasdan
+// matn/ovoz bilan ("ha bajardim", "yo'q", "keyinroq") javob bersa shu xizmatga bog'lanadi.
+async function markConfirmContext(serviceId) {
+  const recipients = ownerIds();
+  await Promise.all(
+    recipients.map((telegramId) =>
+      Conversation.updateOne(
+        { telegramId },
+        { $set: { lastConfirmServiceId: String(serviceId), lastConfirmAt: new Date() } },
+        { upsert: true }
+      ).catch(() => null)
+    )
+  );
 }
 
 // reminderAt kelgan kelajak xizmatlar uchun oddiy eslatma.
@@ -101,6 +117,8 @@ async function fireConfirms(bot) {
       await broadcast(bot, serviceConfirmText(claimed), {
         reply_markup: confirmServiceKeyboard(claimed._id.toString()),
       });
+      // Tugmasiz (matn/ovoz) javob shu xizmatga tegishli bo'lishi uchun eslab qo'yamiz.
+      await markConfirmContext(claimed._id);
     } catch (err) {
       console.error('Tasdiq so\'rovida xato:', err.message);
       await Service.updateOne(
