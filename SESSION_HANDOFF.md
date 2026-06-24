@@ -1,5 +1,12 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-24 Rate limiting - xarajat nazorati
+- `backend/src/bot/mediaLimits.js` qo'shildi: rasm limiti 10 ta/60 soniya, RAM Map counter, 10 daqiqalik bypass (`limitni ochib qo'y`), umumiy reply matnlari va test uchun reset/export helperlari.
+- `backend/src/bot/handlers/message.js`: voice `duration > 90` bo'lsa yuklab olish/transkripsiyasiz rad qilinadi; photo handler download/AI'dan oldin limit tekshiradi; media group/albom 1s yig'iladi, >10 bo'lsa butun to'plam rad qilinadi; limitdan o'tgan 11-rasm qancha kutishni aytadi.
+- Unsupported media: video uchun alohida iliq javob; document/sticker/animation/video_note uchun umumiy `matn/ovoz/rasm yuboring` javobi.
+- Bypass trigger faqat aniq `limitni ochib qo'y` iborasi (case-insensitive string matching); `oka` hech narsani trigger qilmaydi.
+- Tekshiruv: media limiter Node REPL self-test OK; backend `src/**/*.js` `node --check` OK; root `npm run build` OK.
+
 ## 2026-06-24 Moliya qo'shimcha mantiq + bot shaxsiyati ("oka" ohangi)
 - **Aqlli toifalash:** `prompts.js` xarajat toifasini KALIT-SO'Z ro'yxati emas, MAZMUN bo'yicha tanlashga
   yo'naltirildi ("yog' va guruch oldim"→oziq-ovqat, "magazinga ishlatdim"→boshqa_chiqim); toifa/tafsilot so'ralmaydi

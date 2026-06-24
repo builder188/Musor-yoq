@@ -337,6 +337,7 @@ miniapp/src/
 - **Ruscha i18n:** asosiy kalitlar tarjima qilingan, qolgani uz ga fallback.
 
 ## Current state
+- 2026-06-24: Bot media xarajat nazorati qo'shildi. `backend/src/bot/mediaLimits.js` RAM Map bilan rasm 10 ta/60 soniya limitini, 10 daqiqalik `limitni ochib qo'y` bypassini, >90 soniya voice rad etishni va unsupported media javoblarini markazlashtiradi. `message.js` photo/media-groupni AI/downloaddan oldin tekshiradi; oversized album butunlay rad qilinadi, 11-rasm kutish vaqti bilan rad qilinadi.
 - Loyiha **ishlashga tayyor**. Kod to'liq. Faqat haqiqiy `.env` (BOT_TOKEN, OWNER_TELEGRAM_ID,
   MONGODB_URI, GEMINI_API_KEY) kerak. `backend/.env.example` va `miniapp/.env.example` mavjud.
 - 2026-06-21: Bot lokatsiya oqimi kuchaytirildi. Location yuborilganda reverse geocode natijasi avval
