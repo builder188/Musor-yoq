@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatPhone, formatDate, toInputDateTime } from '../utils/format.js';
+import { formatMoney, formatPhone, formatDate, formatDateTime, toInputDateTime } from '../utils/format.js';
 import { shouldWarnMapUrl } from '../utils/mapUrl.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
+import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
 
 export default function Clients({ focusClientId, openAddClient, onAddClientHandled, onFocusHandled }) {
   const { t } = useApp();
@@ -233,20 +234,27 @@ function AddClientModal({ onClose, onSaved }) {
     price: '',
   });
   const [busy, setBusy] = useState(false);
+  const [confirmPayload, setConfirmPayload] = useState(null);
 
   const save = async () => {
     if (!form.locationName.trim()) return alert(t('common.locationRequired'));
     if (shouldWarnMapUrl(form.locationMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
+    setConfirmPayload({
+      clientName: form.name,
+      clientPhone: form.phone,
+      location: { address: form.locationName, mapUrl: form.locationMapUrl },
+      serviceDateTime: new Date(`${form.date}T${form.time}`).toISOString(),
+      price: Number(form.price),
+      paymentMethod: 'naqd',
+    });
+  };
+
+  const confirmSave = async () => {
+    if (!confirmPayload) return;
     setBusy(true);
     try {
-      await api.post('/services', {
-        clientName: form.name,
-        clientPhone: form.phone,
-        location: { address: form.locationName, mapUrl: form.locationMapUrl },
-        serviceDateTime: new Date(`${form.date}T${form.time}`).toISOString(),
-        price: Number(form.price),
-        paymentMethod: 'naqd',
-      });
+      await api.post('/services', confirmPayload);
+      setConfirmPayload(null);
       onSaved();
     } catch (e) {
       alert(e.message);
@@ -310,8 +318,27 @@ function AddClientModal({ onClose, onSaved }) {
       >
         {busy ? '...' : t('common.save')}
       </button>
+      {confirmPayload && (
+        <FinalConfirmModal
+          rows={serviceConfirmRows(confirmPayload, t)}
+          busy={busy}
+          onClose={() => setConfirmPayload(null)}
+          onConfirm={confirmSave}
+        />
+      )}
     </Modal>
   );
+}
+
+function serviceConfirmRows(payload, t) {
+  return [
+    { label: t('common.name'), value: payload.clientName },
+    { label: t('common.phone'), value: formatPhone(payload.clientPhone) },
+    { label: t('common.location'), value: payload.location?.address },
+    { label: t('common.date'), value: formatDateTime(payload.serviceDateTime) },
+    { label: t('common.serviceFee'), value: formatMoney(payload.price) },
+    { label: t('common.paymentMethod'), value: t(`payment.${payload.paymentMethod}`) },
+  ];
 }
 
 const CLIENT_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];

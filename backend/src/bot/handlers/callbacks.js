@@ -4,7 +4,7 @@ import Conversation from '../../models/Conversation.js';
 import Client from '../../models/Client.js';
 import { generateReportPdf, resolveReportRange } from '../../routes/reports.js';
 import { completeService, cancelService, createService, recordServicePayment } from '../../services/serviceService.js';
-import { runAgent, applyConfirmedEdit } from '../../ai/agent.js';
+import { runAgent, applyConfirmedEdit, confirmPendingEntry } from '../../ai/agent.js';
 import { formatMoney } from '../../utils/money.js';
 import {
   serviceConfirmationText,
@@ -50,6 +50,15 @@ export function registerCallbacks(bot) {
   bot.callbackQuery('save_yes', async (ctx) => {
     try {
       const conv = await Conversation.findOne({ telegramId: ctx.from.id });
+      if (conv?.pendingIntent === 'ENTRY_CONFIRM') {
+        const res = await confirmPendingEntry({ conversation: conv });
+        clearSession(ctx);
+        await ctx.answerCallbackQuery({ text: res?.error ? 'Xatolik' : 'Saqlandi' });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        await sendAgentResult(ctx, res);
+        return;
+      }
+
       const pending = conv?.collected?.pendingData || ctx.session?.collectedData?.pendingData || ctx.session?.collectedData;
       const records = conv?.collected?.records || ctx.session?.collectedData?.records || null;
       if ((!pending || Object.keys(pending).length === 0) && !records?.length) {
@@ -387,6 +396,7 @@ export function registerCallbacks(bot) {
         rawText: method,
         conversation: conv,
       });
+      syncSessionFromConversation(ctx, conv);
       if (res?.tool === 'create_service' && res.result) {
         await ctx.reply(serviceConfirmationText(res.result));
         const info = reminderInfoLine(res.result);
@@ -577,7 +587,7 @@ function syncSessionFromConversation(ctx, conv) {
   ctx.session.intent = conv.pendingIntent;
   ctx.session.collectedData = conv.collected || {};
   ctx.session.pendingField = conv.awaitingField;
-  ctx.session.awaitingConfirmation = conv.pendingIntent === 'IMAGE_RECORD_CONFIRM';
+  ctx.session.awaitingConfirmation = ['IMAGE_RECORD_CONFIRM', 'ENTRY_CONFIRM'].includes(conv.pendingIntent);
   ctx.session.pendingLocation = null;
   ctx.session.pendingLocationRename = false;
   ctx.session.pendingLocationCoords = null;

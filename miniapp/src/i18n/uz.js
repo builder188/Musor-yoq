@@ -9,6 +9,8 @@ export default {
     finance: 'Moliya',
     reports: 'Hisobotlar',
     settings: 'Sozlamalar',
+    expandSidebar: 'Menyuni ochish',
+    collapseSidebar: 'Menyuni yig\'ish',
   },
 
   common: {
@@ -46,6 +48,11 @@ export default {
     error: 'Xatolik',
     saved: 'Saqlandi',
     soum: "so'm",
+    finalConfirm: 'Yakuniy tasdiq',
+    checkBeforeSave: "Ma'lumotlarni tekshirib oling. Hammasi to'g'ri bo'lsa saqlang.",
+    saveConfirm: 'Saqlashni tasdiqlash',
+    backToEdit: 'Tahrirlashga qaytish',
+    notFilled: 'Kiritilmagan',
   },
 
   home: {

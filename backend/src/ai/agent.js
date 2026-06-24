@@ -33,7 +33,7 @@ import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { formatMoney, parseMoney } from '../utils/money.js';
 import { formatDateTime, formatDate, parseHumanDateTime } from '../utils/dates.js';
 import { formatPhone, normalizePhone } from '../utils/phone.js';
-import { editConfirmKeyboard, paymentMethodKeyboard, clientPickKeyboard, clarifyKeyboard } from '../bot/ui.js';
+import { editConfirmKeyboard, paymentMethodKeyboard, clientPickKeyboard, clarifyKeyboard, saveKeyboard } from '../bot/ui.js';
 
 // Yetishmayotgan maydonni so'rash — paymentMethod uchun tugmalar bilan.
 function askField(field) {
@@ -369,6 +369,15 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
 }
 
 async function finalizeEntry({ conversation, intent, collected, rawText, mode }) {
+  if (conversation && mode === 'bot') {
+    conversation.pendingIntent = 'ENTRY_CONFIRM';
+    conversation.collected = { confirmIntent: intent, fields: collected, rawText };
+    conversation.awaitingField = 'confirmEntry';
+    conversation.markModified('collected');
+    await conversation.save();
+    return { text: entryConfirmationText(intent, collected), keyboard: saveKeyboard() };
+  }
+
   const result = await executeToolFlow({ intent, fields: collected, rawText, mode });
   if (conversation) await conversation.reset();
   return result;
@@ -538,6 +547,56 @@ export async function applyConfirmedEdit({ editType, targetId, data }) {
     return { editType, client: serializeDoc(client) };
   }
   throw new Error('Noma\'lum tahrir turi');
+}
+
+export async function confirmPendingEntry({ conversation, mode = 'bot' }) {
+  const pending = conversation?.collected || {};
+  const intent = pending.confirmIntent || pending.intent;
+  const fields = pending.fields || pending.confirmFields;
+
+  if (!conversation || conversation.pendingIntent !== 'ENTRY_CONFIRM' || !intent || !fields) {
+    throw new Error("Tasdiqlanadigan ma'lumot topilmadi");
+  }
+
+  const result = await executeToolFlow({ intent, fields, rawText: pending.rawText || '', mode });
+  await conversation.reset();
+  return result;
+}
+
+function entryConfirmationText(intent, fields = {}) {
+  const rows = [];
+
+  if (intent === 'SERVICE_ENTRY') {
+    rows.push(['Mijoz', fields.clientName]);
+    rows.push(['Telefon', formatPhone(fields.clientPhone) || fields.clientPhone]);
+    rows.push(['Manzil', locationText(fields.location)]);
+    rows.push(['Sana/vaqt', fields.serviceDateTime ? formatDateTime(fields.serviceDateTime) : '-']);
+    rows.push(['Narx', fields.price ? formatMoney(fields.price) : '-']);
+    rows.push(["To'lov", fields.paymentMethod || '-']);
+    if (fields.notes) rows.push(['Izoh', fields.notes]);
+  } else if (intent === 'EXPENSE_ENTRY') {
+    rows.push(['Turi', 'Xarajat']);
+    rows.push(['Summa', fields.amount ? formatMoney(fields.amount) : '-']);
+    rows.push(['Toifa', CATEGORY_LABEL[fields.category] || 'Boshqa']);
+    rows.push(['Sana', fields.date ? formatDateTime(fields.date) : 'Bugun']);
+    if (fields.description || fields.notes) rows.push(['Izoh', fields.description || fields.notes]);
+  } else if (intent === 'INCOME_ENTRY') {
+    rows.push(['Turi', 'Daromad']);
+    rows.push(['Summa', fields.amount ? formatMoney(fields.amount) : '-']);
+    rows.push(['Sana', fields.date ? formatDateTime(fields.date) : 'Bugun']);
+    if (fields.description || fields.notes || fields.incomeSource) {
+      rows.push(['Izoh', fields.description || fields.notes || fields.incomeSource]);
+    }
+  }
+
+  const body = rows.map(([label, value]) => `${label}: ${value || '-'}`).join('\n');
+  return `Tekshirib oling oka. Shu ma'lumotni saqlaymi?\n\n${body}`;
+}
+
+function locationText(location) {
+  if (!location) return '-';
+  if (typeof location === 'object') return location.address || location.name || '-';
+  return String(location);
 }
 
 async function executeToolFlow({ intent, fields, rawText, mode }) {

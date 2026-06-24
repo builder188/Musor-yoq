@@ -1,5 +1,11 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-24 Responsive shell + barcha yangi yozuvlarga yakuniy tasdiq
+- Responsive Mini App shell: `App.jsx` viewport listener bilan desktop/mobile rejimni aniqlaydi; `SidebarNav.jsx` desktop uchun sticky left nav (collapse localStorage), `BottomNav` faqat mobileda render bo'ladi. `Modal` va Home AI panel `useNavigationView` orqali internal back stackga ulandi.
+- Bot create flow: `agent.finalizeEntry()` endi bot mode'da `ENTRY_CONFIRM` yaratadi va xulosa + `saveKeyboard()` qaytaradi. `confirmPendingEntry()` tasdiqdan keyin saqlaydi. `message.js` matn/ovoz `ha|saqla|tasdiq` va `yo'q|saqlama|yozma` javoblarini, `callbacks.js` esa `save_yes/save_no` tugmalarini ushlaydi.
+- Mini App create flow: yangi `FinalConfirmModal.jsx`; `Clients.jsx`, `Services.jsx`, `Finance.jsx` create `POST`lari avval preview modalga o'tadi. Tasdiqlashsiz APIga yangi mijoz/xizmat/kirim/chiqim yuborilmaydi; edit/patch oqimlari avvalgidek.
+- Tekshiruv: `miniapp npm run build` OK (54 modul); backend barcha `*.js` `node --check` OK; `git diff --check` OK. Playwright: 390px mobileda bottom nav va final confirm modal (2 modal, preview rows, column buttons), 1024px desktopda sidebar=true, bottomNav=false, confirm actions row. Vite port 5177 keyin to'xtatildi.
+
 ## 2026-06-24 Rate limiting - xarajat nazorati
 - `backend/src/bot/mediaLimits.js` qo'shildi: rasm limiti 10 ta/60 soniya, RAM Map counter, 10 daqiqalik bypass (`limitni ochib qo'y`), umumiy reply matnlari va test uchun reset/export helperlari.
 - `backend/src/bot/handlers/message.js`: voice `duration > 90` bo'lsa yuklab olish/transkripsiyasiz rad qilinadi; photo handler download/AI'dan oldin limit tekshiradi; media group/albom 1s yig'iladi, >10 bo'lsa butun to'plam rad qilinadi; limitdan o'tgan 11-rasm qancha kutishni aytadi.

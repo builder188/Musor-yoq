@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { formatMoney, formatDate, formatPhone } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
+import { useNavigationView } from '../components/useNavigationView.js';
 
 export default function Home({ onOpenClient, goToTab, onAddClient }) {
   const { t, lang } = useApp();
@@ -267,6 +268,7 @@ function FloatingAiButton({ onClick }) {
 
 function AiChatPanel({ onClose, onSelectService }) {
   const { t } = useApp();
+  const goBack = useNavigationView(t('home.aiChat'), onClose);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
@@ -309,8 +311,12 @@ function AiChatPanel({ onClose, onSelectService }) {
     <div className="modal-overlay ai-overlay" onClick={onClose}>
       <div className="modal ai-chat" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
+          <button className="modal-back" type="button" onClick={goBack} aria-label={t('common.back')}>
+            <span aria-hidden="true">&larr;</span>
+            <span className="modal-back-label">{t('common.back')}</span>
+          </button>
           <div className="modal-title">✨ AI yordamchi</div>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" type="button" onClick={onClose} aria-label={t('common.close')}>&times;</button>
         </div>
 
         <div className="ai-messages">

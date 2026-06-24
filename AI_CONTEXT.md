@@ -1,5 +1,11 @@
 # AI_CONTEXT.md
 
+## 2026-06-24 Responsive shell + yangi ma'lumot yakuniy tasdiqlash
+- Mini App shell responsive qayta qurildi: `>=768px` desktop sidebar (`SidebarNav`, collapsed state localStorage), `<768px` eski bottom nav; resize listener shellni reloadsiz almashtiradi. Modal/detail viewlar `AppContext` navigation stack orqali ichki `Orqaga` tugmasiga ulangan.
+- Bot yangi yozuv oqimlari (`SERVICE_ENTRY`, `EXPENSE_ENTRY`, `INCOME_ENTRY`) endi to'g'ridan DBga yozmaydi: barcha majburiy maydonlar yig'ilgach `ENTRY_CONFIRM` pending holati saqlanadi, xulosa ko'rsatiladi va `save_yes`/matnli `ha|saqla|tasdiq` dan keyin `confirmPendingEntry()` real `create_service/create_transaction`ni bajaradi. `save_no`, `yo'q`, `saqlama`, `bekor` reset qiladi.
+- Mini App yangi data create oqimlari (`Clients` orqali yangi xizmat/mijoz, `Services` yangi xizmat, `Finance` kirim/chiqim) `FinalConfirmModal` orqali preview beradi; `api.post` faqat `Saqlashni tasdiqlash` bosilgandan keyin ketadi. Edit/complete/delete/restore/report oqimlari o'zgarmadi.
+- Tekshiruv: `cd miniapp && npm run build` OK; backend `src/**/*.js` `node --check` OK; `git diff --check` OK; Vite `127.0.0.1:5177` da Playwright bilan mobile bottom nav, final confirm modal, desktop sidebar/bottom-nav conditional render tekshirildi. Browserdagi backend `Failed to fetch` banneri backend dev server ishlamagani uchun kutilgan.
+
 ## 2026-06-23 Eslatma va lokatsiya prompti yakunlandi
 - Eski `defaultReminders` array va `service.reminders[]` oqimi runtime koddan olib tashlandi. Settings endi `reminderHoursBefore` va `confirmHoursAfter` (default 3, 1..168) saqlaydi; Mini App ikkalasini alohida sozlaydi.
 - Service jadvali: `reminderAt = serviceDateTime - X soat` oddiy matn, `confirmAt = serviceDateTime + X soat` tugmali tasdiq. Cron `reminderSent/confirmSent` atomar claim qiladi; restore/reschedule `applyServiceSchedule` bilan qayta hisoblaydi.

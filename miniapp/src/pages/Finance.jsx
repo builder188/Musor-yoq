@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatDate, toInputDateTime } from '../utils/format.js';
+import { formatMoney, formatDate, formatDateTime, toInputDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
+import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
 
 const PERIODS = ['today', 'month', 'year'];
 const MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn', 'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek'];
@@ -386,18 +387,27 @@ function AddTransactionModal({ initialType = 'expense', onClose, onDone }) {
   const [note, setNote] = useState('');
   const [date, setDate] = useState(toInputDateTime(new Date()));
   const [busy, setBusy] = useState(false);
+  const [confirmPayload, setConfirmPayload] = useState(null);
 
   const submit = async () => {
+    setConfirmPayload({
+      type,
+      amount: Number(amount),
+      category: type === 'expense' ? category : undefined,
+      description: note,
+      date: new Date(date).toISOString(),
+    });
+  };
+
+  const confirmSave = async () => {
+    if (!confirmPayload) return;
     setBusy(true);
     try {
-      await api.post('/transactions', {
-        type,
-        amount: Number(amount),
-        category: type === 'expense' ? category : undefined,
-        description: note,
-        date: new Date(date).toISOString(),
-      });
+      await api.post('/transactions', confirmPayload);
+      setConfirmPayload(null);
       onDone();
+    } catch (e) {
+      alert(e.message);
     } finally {
       setBusy(false);
     }
@@ -423,8 +433,26 @@ function AddTransactionModal({ initialType = 'expense', onClose, onDone }) {
       <button className="btn btn-primary btn-block" onClick={submit} disabled={busy || !amount}>
         {busy ? '...' : t('common.save')}
       </button>
+      {confirmPayload && (
+        <FinalConfirmModal
+          rows={transactionConfirmRows(confirmPayload, t)}
+          busy={busy}
+          onClose={() => setConfirmPayload(null)}
+          onConfirm={confirmSave}
+        />
+      )}
     </Modal>
   );
+}
+
+function transactionConfirmRows(payload, t) {
+  return [
+    { label: t('finance.type'), value: t(`finance.${payload.type === 'income' ? 'income' : 'expense'}`) },
+    { label: t('common.amount'), value: formatMoney(payload.amount) },
+    payload.type === 'expense' ? { label: t('finance.category'), value: t(`category.${payload.category}`) } : null,
+    { label: t('common.notes'), value: payload.description },
+    { label: t('common.date'), value: formatDateTime(payload.date) },
+  ].filter(Boolean);
 }
 
 function EditTransactionModal({ tx, onClose, onDelete, onDone }) {

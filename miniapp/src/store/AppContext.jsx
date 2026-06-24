@@ -1,5 +1,5 @@
 // Ilova holati: til, mavzu, sozlamalar. Backend bilan sinxronlanadi.
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api/client.js';
 import { makeT } from '../i18n/index.js';
 import { clearTelegramTheme } from '../telegram.js';
@@ -24,6 +24,49 @@ export function AppProvider({ children }) {
   });
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
+  const [navigationStack, setNavigationStack] = useState([]);
+  const navigationStackRef = useRef([]);
+  const navigationSeqRef = useRef(0);
+
+  const updateNavigationStack = useCallback((updater) => {
+    setNavigationStack((current) => {
+      const next = typeof updater === 'function' ? updater(current) : updater;
+      navigationStackRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const pushNavigation = useCallback(
+    (entry) => {
+      navigationSeqRef.current += 1;
+      const id = `${Date.now()}-${navigationSeqRef.current}`;
+      updateNavigationStack((current) => [...current, { id, ...entry }]);
+      return id;
+    },
+    [updateNavigationStack]
+  );
+
+  const removeNavigation = useCallback(
+    (id) => {
+      if (!id) return;
+      updateNavigationStack((current) => current.filter((entry) => entry.id !== id));
+    },
+    [updateNavigationStack]
+  );
+
+  const clearNavigation = useCallback(() => {
+    updateNavigationStack([]);
+  }, [updateNavigationStack]);
+
+  const goBack = useCallback(() => {
+    const current = navigationStackRef.current[navigationStackRef.current.length - 1];
+    if (!current) return;
+    if (typeof current.onBack === 'function') {
+      current.onBack();
+      return;
+    }
+    removeNavigation(current.id);
+  }, [removeNavigation]);
 
   // Sozlamalarni yuklash.
   const loadSettings = useCallback(async () => {
@@ -80,7 +123,23 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider
-      value={{ settings, setSettings, lang, setLang, theme, setTheme, t, loaded, error, loadSettings }}
+      value={{
+        settings,
+        setSettings,
+        lang,
+        setLang,
+        theme,
+        setTheme,
+        t,
+        loaded,
+        error,
+        loadSettings,
+        navigationStack,
+        pushNavigation,
+        removeNavigation,
+        clearNavigation,
+        goBack,
+      }}
     >
       {children}
     </AppContext.Provider>

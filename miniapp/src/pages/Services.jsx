@@ -7,6 +7,7 @@ import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
+import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
 
 const STATUSES = ['kutilmoqda', 'bajarildi', 'bekor_qilindi'];
 const SERVICE_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
@@ -517,21 +518,44 @@ function ServiceFormModal({ service, onClose, onSaved }) {
     isHistorical: service?.isHistorical || false,
   });
   const [busy, setBusy] = useState(false);
+  const [confirmPayload, setConfirmPayload] = useState(null);
+
+  const buildPayload = () => {
+    const { locationName, locationMapUrl, ...fields } = form;
+    return {
+      ...fields,
+      price: Number(form.price),
+      location: { address: locationName, mapUrl: locationMapUrl },
+      serviceDateTime: new Date(form.serviceDateTime).toISOString(),
+    };
+  };
 
   const save = async () => {
     if (!form.locationName.trim()) return alert(t('common.locationRequired'));
     if (shouldWarnMapUrl(form.locationMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
+    const payload = buildPayload();
+    if (!isEdit) {
+      setConfirmPayload(payload);
+      return;
+    }
+
     setBusy(true);
     try {
-      const { locationName, locationMapUrl, ...fields } = form;
-      const payload = {
-        ...fields,
-        price: Number(form.price),
-        location: { address: locationName, mapUrl: locationMapUrl },
-        serviceDateTime: new Date(form.serviceDateTime).toISOString(),
-      };
-      if (isEdit) await api.put(`/services/${service._id}`, payload);
-      else await api.post('/services', payload);
+      await api.put(`/services/${service._id}`, payload);
+      onSaved();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmSave = async () => {
+    if (!confirmPayload) return;
+    setBusy(true);
+    try {
+      await api.post('/services', confirmPayload);
+      setConfirmPayload(null);
       onSaved();
     } catch (e) {
       alert(e.message);
@@ -569,8 +593,28 @@ function ServiceFormModal({ service, onClose, onSaved }) {
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !form.clientName || !form.clientPhone || !form.locationName || !form.serviceDateTime || !form.price}>
         {busy ? '...' : t('common.save')}
       </button>
+      {confirmPayload && (
+        <FinalConfirmModal
+          rows={serviceFormConfirmRows(confirmPayload, t)}
+          busy={busy}
+          onClose={() => setConfirmPayload(null)}
+          onConfirm={confirmSave}
+        />
+      )}
     </Modal>
   );
+}
+
+function serviceFormConfirmRows(payload, t) {
+  return [
+    { label: t('common.name'), value: payload.clientName },
+    { label: t('common.phone'), value: payload.clientPhone },
+    { label: t('common.location'), value: payload.location?.address },
+    { label: t('common.date'), value: formatDateTime(payload.serviceDateTime) },
+    { label: t('common.price'), value: formatMoney(payload.price) },
+    { label: t('common.paymentMethod'), value: t(`payment.${payload.paymentMethod}`) },
+    { label: t('common.notes'), value: payload.notes },
+  ];
 }
 
 function Row({ label, value }) {

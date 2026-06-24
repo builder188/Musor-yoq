@@ -1,7 +1,7 @@
 // Route Telegram messages: text / voice / image / location -> Gemini -> agent.
 import Conversation from '../../models/Conversation.js';
 import { extractNotebookRecords, transcribeAudio, understandText } from '../../ai/gemini.js';
-import { runAgent } from '../../ai/agent.js';
+import { confirmPendingEntry, runAgent } from '../../ai/agent.js';
 import { editService } from '../../services/serviceService.js';
 import { mergeFields, nextMissing, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
@@ -19,6 +19,7 @@ import {
 import { formatMoney } from '../../utils/money.js';
 import { parseHumanDateTime } from '../../utils/dates.js';
 import { normalizeLocationData, reverseGeocode } from '../location.js';
+import { interpretYesNo } from '../answers.js';
 import {
   IMAGE_LIMIT_BYPASS_REPLY,
   UNSUPPORTED_MEDIA_REPLY,
@@ -239,6 +240,9 @@ async function handleTextInput(ctx, text) {
   if (ctx.session?.awaitingReschedule || conv.pendingIntent === 'SERVICE_RESCHEDULE') {
     return routeServiceReschedule(ctx, conv, text);
   }
+  if (conv.pendingIntent === 'ENTRY_CONFIRM') {
+    return routeEntryConfirmation(ctx, conv, text);
+  }
   if (conv.pendingIntent === 'IMAGE_RECORD_CONFIRM') {
     return routeImageConfirmation(ctx, conv, text);
   }
@@ -344,6 +348,26 @@ async function routeImageRecords(ctx, records, fileId) {
 
   const summary = formatExtractedRecords(recordsWithImage);
   await ctx.reply(`${summary}\n\nSaqlashimmi?`, { reply_markup: saveKeyboard() });
+}
+
+async function routeEntryConfirmation(ctx, conv, text) {
+  const answer = interpretYesNo(text);
+
+  if (answer === 'no') {
+    await conv.reset();
+    clearAllSessionState(ctx);
+    await ctx.reply('Mayli oka, saqlamadim.');
+    return;
+  }
+
+  if (answer === 'yes') {
+    const res = await confirmPendingEntry({ conversation: conv });
+    clearAllSessionState(ctx);
+    await sendAgentResult(ctx, res);
+    return;
+  }
+
+  await ctx.reply("Saqlaymi yoki bekor qilaymi? 'ha' yoki 'yo\'q' deb yozing.", { reply_markup: saveKeyboard() });
 }
 
 async function routeImageConfirmation(ctx, conv, text) {
@@ -460,7 +484,7 @@ async function syncSessionFromConversation(ctx, conv) {
   ctx.session.intent = conv.pendingIntent;
   ctx.session.collectedData = conv.collected || {};
   ctx.session.pendingField = conv.awaitingField;
-  ctx.session.awaitingConfirmation = conv.pendingIntent === 'IMAGE_RECORD_CONFIRM';
+  ctx.session.awaitingConfirmation = ['IMAGE_RECORD_CONFIRM', 'ENTRY_CONFIRM'].includes(conv.pendingIntent);
 }
 
 // Barcha session sub-holatlarini tozalash (universal "bekor" uchun).
