@@ -16,7 +16,7 @@ import {
   HIGH_DEFAULT_SUB,
   CONFIDENCE_THRESHOLD,
 } from './intents.js';
-import { chooseAgentTool, formulateToolResponse } from './gemini.js';
+import { formulateToolResponse } from './gemini.js';
 import {
   createService,
   completeService,
@@ -644,24 +644,22 @@ export async function confirmPendingEntry({ conversation, mode = 'bot' }) {
   return result;
 }
 
-async function executeToolFlow({ intent, fields, rawText, mode }) {
-  const fallback = fallbackToolCall(intent, fields, rawText);
-  let toolCall = fallback;
+// Tabiiy (LLM) javob faqat O'QISH so'rovlari uchun qiymatli — qidiruv/tahlil natijasini
+// jonli xulosa qiladi. Yozuv amallari (create/update/...) shablon javob oladi: tez va aniq.
+const LLM_RESPONSE_TOOLS = new Set([
+  'search_data',
+  'get_analytics',
+  'get_balance',
+  'get_services_by_identifier',
+]);
 
-  try {
-    const geminiToolCall = await chooseAgentTool({ intent, fields, rawText, mode });
-    if (geminiToolCall?.name) {
-      const expectedTool = TOOL_BY_INTENT[intent] || fallback.name;
-      if (geminiToolCall.name === expectedTool) {
-        toolCall = {
-          name: geminiToolCall.name,
-          args: mergeToolArgs(geminiToolCall.name, fallback.args, geminiToolCall.args || {}),
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('Gemini tool planner fallback:', err.message);
-  }
+async function executeToolFlow({ intent, fields, rawText, mode }) {
+  // Niyat allaqachon tasniflangan, maydonlar normallashtirilgan — qaysi tool va qanday
+  // argument kerakligini DETERMINISTIK aniqlaymiz. Avval qo'shimcha `chooseAgentTool`
+  // Gemini chaqiruvi bor edi, lekin uning natijasi baribir faqat shu deterministik
+  // tanlovga mos kelganda ishlatilardi (mos kelmasa tashlanardi) — ya'ni ortiqcha
+  // kechikish edi. Olib tashladik: har amalda bitta to'liq Gemini chaqiruvi tejaldi.
+  const toolCall = fallbackToolCall(intent, fields, rawText);
 
   let toolResult;
   try {
@@ -671,7 +669,14 @@ async function executeToolFlow({ intent, fields, rawText, mode }) {
     // samimiy xabar qaytaramiz (umumiy "AI xato" o'rniga).
     return { text: err?.message || "Voy oka, bir narsa chappa ketdi. Qaytadan urinib ko'ring.", tool: toolCall.name, error: true };
   }
+
   const fallbackText = fallbackResponse(toolCall.name, toolResult);
+
+  // Yozuv amali — shablon javob (qo'shimcha Gemini chaqiruvisiz, tez). Faqat o'qish
+  // so'rovida jonli xulosa uchun Gemini chaqiramiz; xato bo'lsa shablonga tushamiz.
+  if (!LLM_RESPONSE_TOOLS.has(toolCall.name)) {
+    return { text: fallbackText, tool: toolCall.name, result: toolResult };
+  }
 
   try {
     const text = await formulateToolResponse({
@@ -974,18 +979,6 @@ function fallbackToolCall(intent, fields, rawText) {
   }
 }
 
-function mergeToolArgs(toolName, fallbackArgs, geminiArgs) {
-  const merged = { ...fallbackArgs, ...cleanArgs(geminiArgs) };
-  if (toolName === 'create_service') return serviceArgs(merged);
-  if (toolName === 'create_transaction') {
-    return {
-      ...merged,
-      category: normalizeCategoryForDb(merged.category || merged.description),
-    };
-  }
-  return merged;
-}
-
 function serviceArgs(fields) {
   return {
     clientName: fields.clientName,
@@ -1019,15 +1012,6 @@ function normalizeCategoryForDb(value) {
 function normalizePeriod(period) {
   if (['today', 'week', 'month', 'last_month', 'year', 'all'].includes(period)) return period;
   return 'month';
-}
-
-function cleanArgs(args = {}) {
-  const out = {};
-  for (const [key, value] of Object.entries(args)) {
-    if (value === null || value === undefined || value === '') continue;
-    out[key] = value;
-  }
-  return out;
 }
 
 function serializeDoc(doc) {

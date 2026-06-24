@@ -371,8 +371,12 @@ function agentToolModel(modelName) {
 
 // Asosiy model + zaxira modellar. Asosiysi vaqtinchalik 503 (high demand) bersa,
 // boshqa model (alohida quvvat puli) ko'pincha ishlaydi — shu sabab fallback zanjiri.
-const PRIMARY_MODEL = env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
-const CANDIDATE_MODELS = [...new Set([PRIMARY_MODEL, 'gemini-2.5-flash', 'gemini-flash-latest'])];
+// flash-lite zaxirada qoldi: asosiy flash band bo'lsa, lite tez (past kechikishli)
+// muqobil sifatida javob beradi.
+const PRIMARY_MODEL = env.GEMINI_MODEL || 'gemini-2.5-flash';
+const CANDIDATE_MODELS = [
+  ...new Set([PRIMARY_MODEL, 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-latest']),
+];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

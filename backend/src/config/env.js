@@ -79,7 +79,11 @@ function parseTelegramIds(value) {
 // Google to'xtatgan (retired) modellar generateContent'da 404 beradi. Eski qiymat
 // (masalan Railway Variables'da qolib ketgan) avtomatik amaldagi modelga moslanadi,
 // shunda deploy kalit to'g'ri bo'lsa ham eski model nomi tufayli sinmaydi.
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
+// Standart model: gemini-2.5-flash — flash-lite'ga qaraganda aqilliroq va tabiiy javob
+// beradi. Tezlik AI quvuridagi ortiqcha chaqiruvlarni qisqartirish bilan ta'minlanadi
+// (agent.js: har amalda 1-2 keraksiz Gemini chaqiruvi olib tashlandi), shu sabab
+// kuchliroq modelga o'tsak ham umumiy javob tezroq bo'ladi.
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const RETIRED_MODEL_MAP = {
   'gemini-2.0-flash': DEFAULT_GEMINI_MODEL,
   'gemini-2.0-flash-001': DEFAULT_GEMINI_MODEL,

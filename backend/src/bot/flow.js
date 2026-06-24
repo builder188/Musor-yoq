@@ -12,14 +12,14 @@ export const ENTRY_REQUIRED = {
 };
 
 export const QUESTIONS = {
-  clientPhone: 'Mijozning telefon raqami nechi, oka?',
-  clientName: 'Mijozning ismi nima, oka?',
-  location: 'Qaysi manzilga borasiz, oka?',
-  serviceDateTime: 'Qachon borasiz, oka? (sana va vaqt)',
-  price: 'Xizmat haqi qancha, oka?',
-  paymentMethod: "To'lovni qanday oladi, oka? (naqd/karta/o'tkazma)",
-  amount: "Qancha bo'ldi, oka? (masalan: 50 ming)",
-  category: 'Qaysi turdagi xarajat? (yoqilgi / tamirlash / oziq-ovqat / boshqa)',
+  clientPhone: '📞 Mijozning telefon raqami nechi, oka?',
+  clientName: '👤 Mijozning ismi nima, oka?',
+  location: '📍 Qaysi manzilga borasiz, oka?',
+  serviceDateTime: '📅 Qachon borasiz, oka? (sana va vaqt)',
+  price: '💰 Xizmat haqi qancha, oka?',
+  paymentMethod: "💳 To'lovni qanday oladi, oka? (naqd/karta/o'tkazma)",
+  amount: "💰 Qancha bo'ldi, oka? (masalan: 50 ming)",
+  category: '🗂 Qaysi turdagi xarajat? (yoqilgi / tamirlash / oziq-ovqat / boshqa)',
 };
 
 export function isEntryIntent(intent) {
