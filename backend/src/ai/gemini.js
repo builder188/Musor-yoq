@@ -376,6 +376,12 @@ const CANDIDATE_MODELS = [...new Set([PRIMARY_MODEL, 'gemini-2.5-flash', 'gemini
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Bitta Gemini chaqiruvi uchun qattiq vaqt chegarasi (ms). Gemini ba'zan javob
+// qaytarmay osilib qoladi — chegarasiz chaqiruv webhook timeout'iga, u esa eski kodda
+// process crash'iga olib kelardi. Bu yerda uzib, xatoni handler ushlaydi va egaga
+// aniq javob beramiz (jimgina osilib qolish o'rniga).
+const GEMINI_REQUEST_TIMEOUT_MS = 20_000;
+
 // Gemini ba'zan vaqtinchalik 503/429/500 qaytaradi. Har bir modelda qisqa backoff bilan
 // qayta uriniladi; baribir o'tkinchi xato bo'lsa — keyingi zaxira modelga o'tadi. Kalit/model
 // xatolari (4xx) darhol uzatiladi (qayta urinish foydasiz). buildModel(modelName) -> instance.
@@ -384,7 +390,9 @@ async function generate(buildModel, request, { retriesPerModel = 1, baseDelayMs 
   for (const modelName of CANDIDATE_MODELS) {
     for (let attempt = 0; attempt <= retriesPerModel; attempt += 1) {
       try {
-        return await buildModel(modelName).generateContent(request);
+        return await buildModel(modelName).generateContent(request, {
+          timeout: GEMINI_REQUEST_TIMEOUT_MS,
+        });
       } catch (err) {
         lastErr = err;
         const status = err?.status;

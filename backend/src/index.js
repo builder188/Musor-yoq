@@ -3,6 +3,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import mongoose from 'mongoose';
 import { webhookCallback } from 'grammy';
 
 import env, { getEnvIssues, miniAppUrl } from './config/env.js';
@@ -26,11 +27,14 @@ const runtime = {
 };
 
 function healthPayload() {
+  // DB holatini jonli o'qiymiz (readyState 1 = ulangan), shunda uzilish/qayta ulanish
+  // health check'da darhol ko'rinadi — statik bayroq emas.
+  const dbConnected = mongoose.connection?.readyState === 1;
   return {
     ok: runtime.ready,
     service: 'musir-yoq',
     mode: runtime.mode,
-    db: runtime.db,
+    db: dbConnected,
     bot: runtime.bot,
     errors: runtime.errors,
     warnings: runtime.warnings,
@@ -66,7 +70,15 @@ async function startRuntime(app) {
   await setupMenuButton(bot);
 
   if (env.BOT_MODE === 'webhook') {
-    app.use(WEBHOOK_PATH, webhookCallback(bot, 'express'));
+    // MUHIM: timeout'da xato OTMAYMIZ. grammy default 'throw' bo'lsa, Express async
+    // middleware ichidagi rejected promise "unhandled rejection" bo'lib butun process'ni
+    // o'ldiradi (avval server shu sabab yiqilgan). 'return' => sekin handler'da Telegram'ga
+    // 200 qaytaramiz, ish esa fonda davom etib javobni baribir yuboradi.
+    // 10s default ovoz/rasm oqimiga (bir nechta Gemini chaqiruvi) juda kam — 25s qo'yamiz.
+    app.use(
+      WEBHOOK_PATH,
+      webhookCallback(bot, 'express', { onTimeout: 'return', timeoutMilliseconds: 25_000 })
+    );
     const url = `https://${env.RAILWAY_STATIC_URL}${WEBHOOK_PATH}`;
     await bot.api.setWebhook(url, { drop_pending_updates: true });
     runtime.bot = true;
@@ -200,6 +212,16 @@ async function main() {
     console.error('Runtime start xatosi:', err);
   });
 }
+
+// So'nggi himoya chizig'i: bitta xato (masalan bironta handler'dagi kutilmagan
+// rejection) butun botni o'ldirmasligi kerak. Loglaymiz, lekin process'ni tirik
+// qoldiramiz — Railway qayta ishga tushishini kutib turish o'rniga bot ishlayveradi.
+process.on('unhandledRejection', (reason) => {
+  console.error('Ushlanmagan promise rejection:', reason?.stack || reason?.message || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Ushlanmagan istisno (process tirik qoldirildi):', err?.stack || err?.message || err);
+});
 
 process.on('SIGINT', () => {
   console.log('\nTo\'xtatilmoqda...');

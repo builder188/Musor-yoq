@@ -1,5 +1,17 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-24 Railway crash + ovozli xabar tuzatildi (Railway loglaridan)
+- **Belgi:** (1) server 11:22:37 da yiqilgan — `Error: Request timed out after 10000 ms` (grammy `webhook.js`); (2) 13:05:18 da "MongoDB uzildi" dan keyin jimlik; (3) ovozli xabarga bot umuman javob bermaydi, faqat matnga.
+- **Ildiz sabab (1 va 3 bitta bug):** Railway webhook rejimida `index.js` `webhookCallback(bot, 'express')` ni grammy default'lari bilan ulardi — `onTimeout: 'throw'`, `timeoutMilliseconds: 10000`. grammy `timeoutIfNecessary` 10s dan oshsa `reject(...)` qiladi; Express 4 async middleware'dagi rejected promise'ni ushlamaydi → **unhandled rejection** → Node process'ni o'ldiradi (log'dagi "npm error / Lifecycle script start failed" / Railway restart). Ovoz oqimi: download OGG + Gemini audio transkripsiya + intent classify + agent tool + javob formulate = 3-4 ketma-ket, chegarasiz Gemini chaqiruvi — deyarli har doim 10s dan oshadi. Shuning uchun **har ovozli xabar process'ni yiqitadi, `catch` ichidagi `ctx.reply` ishlamay qoladi** → egaga hech narsa kelmaydi. Telegram javob (200) olmagani uchun update'ni qayta yuboradi → crash-loop. Matn bitta tez chaqiruv, 10s ichida ulguradi — shuning uchun ishlardi.
+- **Ildiz sabab (2):** `db/connect.js` faqat `error`/`disconnected` ni tinglardi, `reconnected` yo'q edi. Mongoose 8 avtomatik qayta ulanadi, lekin log bo'lmagani uchun "MongoDB uzildi" dan keyin jimlik — katta ehtimol jim qayta ulangan, kuzatib bo'lmasdi.
+- **Tuzatish:**
+  - `index.js`: webhook `{ onTimeout: 'return', timeoutMilliseconds: 25_000 }` — timeout'da Telegram'ga 200 qaytaramiz, handler fonda davom etib javobni baribir yuboradi (alohida `bot.api` chaqiruvi orqali), crash yo'q.
+  - `index.js`: global `process.on('unhandledRejection')` + `process.on('uncaughtException')` — bitta xato butun botni o'ldirmaydi (so'nggi himoya chizig'i).
+  - `gemini.js`: har `generateContent`'ga `{ timeout: 20_000 }` — osilib qolgan Gemini chaqiruvi uziladi, xato handler'da ushlanib egaga aniq javob beriladi.
+  - `db/connect.js`: `connected`/`reconnected` tinglovchilari qo'shildi (connect'dan oldin ulanadi); "MongoDB qayta ulandi ✅" loglanadi. `index.js` health endpoint endi `mongoose.connection.readyState` ni jonli o'qiydi (statik bayroq emas).
+- **Vaqt byudjeti:** Gemini per-call 20s < webhook ack 25s; bitta osilgan chaqiruv 25s ichida uziladi. Ko'p chaqiruvli ovoz oqimi 25s dan oshsa — Telegram 200 oladi, ish fonda tugab javob keladi.
+- **Tekshiruv:** `node --check` `index.js`/`connect.js`/`gemini.js` — OK. (Bot/DB runtime testi haqiqiy `.env` + Telegram talab qiladi.)
+
 ## 2026-06-24 Yangi yozuvga YAKUNIY TASDIQLASH bosqichi (3 tugma + tahrir loop)
 - **Maqsad:** SERVICE_ENTRY / EXPENSE_ENTRY / INCOME_ENTRY — barcha majburiy maydon yig'ilgach
   DARHOL saqlamaydi; avval xulosa + 3 tugma ko'rsatiladi, tasdiqdan keyingina MongoDB'ga yoziladi.
