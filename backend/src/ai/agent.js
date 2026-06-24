@@ -316,8 +316,11 @@ async function startClarify({ clarify, understanding, rawText, conversation }) {
 function requiresSomConfirmation(action, understanding, rawText) {
   if (!['SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'SERVICE_EDIT'].includes(action)) return false;
   if (understanding?.fields?.hasDollar === true) return true;
-  const text = `${rawText || ''} ${JSON.stringify(understanding?.fields || {})}`.toLowerCase();
-  return /(\$|dollar|usd)/i.test(text);
+  // FAQAT foydalanuvchi matnini tekshiramiz. Avval fields JSON ham qo'shilgan edi, lekin
+  // normalizatsiyada "hasDollar" kaliti har doim bo'lgani uchun JSON ichida "dollar" so'zi
+  // doim uchrar, regex DOIM mos kelib har bir xizmat yozuviga noto'g'ri "dollarni saqlay
+  // olmayman" javobi chiqardi — dollar aytilmasa ham.
+  return /(\$|dollar|dollor|\busd\b)/i.test(String(rawText || ''));
 }
 
 async function startEntry({ conversation, intent, fields, rawText, mode }) {

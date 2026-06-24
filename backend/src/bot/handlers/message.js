@@ -119,27 +119,11 @@ export function registerMessageHandler(bot) {
       await ctx.reply(VOICE_TOO_LONG_REPLY);
       return;
     }
-    await ctx.replyWithChatAction('typing').catch(() => {});
-    try {
-      const buffer = await downloadFile(ctx.message.voice.file_id, ctx.api);
-      const transcription = await transcribeAudio(buffer, ctx.message.voice.mime_type || 'audio/ogg');
-      await handleTextInput(ctx, transcription);
-    } catch (err) {
-      console.error('Ovozni qayta ishlash xatosi:', err.message);
-      await replyAiError(ctx, err, "Ovozni tushunolmadim oka, yana bir marta yuboring yoki yozib bering.");
-    }
+    await handleVoiceLikeMessage(ctx, ctx.message.voice.file_id, ctx.message.voice.mime_type || 'audio/ogg');
   });
 
   bot.on('message:audio', async (ctx) => {
-    await ctx.replyWithChatAction('typing').catch(() => {});
-    try {
-      const buffer = await downloadFile(ctx.message.audio.file_id, ctx.api);
-      const transcription = await transcribeAudio(buffer, ctx.message.audio.mime_type || 'audio/mpeg');
-      await handleTextInput(ctx, transcription);
-    } catch (err) {
-      console.error('Audio xatosi:', err.message);
-      await replyAiError(ctx, err, "Audioni tushunolmadim oka, yozib yuborsangiz bo'ladi.");
-    }
+    await handleVoiceLikeMessage(ctx, ctx.message.audio.file_id, ctx.message.audio.mime_type || 'audio/mpeg');
   });
 
   bot.on('message:photo', async (ctx) => {
@@ -175,6 +159,37 @@ async function handleImageLimitBypassRequest(ctx, text) {
   enableImageLimitBypass(ctx.from.id);
   await ctx.reply(IMAGE_LIMIT_BYPASS_REPLY);
   return true;
+}
+
+// Ovoz/audio: TRANSKRIPSIYA va undan keyingi matn oqimi ALOHIDA try/catch'da.
+// Avval ikkalasi bitta blokda edi — shu sabab NLU/agent xatosi ham "Ovozni
+// tushunolmadim" bo'lib chiqib, asl sabab yashirinardi. Endi: transkripsiya xatosi
+// -> "Ovozni tushunolmadim"; bo'sh transkripsiya -> aniq yo'riq; keyingi xato esa
+// matn bilan bir xil umumiy xato (va replyAiError kalit muammosini ko'rsatadi).
+async function handleVoiceLikeMessage(ctx, fileId, mime) {
+  await ctx.replyWithChatAction('typing').catch(() => {});
+
+  let transcription;
+  try {
+    const buffer = await downloadFile(fileId, ctx.api);
+    transcription = (await transcribeAudio(buffer, mime) || '').trim();
+  } catch (err) {
+    console.error('Ovoz transkripsiya xatosi:', err.message);
+    await replyAiError(ctx, err, "Ovozni tushunolmadim oka, yana bir marta yuboring yoki yozib bering.");
+    return;
+  }
+
+  if (!transcription) {
+    await ctx.reply("Ovozingizni eshitdim oka, lekin so'z chiqmadi. Sekinroq, aniqroq qaytadan yuboring yoki yozib bering.");
+    return;
+  }
+
+  try {
+    await handleTextInput(ctx, transcription);
+  } catch (err) {
+    console.error('Ovozdan keyingi NLU xatosi:', err.message);
+    await replyAiError(ctx, err, "Voy oka, hozir bir narsa chappa ketdi. Birozdan keyin yana urinib ko'ramiz.");
+  }
 }
 
 function enqueuePhotoGroup(ctx) {
