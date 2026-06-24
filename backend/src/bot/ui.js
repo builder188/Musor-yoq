@@ -1,6 +1,7 @@
 import { InlineKeyboard } from 'grammy';
 import { formatMoney } from '../utils/money.js';
 import { formatPhone } from '../utils/phone.js';
+import { formatDateTime, formatTime, dayWord } from '../utils/dates.js';
 import { encodeCoords } from './location.js';
 
 function pad(value) {
@@ -25,15 +26,9 @@ export function formatBotTime(value) {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const DIVIDER = '-----------------';
-
-// Manzil matni; koordinatalar bo'lsa 📌 (xaritada ham bor) belgisini qo'shadi.
+// Manzil matni. Xarita tugmasi faqat Mini App'dagi mapUrl orqali ko'rsatiladi.
 export function locationLabel(service) {
-  const address = service.location?.address || service.location || '-';
-  const coords = service.location?.coordinates;
-  const hasCoords =
-    coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng);
-  return hasCoords ? `${address} 📌` : address;
+  return service.location?.address || service.location || '-';
 }
 
 const EMOJI_DIVIDER = '━━━━━━━━━━━━━━━━━';
@@ -41,7 +36,7 @@ const EMOJI_DIVIDER = '━━━━━━━━━━━━━━━━━';
 export function serviceConfirmationText(service) {
   const location = locationLabel(service);
   const lines = [
-    '✅ Xizmat saqlandi!',
+    "Boldi, yozib qo'ydim oka ✅",
     EMOJI_DIVIDER,
     `👤 ${service.clientName || '-'}`,
     `📱 ${formatPhone(service.clientPhone) || service.clientPhone || '-'}`,
@@ -55,38 +50,13 @@ export function serviceConfirmationText(service) {
   return lines.join('\n');
 }
 
-export function futureServiceKeyboard(serviceId) {
+// Tasdiqlash so'rovi (confirmAt kelganda) tugmalari — har xizmat o'z serviceId bilan.
+export function confirmServiceKeyboard(serviceId) {
   return new InlineKeyboard()
-    .text('Standart eslatma', `reminder_default_${serviceId}`)
-    .text('Eslatmani sozlash', `reminder_edit_${serviceId}`)
+    .text('✅ Bajarildi', `complete_${serviceId}`)
+    .text('❌ Bekor qilindi', `cancel_direct_${serviceId}`)
     .row()
-    .text("Eslatmani o'chirish", `disable_reminder_${serviceId}`);
-}
-
-export function serviceActionKeyboard(serviceId) {
-  return new InlineKeyboard()
-    .text('Ha, bajardim', `complete_${serviceId}`)
-    .row()
-    .text("Yo'q, bajarmadim", `not_done_${serviceId}`);
-}
-
-export function notDoneKeyboard(serviceId) {
-  return new InlineKeyboard()
-    .text('Uzaytirish', `snooze_${serviceId}`)
-    .text('Bekor qilish', `cancel_${serviceId}`);
-}
-
-export function cancelConfirmKeyboard(serviceId) {
-  return new InlineKeyboard()
-    .text('Ha', `cancel_confirm_${serviceId}`)
-    .text("Yo'q", `cancel_no_${serviceId}`);
-}
-
-// Oddiy eslatma (minutesBefore > 0) ostidagi tugmalar: 30 daqiqa kechiktir yoki o'chir.
-export function reminderSnoozeKeyboard(serviceId) {
-  return new InlineKeyboard()
-    .text('⏳ Eslatmani kechiktir', `quick_snooze_${serviceId}`)
-    .text("🔕 O'chirib qo'y", `mute_${serviceId}`);
+    .text('📅 Vaqt surildi', `reschedule_${serviceId}`);
 }
 
 export function saveKeyboard() {
@@ -137,6 +107,17 @@ export function editConfirmKeyboard() {
   return new InlineKeyboard().text('Ha', 'edit_confirm').text("Yo'q", 'edit_cancel');
 }
 
+// CLARIFY — niyat noaniq bo'lganda tezkor tanlov tugmalari.
+// Tanlovlar conversationda saqlanadi; callback faqat indeksni yuboradi (clarify_0, clarify_1, ...).
+export function clarifyKeyboard(options = []) {
+  const keyboard = new InlineKeyboard();
+  options.slice(0, 3).forEach((opt, index) => {
+    keyboard.text(opt.label, `clarify_${index}`).row();
+  });
+  keyboard.text('Bekor qilish', 'clarify_cancel');
+  return keyboard;
+}
+
 export function pdfFilterKeyboard() {
   return new InlineKeyboard()
     .text("To'liq - bu oy", 'pdf:full:month')
@@ -175,59 +156,33 @@ export function clientPickKeyboard(clients) {
   return keyboard;
 }
 
-export function timeLabel(minutesBefore) {
-  if (minutesBefore === 0) return 'Xizmat vaqti keldi';
-  if (minutesBefore === 60) return '1 soat qoldi';
-  if (minutesBefore === 1440) return '1 kun qoldi';
-  if (minutesBefore < 60) return `${minutesBefore} daqiqa qoldi`;
-  if (minutesBefore % 1440 === 0) return `${minutesBefore / 1440} kun qoldi`;
-  if (minutesBefore % 60 === 0) return `${minutesBefore / 60} soat qoldi`;
-  return `${minutesBefore} daqiqa qoldi`;
+// Oddiy oldindan eslatma (reminderAt) — tugmasiz.
+export function serviceReminderText(service) {
+  return [
+    `⏰ Oka, ${dayWord(service.serviceDateTime)} soat ${formatTime(service.serviceDateTime)}da ${service.clientName || 'mijoz'}ga borishingiz kerakligini eslatib qo'yaman.`,
+    `📍 ${locationLabel(service)}  💰 ${formatMoney(service.price)}`,
+  ].join('\n');
 }
 
-// Faqat qolgan vaqt miqdori ("1 kun" / "2 soat" / "30 daqiqa").
-export function remainingLabel(minutesBefore) {
-  if (minutesBefore >= 1440) {
-    const days = minutesBefore / 1440;
-    return `${Number.isInteger(days) ? days : Math.round(days)} kun`;
-  }
-  if (minutesBefore >= 60) {
-    const hours = minutesBefore / 60;
-    return `${Number.isInteger(hours) ? hours : Math.round(hours)} soat`;
-  }
-  return `${minutesBefore} daqiqa`;
-}
-
-export function reminderText(service, reminder) {
-  const location = locationLabel(service);
+// Tasdiqlash so'rovi (confirmAt) — tugmali ("Bajarildimi?").
+export function serviceConfirmText(service) {
   const phone = formatPhone(service.clientPhone) || service.clientPhone || '-';
-  const priceLine = `💰 ${formatMoney(service.price)} | ${service.paymentMethod || '-'}`;
+  return [
+    "❓ Xo'sh oka, bu xizmatni bajardingizmi?",
+    `👤 ${service.clientName || '-'}  📱 ${phone}`,
+    `📍 ${locationLabel(service)}  💰 ${formatMoney(service.price)}`,
+  ].join('\n');
+}
 
-  // Xizmat vaqti keldi — bajarildi/bajarilmadi so'rovi.
-  if (reminder.minutesBefore === 0) {
-    return [
-      '⏰ XIZMAT VAQTI KELDI!',
-      DIVIDER,
-      `👤 ${service.clientName || '-'}`,
-      `📱 ${phone}`,
-      `📍 ${location}`,
-      priceLine,
-      DIVIDER,
-      "Bajardingizmi? To'lovni oldingizmi?",
-    ].join('\n');
+// Xizmat saqlangach: qachon eslatma/tasdiq yuborilishini bildiradi (avtomatik, tugmasiz).
+export function reminderInfoLine(service) {
+  if (!service || service.isHistorical) return null;
+  const parts = [];
+  if (service.reminderAt && new Date(service.reminderAt).getTime() > Date.now()) {
+    parts.push(`⏰ ${formatDateTime(service.reminderAt)} da eslatib qo'yaman, oka`);
   }
-
-  // Oddiy oldindan eslatma.
-  const lines = [
-    `⏰ ${remainingLabel(reminder.minutesBefore)} qoldi!`,
-    DIVIDER,
-    `👤 ${service.clientName || '-'}`,
-    `📱 ${phone}`,
-    `📍 ${location}`,
-    `📅 ${formatBotDateTime(service.serviceDateTime)}`,
-    priceLine,
-  ];
-  if (service.notes) lines.push(`📝 ${service.notes}`);
-  lines.push(DIVIDER);
-  return lines.join('\n');
+  if (service.confirmAt) {
+    parts.push(`✅ ${formatDateTime(service.confirmAt)} da "bajardingizmi?" deb so'rayman`);
+  }
+  return parts.length ? parts.join('\n') : null;
 }

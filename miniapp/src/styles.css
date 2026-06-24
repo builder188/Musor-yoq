@@ -1082,54 +1082,25 @@ textarea.input {
 .reminder-presets-card {
   padding: 14px 16px;
 }
-.reminder-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.reminder-hours-row {
+  align-items: flex-start;
+  gap: 12px;
 }
-.reminder-select {
-  border: 1px solid transparent;
-  border-radius: 11px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  padding: 9px 14px;
-  font: 600 13px var(--font);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-.reminder-select.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-/* Eslatma chiplari */
-.chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.reminder-chip {
-  display: inline-flex;
-  align-items: center;
+.reminder-stepper {
+  display: inline-grid;
+  grid-template-columns: 34px minmax(64px, 78px) 34px;
   gap: 6px;
-  padding: 8px 14px;
-  border-radius: 11px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-  font-size: 13px;
+  align-items: center;
+  flex: 0 0 auto;
 }
-.reminder-chip button {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-weight: 800;
-  cursor: pointer;
-  padding: 0 2px;
-  font-size: 14px;
-  opacity: 0.8;
+.reminder-hours-input {
+  height: 34px;
+  padding: 0 8px;
+  text-align: center;
+}
+.small {
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 /* ===== Holat / yordamchi ===== */
@@ -1152,10 +1123,6 @@ textarea.input {
 }
 .filter-card {
   padding: 14px 16px;
-}
-.failed-reminders {
-  border-left: 3px solid var(--warning);
-  background: var(--warning-soft);
 }
 
 .row-between {
@@ -1397,6 +1364,12 @@ textarea.input {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  align-items: flex-end;
+}
+.client-location-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   align-items: flex-end;
 }
 .map-links {

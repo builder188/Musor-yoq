@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { formatMoney, formatDate, toInputDateTime } from '../utils/format.js';
@@ -19,6 +19,7 @@ export default function Finance() {
   const [adding, setAdding] = useState(null);
   const [editingTx, setEditingTx] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [downloading, setDownloading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -52,6 +53,14 @@ export default function Finance() {
       <h1 className="page-title" style={{ marginBottom: 6 }}>{t('finance.title')}</h1>
 
       <BalanceCard summary={summary} />
+
+      <button
+        className="btn btn-block"
+        style={{ marginTop: 10, marginBottom: 14 }}
+        onClick={() => setDownloading(true)}
+      >
+        📥 {t('finance.download')}
+      </button>
 
       <div className="segment">
         {PERIODS.map((p) => (
@@ -136,8 +145,122 @@ export default function Finance() {
           }}
         />
       )}
+
+      {downloading && <DownloadReportModal onClose={() => setDownloading(false)} />}
     </div>
   );
+}
+
+// Hisobotni yuklab olish oqimi: format (PDF/Excel) -> davr (oxirgi 12 oy yoki ixtiyoriy oraliq)
+// -> backend generatsiya qilib Telegram chatga yuboradi (Mini App ichida yuklab olish linki yo'q).
+function DownloadReportModal({ onClose }) {
+  const { t, lang } = useApp();
+  const [step, setStep] = useState('format'); // 'format' | 'period'
+  const [format, setFormat] = useState(null); // 'pdf' | 'excel'
+  const [customOpen, setCustomOpen] = useState(false);
+  const [range, setRange] = useState({ start: '', end: '' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const [done, setDone] = useState(false);
+  const [lastPayload, setLastPayload] = useState(null);
+
+  const months = useMemo(() => buildLast12Months(), []);
+
+  const send = async (payload) => {
+    setLastPayload(payload);
+    setBusy(true);
+    setError(false);
+    try {
+      await api.post('/reports/send', { reportType: 'finance', format, language: lang, ...payload });
+      setDone(true);
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (done) {
+    return (
+      <Modal title={t('finance.downloadTitle')} onClose={onClose}>
+        <div className="center" style={{ padding: '18px 0', fontSize: 15 }}>{t('finance.sentToChat')}</div>
+        <button className="btn btn-primary btn-block" onClick={onClose}>OK</button>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title={t('finance.downloadTitle')} onClose={onClose}>
+      {step === 'format' && (
+        <>
+          <div className="label">{t('finance.chooseFormat')}</div>
+          <div className="btn-row" style={{ marginTop: 8 }}>
+            <button className="btn btn-block" onClick={() => { setFormat('pdf'); setStep('period'); }}>📄 PDF</button>
+            <button className="btn btn-block" onClick={() => { setFormat('excel'); setStep('period'); }}>📊 Excel</button>
+          </div>
+        </>
+      )}
+
+      {step === 'period' && (
+        <>
+          <div className="label">{t('finance.choosePeriod')}</div>
+
+          {error && (
+            <div className="error-banner" style={{ marginBottom: 10 }}>{t('finance.genError')}</div>
+          )}
+
+          {error && lastPayload ? (
+            <button className="btn btn-primary btn-block" disabled={busy} onClick={() => send(lastPayload)}>
+              🔄 {busy ? t('finance.sending') : t('finance.retry')}
+            </button>
+          ) : !customOpen ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
+                {months.map((m) => (
+                  <button key={m.value} className="btn btn-sm" disabled={busy} onClick={() => send({ month: m.value })}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <button className="btn btn-block" disabled={busy} onClick={() => setCustomOpen(true)}>
+                {t('finance.otherPeriod')}
+              </button>
+              {busy && <div className="muted center" style={{ marginTop: 10 }}>{t('finance.sending')}</div>}
+            </>
+          ) : (
+            <>
+              <label className="label">{t('finance.rangeStart')}</label>
+              <input className="input" type="date" value={range.start} onChange={(e) => setRange({ ...range, start: e.target.value })} />
+              <label className="label">{t('finance.rangeEnd')}</label>
+              <input className="input" type="date" value={range.end} onChange={(e) => setRange({ ...range, end: e.target.value })} />
+              <button
+                className="btn btn-primary btn-block"
+                style={{ marginTop: 12 }}
+                disabled={busy || !range.start || !range.end}
+                onClick={() => send({ dateRange: { start: range.start, end: range.end } })}
+              >
+                {busy ? t('finance.sending') : t('finance.generateSend')}
+              </button>
+            </>
+          )}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+// Oxirgi 12 oy: { value: 'YYYY-MM', label: 'Oy YYYY' } (eng yangisi birinchi).
+function buildLast12Months() {
+  const out = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push({
+      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`,
+    });
+  }
+  return out;
 }
 
 function BalanceCard({ summary }) {

@@ -11,10 +11,10 @@ ovoz, matn, rasm yoki lokatsiya yuboradi — **Google Gemini AI** uni tushunadi 
 ## ✨ Asosiy imkoniyatlar
 
 - 🎤 **Ovozli kiritish (o'zbekcha)** — Gemini transkripsiya qiladi va ma'lumotni ajratadi
-- 📝 **Matn / 🖼 Rasm (daftar OCR) / 📍 Lokatsiya** orqali kiritish
-- 🧠 **7 niyat (intent)**: xizmat, xarajat, daromad, holat yangilash, to'lov, qidiruv, analitika
+- 📝 **Matn / 🖼 Rasm (daftar OCR) / 📍 Lokatsiya** orqali kiritish; lokatsiya DBda `address` + ixtiyoriy `mapUrl` sifatida saqlanadi
+- 🧠 **3 asosiy niyat**: MOLIYA, MIJOZ, SUXBAT; noaniq xabarda CLARIFY tugmalari
 - ❓ Yetishmayotgan maydonlarni **bittalab so'rash**
-- 🔔 **Aqlli eslatmalar** (1 kun + 1 soat + aniq vaqt; sozlanadi)
+- 🔔 **Aqlli eslatmalar**: xizmatdan X soat oldin oddiy eslatma, X soat keyin tugmali tasdiqlash
 - 📊 **Mini App** — 5 sahifa: Bosh sahifa, Mijozlar, Xizmatlar (Kanban/List), Moliya, Sozlamalar
 - 💰 **Moliya mantig'i**: yagona balans = kirimlar - chiqimlar; alohida qarz moduli yo'q
 - 🗑 **Xavfsiz o'chirish**: 1990 kodi + 30 kunlik tiklash oynasi
@@ -145,10 +145,17 @@ app service Variables ichida yo'q. Polling Railway'da Telegram `getUpdates` 409 
 ## 🧠 Qanday ishlaydi (qisqacha)
 
 1. Egasi botga xabar yuboradi (ovoz/matn/rasm/lokatsiya).
-2. Gemini xabarni **7 niyatdan** biriga ajratadi va maydonlarni chiqaradi.
+2. Gemini xabarni **MOLIYA / MIJOZ / SUXBAT** niyatlaridan biriga ajratadi; noaniq bo'lsa aniqlashtiradi.
 3. Majburiy maydon yetishmasa — bot **bittalab** so'raydi.
 4. Hammasi to'plangach — MongoDB'ga yoziladi, tasdiq xulosasi yuboriladi.
-5. Kelajakdagi xizmatlar uchun **eslatmalar** rejalashtiriladi.
+5. Kelajakdagi xizmatlar uchun `reminderAt` va `confirmAt` xizmat vaqtiga nisbatan hisoblanadi.
+
+### Eslatma va lokatsiya
+- `reminderAt = serviceDateTime - reminderHoursBefore` va oddiy matn xabari yuboriladi.
+- `confirmAt = serviceDateTime + confirmHoursAfter` va `Bajarildi / Bekor qilindi / Vaqt surildi` tugmalari yuboriladi.
+- `Vaqt surildi` yangi vaqtni matn yoki ovozdan olib, jadvalni qayta hisoblaydi.
+- Tarixiy xizmat darhol `bajarildi`, eslatma/tasdiqlash yuborilmaydi.
+- Mini App lokatsiya formati: `Manzil nomi` majburiy, `Xarita havolasi` ixtiyoriy. Noaniq xarita havolasi ogohlantiradi, lekin tasdiqlansa saqlanadi.
 
 ### Moliyaviy qoidalar
 - Xizmat narxi **faqat "Bajarildi"** bo'lganda daromadga yoziladi.
@@ -166,5 +173,5 @@ app service Variables ichida yo'q. Polling Railway'da Telegram `getUpdates` 409 
 ---
 
 ## 🛠 Texnologiyalar
-Node.js · Express · Grammy · MongoDB/Mongoose · Google Gemini (1.5-flash) ·
+Node.js · Express · Grammy · MongoDB/Mongoose · Google Gemini ·
 node-cron · PDFKit · React · Vite · Chart.js · Telegram Mini App SDK

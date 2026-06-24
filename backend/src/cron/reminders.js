@@ -1,117 +1,122 @@
-// Eslatma cron: belgilangan vaqti kelgan eslatmalarni yuboradi.
-// Asosiy cron har daqiqada, retry cron har 5 daqiqada ishlaydi.
+// Eslatma/tasdiqlash cron — har daqiqada bir marta ishlaydi.
+//   1) reminderAt kelganda: oddiy eslatma (tugmasiz), xizmat hali kelajakda bo'lsa.
+//   2) confirmAt  kelganda: "bajarildimi?" tasdiq so'rovi (tugmali).
+// Ikki marta yubormaslik kafolati: har bir xabar ATOMAR claim qilinadi
+// (findOneAndUpdate sent:false -> true). Yuborish xato bo'lsa, bayroq qaytariladi (keyingi tik qayta uradi).
 import cron from 'node-cron';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
-import { notDeleted } from '../models/softDelete.js';
 import { ownerIds } from '../config/env.js';
-import { reminderText, serviceActionKeyboard, reminderSnoozeKeyboard } from '../bot/ui.js';
+import { serviceReminderText, serviceConfirmText, confirmServiceKeyboard } from '../bot/ui.js';
 
-// Urinishlar orasidagi kechikishlar (daqiqada) va maksimal urinishlar soni.
-const RETRY_DELAYS_MIN = [5, 15, 60];
-const MAX_RETRIES = 3;
-
-// Asosiy va retry cron BITTA umumiy lock ishlatadi: ular bir-biri bilan yoki o'zi
-// bilan parallel ishlamaydi (aks holda bir eslatma ikki marta yuborilishi mumkin).
-let reminderJobRunning = false;
-
-async function withReminderLock(fn) {
-  if (reminderJobRunning) return; // oldingi ishlov tugamadi — bu tikni o'tkazamiz
-  reminderJobRunning = true;
+// Bitta tik tugamasdan ikkinchisi boshlanmasin (bitta instansda qo'shimcha himoya).
+let running = false;
+async function withLock(fn) {
+  if (running) return;
+  running = true;
   try {
     await fn();
   } finally {
-    reminderJobRunning = false;
+    running = false;
   }
 }
 
-function reminderKeyboard(serviceId, reminder) {
-  return reminder.minutesBefore === 0
-    ? serviceActionKeyboard(serviceId)
-    : reminderSnoozeKeyboard(serviceId);
+async function broadcast(bot, text, extra) {
+  const recipients = ownerIds();
+  if (recipients.length === 0) throw new Error('OWNER_TELEGRAM_ID topilmadi');
+  await Promise.all(recipients.map((telegramId) => bot.api.sendMessage(telegramId, text, extra)));
 }
 
-// Bitta eslatmani yuborishga urinadi va sent/retry hisoblagichlarini yangilaydi.
-// Asosiy va retry cron ham shu yagona mantiqdan foydalanadi.
-async function processReminder(bot, service, reminder, now) {
-  const serviceId = service._id.toString();
-  try {
-    const recipients = ownerIds();
-    if (recipients.length === 0) throw new Error('OWNER_TELEGRAM_ID topilmadi');
-    await Promise.all(
-      recipients.map((telegramId) => bot.api.sendMessage(telegramId, reminderText(service, reminder), {
-        reply_markup: reminderKeyboard(serviceId, reminder),
-      }))
-    );
-    reminder.sent = true;
-    reminder.sentAt = now;
-    reminder.failed = false;
-    reminder.nextRetryAt = null;
-    if (reminder.minutesBefore === 0) service.completionPromptSent = true;
-  } catch (err) {
-    console.error('Eslatma yuborishda xato:', err.message);
-    reminder.retryCount = (reminder.retryCount || 0) + 1;
-    if (reminder.retryCount >= MAX_RETRIES) {
-      // 3 urinishdan keyin butunlay muvaffaqiyatsiz deb belgilanadi.
-      reminder.failed = true;
-      reminder.nextRetryAt = null;
-    } else {
-      const delayMin = RETRY_DELAYS_MIN[reminder.retryCount - 1] || 60;
-      reminder.nextRetryAt = new Date(now.getTime() + delayMin * 60 * 1000);
-    }
-  }
-}
-
-// ASOSIY (har daqiqada): vaqti kelgan, hali yuborilmagan eslatmalar.
-// Retry kutayotgan (nextRetryAt kelajakda) eslatmalarni o'tkazib yuboradi — ularni retry cron hal qiladi.
-async function fireDueReminders(bot) {
+// reminderAt kelgan kelajak xizmatlar uchun oddiy eslatma.
+async function fireReminders(bot) {
   const now = new Date();
-  const services = await Service.find({
-    ...notDeleted,
+  const due = await Service.find({
+    isDeleted: { $ne: true },
     status: SERVICE_STATUS.PENDING,
-    reminders: { $elemMatch: { sent: false, failed: false, scheduledAt: { $lte: now } } },
-  });
+    isHistorical: { $ne: true },
+    reminderSent: false,
+    reminderAt: { $lte: now },
+    serviceDateTime: { $gt: now }, // o'tib ketgan xizmatga oldindan eslatma yubormaymiz
+  })
+    .sort({ reminderAt: 1 })
+    .limit(50);
 
-  for (const service of services) {
-    let changed = false;
-    for (const reminder of service.reminders) {
-      if (reminder.sent || reminder.failed) continue;
-      if (reminder.scheduledAt > now) continue;
-      if (reminder.retryCount > 0 && reminder.nextRetryAt && reminder.nextRetryAt > now) continue;
-      await processReminder(bot, service, reminder, now);
-      changed = true;
+  for (const service of due) {
+    // ATOMAR claim: faqat bitta tik (yoki instans) muvaffaqiyatli belgilaydi.
+    const claimed = await Service.findOneAndUpdate(
+      {
+        _id: service._id,
+        reminderSent: false,
+        reminderAt: service.reminderAt,
+        status: SERVICE_STATUS.PENDING,
+        isDeleted: { $ne: true },
+        serviceDateTime: { $gt: now },
+      },
+      { $set: { reminderSent: true } },
+      { new: true }
+    );
+    if (!claimed) continue; // boshqa tik ulgurdi yoki holat o'zgardi
+
+    try {
+      await broadcast(bot, serviceReminderText(claimed));
+    } catch (err) {
+      console.error('Eslatma yuborishda xato:', err.message);
+      // Yuborilmadi — bayroqni qaytaramiz, keyingi tik qayta uradi.
+      await Service.updateOne(
+        { _id: claimed._id, reminderAt: claimed.reminderAt, status: SERVICE_STATUS.PENDING, isDeleted: { $ne: true } },
+        { $set: { reminderSent: false } }
+      );
     }
-    if (changed) await service.save();
   }
 }
 
-// RETRY (har 5 daqiqada): muvaffaqiyatsiz urinishdan keyin nextRetryAt kelgan eslatmalar.
-async function retryFailedReminders(bot) {
+// confirmAt kelgan xizmatlar uchun "bajarildimi?" tugmali so'rov.
+async function fireConfirms(bot) {
   const now = new Date();
-  const services = await Service.find({
-    ...notDeleted,
-    reminders: {
-      $elemMatch: { sent: false, failed: false, retryCount: { $gt: 0 }, nextRetryAt: { $lte: now } },
-    },
-  });
+  const due = await Service.find({
+    isDeleted: { $ne: true },
+    status: SERVICE_STATUS.PENDING,
+    isHistorical: { $ne: true },
+    confirmSent: false,
+    confirmAt: { $lte: now },
+  })
+    .sort({ confirmAt: 1 })
+    .limit(50);
 
-  for (const service of services) {
-    let changed = false;
-    for (const reminder of service.reminders) {
-      if (reminder.sent || reminder.failed) continue;
-      if (!reminder.retryCount || !reminder.nextRetryAt || reminder.nextRetryAt > now) continue;
-      await processReminder(bot, service, reminder, now);
-      changed = true;
+  for (const service of due) {
+    const claimed = await Service.findOneAndUpdate(
+      {
+        _id: service._id,
+        confirmSent: false,
+        confirmAt: service.confirmAt,
+        status: SERVICE_STATUS.PENDING,
+        isDeleted: { $ne: true },
+      },
+      { $set: { confirmSent: true } },
+      { new: true }
+    );
+    if (!claimed) continue;
+
+    try {
+      // Har xizmatga ALOHIDA xabar (o'z serviceId, o'z tugmalari) — birlashtirilmaydi.
+      await broadcast(bot, serviceConfirmText(claimed), {
+        reply_markup: confirmServiceKeyboard(claimed._id.toString()),
+      });
+    } catch (err) {
+      console.error('Tasdiq so\'rovida xato:', err.message);
+      await Service.updateOne(
+        { _id: claimed._id, confirmAt: claimed.confirmAt, status: SERVICE_STATUS.PENDING, isDeleted: { $ne: true } },
+        { $set: { confirmSent: false } }
+      );
     }
-    if (changed) await service.save();
   }
 }
 
 export function startReminderCron(bot) {
   cron.schedule('* * * * *', () => {
-    withReminderLock(() => fireDueReminders(bot)).catch((err) => console.error('Reminder cron xatosi:', err.message));
+    withLock(async () => {
+      await fireReminders(bot);
+      await fireConfirms(bot);
+    }).catch((err) => console.error('Reminder cron xatosi:', err.message));
   });
-  cron.schedule('*/5 * * * *', () => {
-    withReminderLock(() => retryFailedReminders(bot)).catch((err) => console.error('Retry cron xatosi:', err.message));
-  });
-  console.log('Eslatma cron ishga tushdi (asosiy: har daqiqada, retry: har 5 daqiqada)');
+  console.log('Eslatma cron ishga tushdi (har daqiqada: oldindan eslatma + tasdiq so\'rovi)');
 }

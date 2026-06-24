@@ -10,12 +10,11 @@ const settingsSchema = new mongoose.Schema(
     theme: { type: String, enum: ['light', 'dark', 'auto'], default: 'auto' },
     deleteCode: { type: String, default: env.CONFIRM_DELETE_CODE || '1990' },
 
-    // Standart eslatma vaqtlari (xizmatdan necha daqiqa oldin).
-    // Standart: 1 kun (1440), 1 soat (60) va aniq vaqtida (0).
-    defaultReminders: {
-      type: [{ minutesBefore: Number }],
-      default: [{ minutesBefore: 1440 }, { minutesBefore: 60 }, { minutesBefore: 0 }],
-    },
+    // Eslatma/tasdiqlash xizmat vaqtiga NISBATAN:
+    //  - reminderHoursBefore soat OLDIN — oddiy eslatma (tugmasiz).
+    //  - confirmHoursAfter soat KEYIN — tasdiqlash so'rovi (tugmali).
+    reminderHoursBefore: { type: Number, default: 3, min: 1, max: 168 },
+    confirmHoursAfter: { type: Number, default: 3, min: 1, max: 168 },
   },
   { timestamps: true }
 );

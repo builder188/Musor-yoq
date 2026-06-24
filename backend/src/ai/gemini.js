@@ -4,12 +4,18 @@
 import { FunctionCallingMode, GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import env from '../config/env.js';
 import {
-  INTENTS,
   TRANSCRIBE_PROMPT,
+  BOT_PERSONA,
   buildAnswerPrompt,
   buildClassificationPrompt,
   buildImagePrompt,
 } from './prompts.js';
+import {
+  HIGH_LEVEL_INTENTS,
+  SUB_INTENTS,
+  SUB_TO_HIGH,
+  HIGH_DEFAULT_SUB,
+} from './intents.js';
 import { parseMoney } from '../utils/money.js';
 import { normalizePhone } from '../utils/phone.js';
 import { normalizePaymentMethod } from '../bot/flow.js';
@@ -21,26 +27,47 @@ const classifyTool = {
     {
       name: 'classify_business_input',
       description:
-        'Classify one Uzbek trash-collection business message into exactly one intent and extract visible fields.',
+        'Understand one Uzbek trash-collection business message: pick the high-level intent, the precise subIntent, and extract visible fields. No commands or symbols are used; infer from meaning.',
       parameters: {
         type: SchemaType.OBJECT,
         properties: {
           intent: {
             type: SchemaType.STRING,
-            enum: INTENTS,
-            description: 'Exactly one business intent.',
+            enum: HIGH_LEVEL_INTENTS,
+            description: 'High-level intent: MOLIYA | MIJOZ | SUXBAT, or CLARIFY when unsure/ambiguous.',
+          },
+          subIntent: {
+            type: SchemaType.STRING,
+            enum: SUB_INTENTS,
+            description: 'Precise action inside the high-level intent (drives execution).',
           },
           confidence: {
             type: SchemaType.NUMBER,
-            description: 'Confidence from 0.0 to 1.0.',
+            description: 'Confidence from 0.0 to 1.0. If < 0.7 or two intents fit equally, use intent=CLARIFY.',
           },
           reason: {
             type: SchemaType.STRING,
-            description: 'Short reason for choosing the intent.',
+            description: 'Short reason for the choice.',
+          },
+          clarifyingQuestion: {
+            type: SchemaType.STRING,
+            description: 'When intent=CLARIFY: one short Uzbek question to disambiguate.',
+          },
+          clarifyOptions: {
+            type: SchemaType.ARRAY,
+            description: 'When intent=CLARIFY: 2-3 quick-reply choices.',
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                label: { type: SchemaType.STRING, description: 'Short Uzbek button text.' },
+                intent: { type: SchemaType.STRING, enum: SUB_INTENTS, description: 'subIntent this choice resolves to.' },
+              },
+              required: ['label', 'intent'],
+            },
           },
           reply: {
             type: SchemaType.STRING,
-            description: 'Short Uzbek clarification when needed, otherwise empty string.',
+            description: 'Optional short Uzbek note, otherwise empty string.',
           },
           fields: {
             type: SchemaType.OBJECT,
@@ -55,7 +82,6 @@ const classifyTool = {
               notes: { type: SchemaType.STRING },
               isHistorical: { type: SchemaType.BOOLEAN },
               hasDollar: { type: SchemaType.BOOLEAN, description: 'true if amount was given in USD.' },
-              reminderOffsetMinutes: { type: SchemaType.NUMBER },
               amount: { type: SchemaType.NUMBER },
               category: {
                 type: SchemaType.STRING,
@@ -418,8 +444,37 @@ function namedFunctionCall(response, allowedNames) {
   return { name: part.functionCall.name, args: part.functionCall.args || {} };
 }
 
-function normalizeIntent(value) {
-  return INTENTS.includes(value) ? value : 'SEARCH_QUERY';
+function normalizeHighLevel(value) {
+  return HIGH_LEVEL_INTENTS.includes(value) ? value : null;
+}
+
+// High-level intent va subIntentni izchil (consistent) qilib hal qiladi:
+// subIntent aniq bo'lsa, high-level undan olinadi; faqat SUXBAT high bo'lsa, SEARCH_QUERY;
+// write high-level subIntent bermasa — CLARIFY, hech narsa to'g'ri bo'lmasa — xavfsiz SUXBAT/SEARCH_QUERY.
+function resolveIntentPair(data) {
+  const high = normalizeHighLevel(data.intent);
+  const sub = SUB_INTENTS.includes(data.subIntent) ? data.subIntent : null;
+
+  if (high === 'CLARIFY') return { intent: 'CLARIFY', subIntent: sub };
+  if (sub) return { intent: SUB_TO_HIGH[sub], subIntent: sub };
+  if (high === 'SUXBAT') return { intent: high, subIntent: HIGH_DEFAULT_SUB[high] };
+  if (high) return { intent: 'CLARIFY', subIntent: HIGH_DEFAULT_SUB[high] };
+  return { intent: 'SUXBAT', subIntent: 'SEARCH_QUERY' };
+}
+
+function normalizeClarifyOptions(options) {
+  if (!Array.isArray(options)) return [];
+  return options
+    .map((opt) => {
+      const sub = SUB_INTENTS.includes(opt?.intent)
+        ? opt.intent
+        : SUB_INTENTS.includes(opt?.subIntent)
+        ? opt.subIntent
+        : null;
+      return { label: textOrNull(opt?.label), subIntent: sub };
+    })
+    .filter((opt) => opt.label && opt.subIntent)
+    .slice(0, 3);
 }
 
 function cleanObject(obj = {}) {
@@ -504,13 +559,18 @@ export function normalizeExtractedFields(intent, fields = {}) {
 
 function normalizeUnderstanding(parsed) {
   const data = parsed && typeof parsed === 'object' ? parsed : {};
-  const intent = normalizeIntent(data.intent);
+  const { intent, subIntent } = resolveIntentPair(data);
+  // Maydon ajratish kontrakti sub-action bo'yicha ishlaydi.
+  const extractionIntent = subIntent || 'SEARCH_QUERY';
   return {
     intent,
-    fields: normalizeExtractedFields(intent, data.fields || {}),
-    reply: data.reply || '',
+    subIntent,
+    fields: normalizeExtractedFields(extractionIntent, data.fields || {}),
     confidence: typeof data.confidence === 'number' ? data.confidence : 0.5,
     reason: data.reason || '',
+    reply: data.reply || '',
+    clarifyingQuestion: textOrNull(data.clarifyingQuestion) || '',
+    clarifyOptions: normalizeClarifyOptions(data.clarifyOptions),
   };
 }
 
@@ -600,10 +660,12 @@ Rules:
 }
 
 export async function formulateToolResponse({ toolName, toolArgs, toolResult, rawText = '' }) {
-  const res = await generate(textModel,`You are Musir Yo'q assistant.
-The requested MongoDB operation has already been executed by the server.
-Write a short, friendly, factual Uzbek response for the business owner.
-Do not invent data. Mention only important saved/updated/found values.
+  const res = await generate(textModel,`${BOT_PERSONA}
+
+The requested MongoDB operation has ALREADY been executed by the server.
+Write a short Uzbek confirmation in that warm "oka" tone for the business owner.
+Do not invent data. Mention only important saved/updated/found values, and keep every
+number, date, phone and address exact and tidy. Summalarni "so'm" bilan yoz.
 
 Original user text:
 ${rawText}
@@ -617,7 +679,7 @@ ${JSON.stringify(toolArgs, null, 2)}
 Tool result:
 ${JSON.stringify(toolResult, null, 2)}
 
-Uzbek response:`);
+Uzbek response (samimiy "oka" ohangida, qisqa):`);
   return res.response.text().trim();
 }
 
@@ -645,7 +707,8 @@ export async function understandImage(imageBuffer, mime = 'image/jpeg', caption 
     return { ...understanding, fields: { ...records[0], ...understanding.fields }, ocrRecords: records };
   }
   return {
-    intent: 'SERVICE_ENTRY',
+    intent: 'MIJOZ',
+    subIntent: 'SERVICE_ENTRY',
     fields: {},
     reply: '',
     confidence: records.length > 0 ? 0.85 : 0.2,

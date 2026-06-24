@@ -27,3 +27,10 @@ Thumbs.db
 
 # Playwright MCP sessiya artefaktlari (test loglari/snapshotlar)
 .playwright-mcp/
+
+# Lokal dev artefaktlari (repo'ga kerak emas)
+*.err
+*.out
+/*.zip
+design-reference.png
+miniapp-*-check.png

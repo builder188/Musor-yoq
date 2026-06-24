@@ -30,6 +30,7 @@ export function normalizeLocationData(address, coords) {
   const cleanAddress = String(address || '').trim() || 'Lokatsiya (xaritada)';
   return {
     address: cleanAddress,
+    mapUrl: null,
     coordinates: {
       lat: Number(coords?.lat),
       lng: Number(coords?.lng),

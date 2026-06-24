@@ -35,17 +35,20 @@ router.put(
   '/',
   asyncHandler(async (req, res) => {
     const settings = await Settings.getSingleton(req.telegramUser?.id);
-    const { language, theme, defaultReminders, currentDeleteCode, newDeleteCode } = req.body;
+    const {
+      language,
+      theme,
+      reminderHoursBefore,
+      confirmHoursAfter,
+      currentDeleteCode,
+      newDeleteCode,
+    } = req.body;
     if (language !== undefined) settings.language = language;
     if (theme !== undefined) settings.theme = theme;
-    if (Array.isArray(defaultReminders)) {
-      // [{minutesBefore}] yoki oddiy sonlar massivini qabul qilamiz.
-      const minutes = defaultReminders
-        .map((r) => Math.max(0, parseInt(r?.minutesBefore ?? r, 10) || 0))
-        .filter((n, i, arr) => arr.indexOf(n) === i)
-        .sort((a, b) => b - a);
-      settings.defaultReminders = minutes.map((m) => ({ minutesBefore: m }));
-    }
+    const beforeHours = parseReminderHours(reminderHoursBefore);
+    if (beforeHours !== null) settings.reminderHoursBefore = beforeHours;
+    const afterHours = parseReminderHours(confirmHoursAfter);
+    if (afterHours !== null) settings.confirmHoursAfter = afterHours;
     if (newDeleteCode !== undefined) {
       if (String(currentDeleteCode) !== String(settings.deleteCode)) {
         return res.status(403).json({ error: 'Joriy kod noto\'g\'ri' });
@@ -59,5 +62,16 @@ router.put(
     res.json(settings);
   })
 );
+
+function parseReminderHours(value) {
+  if (value === undefined) return null;
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours < 1 || hours > 168) {
+    const error = new Error("Eslatma soati 1 dan 168 gacha bo'lishi kerak");
+    error.status = 400;
+    throw error;
+  }
+  return Math.round(hours);
+}
 
 export default router;

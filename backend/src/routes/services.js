@@ -121,43 +121,6 @@ router.patch(
   })
 );
 
-// POST /api/services/:id/reminders/:index/retry — yuborilmagan (failed) eslatmani qayta navbatga qo'yadi.
-// Hisoblagichlar nollanadi va vaqti hozirgi qilinadi, asosiy cron keyingi daqiqada qayta urinadi.
-router.post(
-  '/:id/reminders/:index/retry',
-  asyncHandler(async (req, res) => {
-    const service = await Service.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
-    const index = Number(req.params.index);
-    if (!service || Number.isNaN(index) || index < 0 || index >= service.reminders.length) {
-      return res.status(404).json({ error: 'Eslatma topilmadi' });
-    }
-    const reminder = service.reminders[index];
-    reminder.failed = false;
-    reminder.sent = false;
-    reminder.sentAt = null;
-    reminder.retryCount = 0;
-    reminder.nextRetryAt = null;
-    reminder.scheduledAt = new Date();
-    service.markModified('reminders');
-    await service.save();
-    res.json({ ok: true, service });
-  })
-);
-
-// DELETE /api/services/:id/reminders/:index — eslatmani o'chirish (failed bo'lsa qo'lda yopish).
-router.delete(
-  '/:id/reminders/:index',
-  asyncHandler(async (req, res) => {
-    const service = await Service.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
-    const index = Number(req.params.index);
-    if (!service || Number.isNaN(index) || index < 0 || index >= service.reminders.length) {
-      return res.status(404).json({ error: 'Eslatma topilmadi' });
-    }
-    service.reminders.splice(index, 1);
-    await service.save();
-    res.json({ ok: true, service });
-  })
-);
 
 router.delete(
   '/:id',

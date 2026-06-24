@@ -3,11 +3,8 @@ import mongoose from 'mongoose';
 
 const locationSchema = new mongoose.Schema(
   {
-    address: { type: String, default: '' },
-    coordinates: {
-      lat: { type: Number, default: null },
-      lng: { type: Number, default: null },
-    },
+    address: { type: String, required: true },
+    mapUrl: { type: String, default: null },
   },
   { _id: false }
 );

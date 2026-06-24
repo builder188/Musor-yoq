@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { formatMoney, formatDate, formatDateTime, toInputDateTime } from '../utils/format.js';
+import { shouldWarnMapUrl } from '../utils/mapUrl.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
@@ -507,7 +508,8 @@ function ServiceFormModal({ service, onClose, onSaved }) {
   const [form, setForm] = useState({
     clientName: service?.clientName || '',
     clientPhone: service?.clientPhone || '',
-    location: service?.location?.address || '',
+    locationName: service?.location?.address || '',
+    locationMapUrl: service?.location?.mapUrl || '',
     serviceDateTime: toInputDateTime(service?.serviceDateTime),
     price: service?.price ?? '',
     paymentMethod: service?.paymentMethod || 'naqd',
@@ -517,12 +519,15 @@ function ServiceFormModal({ service, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
+    if (!form.locationName.trim()) return alert(t('common.locationRequired'));
+    if (shouldWarnMapUrl(form.locationMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
     setBusy(true);
     try {
+      const { locationName, locationMapUrl, ...fields } = form;
       const payload = {
-        ...form,
+        ...fields,
         price: Number(form.price),
-        location: form.location,
+        location: { address: locationName, mapUrl: locationMapUrl },
         serviceDateTime: new Date(form.serviceDateTime).toISOString(),
       };
       if (isEdit) await api.put(`/services/${service._id}`, payload);
@@ -541,8 +546,10 @@ function ServiceFormModal({ service, onClose, onSaved }) {
       <input className="input" value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} />
       <label className="label">{t('common.phone')}</label>
       <input className="input" placeholder="+998..." value={form.clientPhone} onChange={(e) => setForm({ ...form, clientPhone: e.target.value })} />
-      <label className="label">{t('common.location')}</label>
-      <input className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+      <label className="label">{t('common.locationName')}</label>
+      <input className="input" value={form.locationName} onChange={(e) => setForm({ ...form, locationName: e.target.value })} />
+      <label className="label">{t('common.mapUrl')}</label>
+      <input className="input" type="text" inputMode="url" placeholder={t('common.mapUrlPlaceholder')} value={form.locationMapUrl} onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })} />
       <label className="label">{t('common.date')}</label>
       <input className="input" type="datetime-local" value={form.serviceDateTime} onChange={(e) => setForm({ ...form, serviceDateTime: e.target.value })} />
       <label className="label">{t('common.price')}</label>
@@ -559,7 +566,7 @@ function ServiceFormModal({ service, onClose, onSaved }) {
       </label>
       <label className="label">{t('common.notes')}</label>
       <textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-      <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
+      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !form.clientName || !form.clientPhone || !form.locationName || !form.serviceDateTime || !form.price}>
         {busy ? '...' : t('common.save')}
       </button>
     </Modal>

@@ -48,7 +48,20 @@
       "Bash(grep -oE \"AIza[0-9A-Za-z_-]{8,}\")",
       "Bash(mkdir -p \"_design_extracted\")",
       "Bash(unzip -o \"musoryoq_designby claude  design .zip\" -d \"_design_extracted\")",
-      "Bash(node --check src/ai/gemini.js)"
+      "Bash(node --check src/ai/gemini.js)",
+      "Bash(git rev-list *)",
+      "Bash(node \"C:/Users/faxri/AppData/Local/Temp/claude/C--Users-faxri-Desktop-musor-yoq/6ac75cbf-b93e-453b-a077-c8da767f78ed/scratchpad/intent_test.mjs\")",
+      "Bash(node -e \"import\\('dotenv'\\).then\\(d=>{d.config\\(\\);const k=process.env.GEMINI_API_KEY||'';console.log\\('env present:', !!k, 'len:', k.length, 'prefix:', k.slice\\(0,4\\)\\);console.log\\('model:', process.env.GEMINI_MODEL||'\\(default\\)'\\);}\\)\")",
+      "Bash(node \"C:/Users/faxri/AppData/Local/Temp/claude/C--Users-faxri-Desktop-musor-yoq/6ac75cbf-b93e-453b-a077-c8da767f78ed/scratchpad/live_nlu.mjs\")",
+      "Bash(node --check src/ai/agent.js)",
+      "Bash(node --check src/ai/prompts.js)",
+      "Bash(node \"C:/Users/faxri/AppData/Local/Temp/claude/C--Users-faxri-Desktop-musor-yoq/6ac75cbf-b93e-453b-a077-c8da767f78ed/scratchpad/live_nlu2.mjs\")",
+      "Bash(GEMINI_API_KEY=AIzaDUMMY BOT_TOKEN=1:x OWNER_TELEGRAM_ID=1 MONGODB_URI=mongodb://localhost/x node -e ' *)",
+      "I ALLOW YOU TO ACCESS ALL THIS MUSOR YOQ FILE CODEBASE. DO NOT ASK ME FOR MY PERMISSION . DO IT BY YOURSELF. IF YOU DO NOT UNDERSTAND SOMETHING IN PROMPT YOU CAN ASK ME QUESTION TO DETERMINE IT PROMPT EXACTLY, BUT DO NOT ASK MY PERMISSION TO RUN ANY COMMAND IN TERMINLAD, . I  ALWAYYSA ALLOW YOU FOR THAT",
+      "Bash(node -e \"import\\('./src/ai/agent.js'\\).then\\(m=>console.log\\('LOAD OK, runAgent:', typeof m.runAgent\\)\\).catch\\(e=>{console.error\\('LOAD FAIL:', e.message\\); process.exit\\(1\\)}\\)\")",
+      "Bash(timeout 90 node -e ' *)",
+      "Bash(timeout 120 node -e ' *)",
+      "Bash(node -e \"import\\('./src/bot/handlers/callbacks.js'\\).then\\(\\(\\)=>import\\('./src/bot/handlers/message.js'\\)\\).then\\(\\(\\)=>console.log\\('handlers load OK'\\)\\).catch\\(e=>{console.error\\('FAIL',e.message\\);process.exit\\(1\\)}\\)\")"
     ]
   }
 }

@@ -10,6 +10,12 @@ import {
   QUESTIONS,
   normalizeExpenseCategory,
 } from '../bot/flow.js';
+import {
+  SUB_INTENTS,
+  SUB_TO_HIGH,
+  HIGH_DEFAULT_SUB,
+  CONFIDENCE_THRESHOLD,
+} from './intents.js';
 import { chooseAgentTool, formulateToolResponse } from './gemini.js';
 import {
   createService,
@@ -27,7 +33,7 @@ import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { formatMoney, parseMoney } from '../utils/money.js';
 import { formatDateTime, formatDate, parseHumanDateTime } from '../utils/dates.js';
 import { formatPhone, normalizePhone } from '../utils/phone.js';
-import { editConfirmKeyboard, paymentMethodKeyboard, clientPickKeyboard } from '../bot/ui.js';
+import { editConfirmKeyboard, paymentMethodKeyboard, clientPickKeyboard, clarifyKeyboard } from '../bot/ui.js';
 
 // Yetishmayotgan maydonni so'rash — paymentMethod uchun tugmalar bilan.
 function askField(field) {
@@ -35,6 +41,98 @@ function askField(field) {
     return { text: QUESTIONS[field], keyboard: paymentMethodKeyboard() };
   }
   return { text: QUESTIONS[field] };
+}
+
+const PIVOT_SUBS = new Set(['SEARCH_QUERY', 'ANALYTICS_QUERY']);
+// Erkin matnli maydonlar har qanday matnni "yutadi" — bu yerda pivot faqat aniq savolda.
+const FREE_TEXT_FIELDS = new Set(['clientName', 'location', 'notes', 'description']);
+// Slot-filling o'rtasida niyat korreksiyasi faqat shu aniq yozuv amallari uchun.
+const WRITE_ACTIONS = new Set([
+  'SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'STATUS_UPDATE',
+  'SERVICE_EDIT', 'CLIENT_EDIT', 'PAYMENT_UPDATE',
+]);
+
+function looksLikeQuestion(text) {
+  const v = String(text || '').toLowerCase();
+  return /\?|qancha|qachon|nima|qayer|qaysi|necha|balans|foyda|daromad|hisob|royxat|ro'yxat|qarz/.test(v);
+}
+
+// Slot-filling o'rtasidagi SUXBAT savolini aniqlaydi: savolga javob berib, to'xtagan
+// maydonni qayta so'raydi (conversation holatiga tegmaydi).
+async function maybePivot({ conversation, understanding, rawText, mode }) {
+  const sub = understanding?.subIntent;
+  if (!PIVOT_SUBS.has(sub)) return null;
+  if ((understanding?.confidence ?? 0) < CONFIDENCE_THRESHOLD) return null;
+
+  const field = conversation.awaitingField;
+  if (!field) return null;
+
+  if (FREE_TEXT_FIELDS.has(field)) {
+    if (!looksLikeQuestion(rawText)) return null;
+  } else if (hasValue(field, applyRawValue(field, rawText, {}))) {
+    // Tuzilmali maydon (tel/narx/sana/to'lov) javobi to'g'ri qiymat bersa — pivot emas.
+    return null;
+  }
+
+  const answerSub =
+    sub === 'ANALYTICS_QUERY' || hasAnalyticsSignal(understanding.fields) ? 'ANALYTICS_QUERY' : 'SEARCH_QUERY';
+  const answer = await executeToolFlow({ intent: answerSub, fields: understanding.fields || {}, rawText, mode });
+  const reAsk = askField(field);
+  const text = `${answer.text}\n\n${reAsk.text}`;
+  return reAsk.keyboard ? { text, keyboard: reAsk.keyboard } : { text };
+}
+
+// Slot-filling o'rtasida AI niyatni xato aniqlagan bo'lib, foydalanuvchi shu zahoti
+// BOSHQA aniq yozuv niyatini bildirsa (mas. SERVICE_ENTRY o'rtasida "yo'q, benzinga 50ming"),
+// eski sessiyani tashlab yangisiga o'tishni aniqlaydi. Juda ehtiyotkor: yuqori ishonch,
+// boshqa WRITE amal, o'ziga xos konkret maydon, va joriy maydonga sof javob EMASligi.
+function maybeCorrectIntent({ conversation, understanding, rawText }) {
+  if ((understanding?.confidence ?? 0) < CONFIDENCE_THRESHOLD) return false;
+  const action = resolveAction(understanding);
+  if (!WRITE_ACTIONS.has(action)) return false; // SUXBAT savoli — maybePivot hal qiladi
+  if (action === conversation.pendingIntent) return false; // bir xil niyat — bu davom, korreksiya emas
+  if (!hasConcreteSignal(action, understanding.fields || {})) return false;
+  if (answersCurrentField(conversation.awaitingField, rawText)) return false; // joriy maydon javobi
+  return true;
+}
+
+// Yangi niyat haqiqatan "yangi amal"ga arziydigan konkret maydonga egami?
+// (Tasodifiy/yarim klassifikatsiya bo'yicha sessiyani buzib yubormaslik uchun.)
+function hasConcreteSignal(action, f = {}) {
+  switch (action) {
+    case 'EXPENSE_ENTRY':
+    case 'INCOME_ENTRY':
+      return typeof f.amount === 'number' && f.amount > 0;
+    case 'SERVICE_ENTRY':
+      // Shunchaki ism emas — to'liqroq yangi ish (sana/narx/tel ham bor).
+      return Boolean(f.clientName && (f.serviceDateTime || f.price || f.clientPhone));
+    case 'STATUS_UPDATE':
+      return Boolean(f.newStatus);
+    case 'PAYMENT_UPDATE':
+      return Boolean(f.paymentAmount || f.amount);
+    case 'SERVICE_EDIT':
+    case 'CLIENT_EDIT':
+      return Boolean(f.editField || f.newValue);
+    default:
+      return false;
+  }
+}
+
+// Matn joriy so'ralayotgan maydonga aniq javob bermoqdami? Bo'lsa — korreksiya emas, javob.
+// Tuzilmali maydonlarda: qisqa va sof qiymat (gap ichidagi tasodifiy raqam emas) bo'lishi shart.
+function answersCurrentField(field, rawText) {
+  const text = String(rawText || '').trim();
+  if (!field || !text) return false;
+  if (FREE_TEXT_FIELDS.has(field)) return false; // erkin matn: "javob" deb hisoblamaymiz
+  const words = text.split(/\s+/).length;
+  if (field === 'price' || field === 'amount' || field === 'paymentAmount') {
+    return words <= 3 && hasValue(field, applyRawValue(field, text, {}));
+  }
+  if (field === 'serviceDateTime') {
+    return words <= 4 && hasValue(field, applyRawValue(field, text, {}));
+  }
+  // clientPhone / targetPhone / paymentMethod — qiymatga parse bo'lsa, javob.
+  return hasValue(field, applyRawValue(field, text, {}));
 }
 
 const TOOL_BY_INTENT = {
@@ -71,22 +169,30 @@ const CLIENT_EDIT_FIELD = {
 };
 
 export async function runAgent({ understanding, rawText = '', conversation = null, mode = 'bot' }) {
-  if (requiresSomConfirmation(understanding, rawText)) {
-    return {
-      text: "Dollar saqlanmaydi. Summani so'mga aylantiring, taxminan qancha so'm deb yozaman?",
-    };
-  }
-
+  // 1) Davom etayotgan slot-filling ustuvor — SUXBAT pivoti shu ichida hal bo'ladi.
   if (conversation?.pendingIntent && isEntryIntent(conversation.pendingIntent)) {
     return continueEntry({ conversation, understanding, rawText, mode });
   }
 
-  switch (understanding.intent) {
+  // 2) CLARIFY: ishonch past yoki 2 niyatga teng mos — taxmin qilmay, tugmali savol beramiz.
+  const clarify = resolveClarify(understanding);
+  if (clarify) return startClarify({ clarify, understanding, rawText, conversation });
+
+  // 3) Aniq amal (sub-action) — MongoDB operatsiyasi shu darajada bajariladi.
+  const action = resolveAction(understanding);
+
+  if (requiresSomConfirmation(action, understanding, rawText)) {
+    return {
+      text: "Oka, dollarni saqlay olmayman. Taxminan qancha so'm bo'ladi — so'mda aytib bering.",
+    };
+  }
+
+  switch (action) {
     case 'SERVICE_ENTRY':
     case 'EXPENSE_ENTRY':
     case 'INCOME_ENTRY':
-      if (mode === 'query') return { text: "Bu amalni botda bajaring. Mini App chat faqat qidiruv va tahlil uchun." };
-      return startEntry({ conversation, intent: understanding.intent, fields: understanding.fields || {}, rawText, mode });
+      if (mode === 'query') return { text: "Buni bot orqali bajaramiz oka. Bu yer faqat qidiruv va tahlil uchun." };
+      return startEntry({ conversation, intent: action, fields: understanding.fields || {}, rawText, mode });
 
     case 'STATUS_UPDATE':
       return handleStatusUpdate({ fields: understanding.fields || {}, rawText, conversation, mode });
@@ -101,22 +207,107 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
       return handlePaymentUpdate({ fields: understanding.fields || {}, rawText, conversation, mode });
 
     case 'SEARCH_QUERY':
-      return executeToolFlow({ intent: 'SEARCH_QUERY', fields: understanding.fields || {}, rawText, mode });
-
-    case 'ANALYTICS_QUERY':
-      return executeToolFlow({ intent: 'ANALYTICS_QUERY', fields: understanding.fields || {}, rawText, mode });
+    case 'ANALYTICS_QUERY': {
+      // Raqamli savol (analyticsMetric/analyticsPeriod bor) qidiruv emas — model
+      // SEARCH_QUERY desa ham get_analytics'ga yo'naltiramiz (javob sifati buzilmasin).
+      const suxbat =
+        action === 'ANALYTICS_QUERY' || hasAnalyticsSignal(understanding.fields)
+          ? 'ANALYTICS_QUERY'
+          : 'SEARCH_QUERY';
+      return executeToolFlow({ intent: suxbat, fields: understanding.fields || {}, rawText, mode });
+    }
 
     default:
       return {
         text:
+          understanding.clarifyingQuestion ||
           understanding.reply ||
-          'Tushunmadim. Mijoz, xizmat, xarajat, tolov, qidiruv yoki hisobot haqida aniqroq yozing.',
+          "Tushunmadim oka, birozroq ochiqroq aytib bersangiz? Mijoz, xizmat, xarajat, to'lov yoki hisobot bo'lishi mumkin.",
       };
   }
 }
 
-function requiresSomConfirmation(understanding, rawText) {
-  if (!['SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'SERVICE_EDIT'].includes(understanding?.intent)) return false;
+// Bajariladigan aniq amalni (sub-action) hal qiladi.
+// Eski chaqiruvlar (callbacks, OCR) to'g'ridan sub-intent berishi mumkin — uni qabul qilamiz;
+// yangi klassifikator esa high-level intent + subIntent beradi.
+function resolveAction(understanding) {
+  const { intent, subIntent } = understanding || {};
+  if (SUB_INTENTS.includes(intent)) return intent;
+  if (subIntent && SUB_INTENTS.includes(subIntent)) return subIntent;
+  return HIGH_DEFAULT_SUB[intent] || 'SEARCH_QUERY';
+}
+
+// Raqamli/analitik savol belgisi — qaysi SUXBAT sub-actionga borishni aniqlaydi.
+function hasAnalyticsSignal(fields = {}) {
+  return Boolean(fields?.analyticsMetric || fields?.analyticsPeriod);
+}
+
+// CLARIFY kerakmi? Gemini CLARIFY desa — uni ishlatamiz. Aks holda xavfsizlik to'ri:
+// confidence < 0.7 bo'lsa har qanday high-level natija bo'yicha taxmin qilmay, so'raymiz.
+function resolveClarify(understanding) {
+  // Callback/continue to'g'ridan sub-intent bersa — hech qachon clarify qilmaymiz.
+  if (SUB_INTENTS.includes(understanding?.intent)) return null;
+
+  const conf = understanding?.confidence ?? 1;
+  // Haqiqiy 2 tomonlama ikkilanish bormi? (2+ farqli subIntentli tugma).
+  const distinctOptions = new Set(
+    (understanding?.clarifyOptions || []).map((o) => o.subIntent).filter(Boolean)
+  );
+  const hasRealFork = distinctOptions.size >= 2;
+  const clearSub = SUB_INTENTS.includes(understanding?.subIntent);
+
+  if (understanding?.intent === 'CLARIFY') {
+    // Soxta CLARIFY: model "CLARIFY" desa-da, aslida ishonchi yetarli, aniq bitta amal bor
+    // va haqiqiy ikki tomonlama tanlov yo'q (mas. ravshan xarajat "yog' va guruch oldim").
+    // Bunda taxmin emas — model o'zi aniqlagan amalni so'ramay bajaramiz.
+    if (clearSub && !hasRealFork && conf >= CONFIDENCE_THRESHOLD) return null;
+    return {
+      question:
+        understanding.clarifyingQuestion ||
+        understanding.reply ||
+        'Aniqlashtiring: bu nima haqida?',
+      options: hasRealFork ? understanding.clarifyOptions : defaultClarifyOptions(understanding),
+    };
+  }
+
+  if (conf < CONFIDENCE_THRESHOLD) {
+    return { question: 'Buni qanday tushunay? Aniqlashtiring:', options: defaultClarifyOptions(understanding) };
+  }
+  return null;
+}
+
+// Gemini clarifyOptions bermasa — mazmunli zaxira tugmalar (taxmin qilingan amal birinchi).
+function defaultClarifyOptions(understanding) {
+  const guess = resolveAction(understanding);
+  const base = [
+    { label: 'Mijoz / xizmat', subIntent: 'SERVICE_ENTRY' },
+    { label: 'Xarajat', subIntent: 'EXPENSE_ENTRY' },
+    { label: 'Daromad', subIntent: 'INCOME_ENTRY' },
+    { label: "Mijoz to'lovi", subIntent: 'PAYMENT_UPDATE' },
+    { label: 'Qidiruv / savol', subIntent: 'SEARCH_QUERY' },
+  ];
+  const ordered = [
+    ...base.filter((o) => o.subIntent === guess),
+    ...base.filter((o) => o.subIntent !== guess),
+  ];
+  return ordered.slice(0, 3);
+}
+
+// CLARIFY holatini conversationga yozadi (tugma callback'i shu yerdan davom ettiradi).
+async function startClarify({ clarify, understanding, rawText, conversation }) {
+  const options = clarify.options;
+  if (conversation) {
+    conversation.pendingIntent = 'CLARIFY';
+    conversation.collected = { rawText, fields: understanding.fields || {}, options };
+    conversation.awaitingField = 'clarifyChoice';
+    conversation.markModified('collected');
+    await conversation.save();
+  }
+  return { text: clarify.question, keyboard: clarifyKeyboard(options) };
+}
+
+function requiresSomConfirmation(action, understanding, rawText) {
+  if (!['SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'SERVICE_EDIT'].includes(action)) return false;
   if (understanding?.fields?.hasDollar === true) return true;
   const text = `${rawText || ''} ${JSON.stringify(understanding?.fields || {})}`.toLowerCase();
   return /(\$|dollar|usd)/i.test(text);
@@ -143,6 +334,18 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
   if (/^(bekor|otmen|cancel|to'xtat|toxtat)/i.test((rawText || '').trim())) {
     await conversation.reset();
     return { text: 'Bekor qilindi.' };
+  }
+
+  // SUXBAT pivoti: maydon to'ldirish o'rtasida foydalanuvchi savol/qidiruv bersa —
+  // javob beramiz, keyin to'xtagan maydonni qayta so'raymiz. Sessiya saqlanadi.
+  const pivot = await maybePivot({ conversation, understanding, rawText, mode });
+  if (pivot) return pivot;
+
+  // Niyat korreksiyasi: AI avval xato tushunib, foydalanuvchi darhol boshqa aniq niyatni
+  // bildirsa — eski sessiyani tashlab, yangi niyatni shu zahoti ishga tushiramiz.
+  if (maybeCorrectIntent({ conversation, understanding, rawText })) {
+    await conversation.reset();
+    return runAgent({ understanding, rawText, conversation, mode });
   }
 
   const intent = conversation.pendingIntent;
@@ -174,7 +377,7 @@ async function finalizeEntry({ conversation, intent, collected, rawText, mode })
 async function handleStatusUpdate({ fields, rawText, conversation, mode }) {
   const identifier = fields.targetPhone || fields.clientPhone || fields.targetClientName || fields.clientName || fields.searchText;
   if (!identifier) {
-    return { text: 'Qaysi mijoz yoki qaysi xizmat? Ism yoki telefonni yuboring.' };
+    return { text: "Qaysi mijozning xizmati, oka? Ism yoki telefon raqamini yuboring." };
   }
   const disambiguation = await maybeDisambiguate({ fields, conversation, intent: 'STATUS_UPDATE' });
   if (disambiguation) return disambiguation;
@@ -183,8 +386,8 @@ async function handleStatusUpdate({ fields, rawText, conversation, mode }) {
 
 async function handlePaymentUpdate({ fields, rawText, conversation, mode }) {
   const identifier = fields.targetPhone || fields.clientPhone || fields.targetClientName || fields.clientName;
-  if (!identifier) return { text: 'Qaysi mijoz tolov qildi? Ism yoki telefonni yuboring.' };
-  if (!(fields.paymentAmount || fields.amount)) return { text: 'Tolov summasi qancha?' };
+  if (!identifier) return { text: "Qaysi mijoz to'lov qildi, oka? Ism yoki telefon raqamini yuboring." };
+  if (!(fields.paymentAmount || fields.amount)) return { text: "Qancha to'lov qildi, oka?" };
   const disambiguation = await maybeDisambiguate({ fields, conversation, intent: 'PAYMENT_UPDATE' });
   if (disambiguation) return disambiguation;
   return executeToolFlow({ intent: 'PAYMENT_UPDATE', fields, rawText, mode });
@@ -218,27 +421,27 @@ async function maybeDisambiguate({ fields, conversation, intent }) {
     await conversation.save();
   }
   return {
-    text: `Bir nechta "${name}" ismli mijoz bor. Qaysi biri?`,
+    text: `Oka, "${name}" ismli bir nechta mijoz bor ekan. Qaysi biri?`,
     keyboard: clientPickKeyboard(candidates),
   };
 }
 
 // Mavjud xizmatni tahrirlash — topib, tasdiq so'raydi (Ha/Yo'q), keyin callback ijro etadi.
 async function handleServiceEdit({ fields, rawText, conversation, mode }) {
-  if (mode === 'query') return { text: 'Tahrirlashni botda bajaring. Mini App chat faqat qidiruv va tahlil uchun.' };
+  if (mode === 'query') return { text: "Tahrirlashni bot orqali qilamiz oka. Bu yer faqat qidiruv va tahlil uchun." };
 
   const identifier = fields.targetIdentifier || rawText;
   const fieldKey = SERVICE_EDIT_FIELD[String(fields.editField || '').toLowerCase()];
-  if (!fieldKey) return { text: "Nimani o'zgartiramiz? Narx, sana yoki manzilni ayting." };
+  if (!fieldKey) return { text: "Nimasini o'zgartiramiz oka? Narx, sana yoki manzilni ayting." };
   if (fields.newValue === null || fields.newValue === undefined || fields.newValue === '') {
-    return { text: 'Yangi qiymatni yozing.' };
+    return { text: "Yangi qiymatni yozib bering, oka." };
   }
 
   const service = await findServiceByIdentifier(identifier);
-  if (!service) return { text: 'Mos xizmat topilmadi. Mijoz ismi, telefoni yoki sanasini aniqroq ayting.' };
+  if (!service) return { text: "Bunaqa xizmatni topolmadim oka. Mijoz ismi, telefoni yoki sanasini aniqroq ayting." };
 
   const { data, display } = buildServiceEditData(fieldKey, fields.newValue);
-  if (data === null) return { text: 'Yangi qiymatni tushunmadim. Aniqroq yozing.' };
+  if (data === null) return { text: "Yangi qiymatni tushunmadim oka, aniqroq yozing." };
 
   if (conversation) {
     conversation.pendingIntent = 'EDIT_CONFIRM';
@@ -251,19 +454,19 @@ async function handleServiceEdit({ fields, rawText, conversation, mode }) {
   const label = SERVICE_EDIT_LABEL[fieldKey] || fieldKey;
   const when = formatDate(service.serviceDateTime);
   return {
-    text: `${service.clientName} [${when}] xizmatining ${label}ini ${display} ga o'zgartiraymi?`,
+    text: `Oka, ${service.clientName} [${when}] xizmatining ${label}ini ${display} ga o'zgartiraymi?`,
     keyboard: editConfirmKeyboard(),
   };
 }
 
 async function handleClientEdit({ fields, rawText, conversation, mode }) {
-  if (mode === 'query') return { text: 'Tahrirlashni botda bajaring. Mini App chat faqat qidiruv va tahlil uchun.' };
+  if (mode === 'query') return { text: "Tahrirlashni bot orqali qilamiz oka. Bu yer faqat qidiruv va tahlil uchun." };
 
   const identifier = fields.targetIdentifier || rawText;
   const fieldKey = CLIENT_EDIT_FIELD[String(fields.editField || '').toLowerCase()];
-  if (!fieldKey) return { text: "Nimani o'zgartiramiz? Ism yoki telefonni ayting." };
+  if (!fieldKey) return { text: "Nimasini o'zgartiramiz oka? Ism yoki telefonni ayting." };
   if (fields.newValue === null || fields.newValue === undefined || fields.newValue === '') {
-    return { text: 'Yangi qiymatni yozing.' };
+    return { text: "Yangi qiymatni yozib bering, oka." };
   }
 
   const disambiguation = await maybeDisambiguate({
@@ -275,12 +478,12 @@ async function handleClientEdit({ fields, rawText, conversation, mode }) {
 
   const phone = normalizePhone(identifier);
   const client = await findClient({ name: phone === identifier ? '' : identifier, phone });
-  if (!client) return { text: 'Mijoz topilmadi. Ismi yoki telefonini aniqroq ayting.' };
+  if (!client) return { text: "Mijozni topolmadim oka. Ismi yoki telefonini aniqroq ayting." };
 
   let value = fields.newValue;
   if (fieldKey === 'phone') {
     value = normalizePhone(value);
-    if (!value) return { text: "Telefon raqamini to'g'ri yozing. Masalan: 90 123 45 67" };
+    if (!value) return { text: "Telefon raqamini to'g'ri yozib bering oka. Masalan: 90 123 45 67" };
   }
   const data = { [fieldKey]: value };
 
@@ -295,7 +498,7 @@ async function handleClientEdit({ fields, rawText, conversation, mode }) {
   const label = fieldKey === 'phone' ? 'telefon raqamini' : 'ismini';
   const display = fieldKey === 'phone' ? formatPhone(value) || value : value;
   return {
-    text: `${client.name} mijozning ${label} ${display} ga o'zgartiraymi?`,
+    text: `Oka, ${client.name} mijozning ${label} ${display} ga o'zgartiraymi?`,
     keyboard: editConfirmKeyboard(),
   };
 }
@@ -356,7 +559,14 @@ async function executeToolFlow({ intent, fields, rawText, mode }) {
     console.warn('Gemini tool planner fallback:', err.message);
   }
 
-  const toolResult = await executeAgentTool(toolCall.name, toolCall.args);
+  let toolResult;
+  try {
+    toolResult = await executeAgentTool(toolCall.name, toolCall.args);
+  } catch (err) {
+    // Biznes xatosi (mas. "xizmat topilmadi") — bu AI/ulanish xatosi emas. Egaga aniq,
+    // samimiy xabar qaytaramiz (umumiy "AI xato" o'rniga).
+    return { text: err?.message || "Voy oka, bir narsa chappa ketdi. Qaytadan urinib ko'ring.", tool: toolCall.name, error: true };
+  }
   const fallbackText = fallbackResponse(toolCall.name, toolResult);
 
   try {
@@ -422,7 +632,7 @@ async function executeAgentTool(name, args) {
 async function updateServiceStatus(args) {
   const identifier = args.serviceIdentifier || '';
   const service = await findServiceByIdentifier(identifier);
-  if (!service) throw new Error('Mos xizmat topilmadi. Mijoz ismi yoki telefonini aniqroq ayting.');
+  if (!service) throw new Error("Bunaqa xizmatni topolmadim oka. Mijoz ismini yoki telefonini aniqroq ayting.");
 
   if (args.status === SERVICE_STATUS.CANCELLED || args.status === 'cancelled') {
     return serializeService(await cancelService(service._id));
@@ -432,31 +642,31 @@ async function updateServiceStatus(args) {
 
 async function completeAgentService(args) {
   const service = await findServiceByIdentifier(args.serviceIdentifier || '');
-  if (!service) throw new Error('Mos xizmat topilmadi.');
+  if (!service) throw new Error("Bunaqa xizmatni topolmadim oka. Mijoz ismi, telefoni yoki sanasini aniqroq ayting.");
   return serializeService(await completeService(service._id, { markPaid: true }));
 }
 
 async function cancelAgentService(args) {
   const service = await findServiceByIdentifier(args.serviceIdentifier || '');
-  if (!service) throw new Error('Mos xizmat topilmadi.');
+  if (!service) throw new Error("Bunaqa xizmatni topolmadim oka. Mijoz ismi, telefoni yoki sanasini aniqroq ayting.");
   return serializeService(await cancelService(service._id, args.reason || null));
 }
 
 async function rescheduleAgentService(args) {
   const service = await findServiceByIdentifier(args.serviceIdentifier || '');
-  if (!service) throw new Error('Mos xizmat topilmadi.');
+  if (!service) throw new Error("Bunaqa xizmatni topolmadim oka. Mijoz ismi, telefoni yoki sanasini aniqroq ayting.");
   const date = parseHumanDateTime(args.newDateTime || '');
-  if (!date || Number.isNaN(date.getTime())) throw new Error('Yangi vaqt notogri.');
+  if (!date || Number.isNaN(date.getTime())) throw new Error("Yangi vaqtni tushunmadim oka, aniqroq ayting.");
   return serializeService(await rescheduleService(service._id, date.toISOString()));
 }
 
 async function editAgentService(args) {
   const service = await findServiceByIdentifier(args.serviceIdentifier || '');
-  if (!service) throw new Error('Mos xizmat topilmadi.');
+  if (!service) throw new Error("Bunaqa xizmatni topolmadim oka. Mijoz ismi, telefoni yoki sanasini aniqroq ayting.");
   const fieldKey = SERVICE_EDIT_FIELD[String(args.field || '').toLowerCase()];
-  if (!fieldKey) throw new Error('Qaysi maydon? narx, sana yoki manzil.');
+  if (!fieldKey) throw new Error("Qaysi maydonni oka? Narx, sana yoki manzil.");
   const { data } = buildServiceEditData(fieldKey, args.value);
-  if (!data) throw new Error('Yangi qiymat notogri.');
+  if (!data) throw new Error("Yangi qiymatni tushunmadim oka.");
   return serializeService(await editService(service._id, data));
 }
 
@@ -464,13 +674,13 @@ async function editAgentClient(args) {
   const identifier = args.clientIdentifier || '';
   const phone = normalizePhone(identifier);
   const client = await findClient({ name: phone === identifier ? '' : identifier, phone });
-  if (!client) throw new Error('Mijoz topilmadi.');
+  if (!client) throw new Error("Mijozni topolmadim oka.");
   const fieldKey = CLIENT_EDIT_FIELD[String(args.field || '').toLowerCase()];
-  if (!fieldKey) throw new Error('Qaysi maydon? ism yoki telefon.');
+  if (!fieldKey) throw new Error("Qaysi maydonni oka? Ism yoki telefon.");
   let value = args.value;
   if (fieldKey === 'phone') {
     value = normalizePhone(value);
-    if (!value) throw new Error('Telefon notogri.');
+    if (!value) throw new Error("Telefon raqami noto'g'ri oka.");
   }
   return serializeDoc(await updateClient(client._id, { [fieldKey]: value }));
 }
@@ -543,7 +753,7 @@ async function recordAgentPayment(args) {
     name: phone === identifier ? '' : identifier,
     phone,
   });
-  if (!client) throw new Error('Mijoz topilmadi. Ismi yoki telefonini aniqroq ayting.');
+  if (!client) throw new Error("Mijozni topolmadim oka. Ismini yoki telefonini aniqroq ayting.");
 
   const result = await recordServicePayment({
     clientId: client._id,
@@ -682,7 +892,6 @@ function serviceArgs(fields) {
     paymentMethod: fields.paymentMethod,
     notes: fields.notes || '',
     isHistorical: !!fields.isHistorical,
-    reminderOffsetMinutes: fields.reminderOffsetMinutes,
     images: fields.images || [],
     imageFileId: fields.imageFileId || null,
   };
@@ -737,9 +946,19 @@ function serializeService(service) {
     paymentStatus: s.paymentStatus,
     status: s.status,
     isHistorical: s.isHistorical,
+    reminderAt: s.reminderAt,
+    confirmAt: s.confirmAt,
     notes: s.notes,
   };
 }
+
+// Xarajat toifasi -> ko'rsatiladigan o'zbekcha nom (tasdiqlash xabari uchun).
+const CATEGORY_LABEL = {
+  yoqilgi: "Yoqilg'i",
+  tamirlash: "Ta'mirlash",
+  'oziq-ovqat': 'Oziq-ovqat',
+  boshqa_chiqim: 'Boshqa',
+};
 
 function fallbackResponse(toolName, result) {
   switch (toolName) {
@@ -748,40 +967,44 @@ function fallbackResponse(toolName, result) {
     case 'update_service_status':
     case 'complete_service':
     case 'cancel_service':
-      return `Xizmat holati yangilandi: ${result.clientName} - ${result.status}.`;
+      return result.status === SERVICE_STATUS.DONE
+        ? `Boldi oka, ${result.clientName} xizmatini bajarildi deb belgiladim ✅`
+        : `Boldi oka, ${result.clientName} xizmatini bekor qildim.`;
     case 'reschedule_service':
-      return `Xizmat vaqti o'zgartirildi: ${result.clientName} - ${formatDateTime(result.serviceDateTime)}.`;
+      return `Boldi oka, ${result.clientName} xizmatini ${formatDateTime(result.serviceDateTime)} ga ko'chirdim ✅`;
     case 'edit_service':
-      return `Xizmat tahrirlandi: ${result.clientName}.`;
+      return `Boldi oka, ${result.clientName} xizmatini yangiladim ✅`;
     case 'edit_client':
-      return `Mijoz ma'lumoti yangilandi: ${result.name || ''}.`;
+      return `Boldi oka, ${result.name || 'mijoz'} ma'lumotini yangiladim ✅`;
     case 'get_balance':
       return analyticsSummary(result);
     case 'get_services_by_identifier':
       return searchSummary(result);
     case 'create_transaction':
-      return `${result.type === 'income' ? 'Daromad' : 'Xarajat'} saqlandi: ${formatMoney(result.amount)}.`;
+      if (result.type === 'income') {
+        return `Boldi oka, ${formatMoney(result.amount)} kirim qo'shdim ✅`;
+      }
+      return `Boldi oka, ${formatMoney(result.amount)} chiqim qo'shdim ✅\nToifa: ${CATEGORY_LABEL[result.category] || 'Boshqa'}`;
     case 'record_payment':
-      return `To'lov holati yangilandi: ${formatMoney(result.amountApplied)}.`;
+      return `Boldi oka, ${formatMoney(result.amountApplied)} to'lovni yozib qo'ydim ✅`;
     case 'search_data':
       return searchSummary(result);
     case 'get_analytics':
       return analyticsSummary(result);
     default:
-      return 'Amal bajarildi.';
+      return 'Boldi oka, bajardim ✅';
   }
 }
 
 function serviceSummary(service) {
   return [
-    'Xizmat saqlandi:',
-    `Mijoz: ${service.clientName}`,
-    `Tel: ${formatPhone(service.clientPhone)}`,
-    `Manzil: ${service.location?.address || service.location || '-'}`,
-    `Vaqt: ${formatDateTime(service.serviceDateTime)}`,
-    `Narx: ${formatMoney(service.price)}`,
-    `Tolov: ${service.paymentMethod}`,
-    `Holat: ${service.status}`,
+    "Boldi oka, yozib qo'ydim ✅",
+    `👤 ${service.clientName}`,
+    `📞 ${formatPhone(service.clientPhone)}`,
+    `📍 ${service.location?.address || service.location || '-'}`,
+    `📅 ${formatDateTime(service.serviceDateTime)}`,
+    `💰 ${formatMoney(service.price)}`,
+    `💳 ${service.paymentMethod}`,
   ]
     .filter(Boolean)
     .join('\n');
@@ -789,19 +1012,19 @@ function serviceSummary(service) {
 
 function searchSummary(result) {
   const count = (result.services?.length || 0) + (result.clients?.length || 0) + (result.transactions?.length || 0);
-  if (!count) return 'Hech narsa topilmadi.';
+  if (!count) return "Oka, bunga mos hech narsa topolmadim.";
   const serviceLines = (result.services || [])
     .slice(0, 10)
     .map((s, i) => `${i + 1}. ${formatDate(s.serviceDateTime)} - ${s.clientName}, ${s.location?.address || '-'}, ${formatMoney(s.price)}`);
-  return `Topildi: ${count} ta.\n${serviceLines.join('\n')}`;
+  return `Mana topdim oka, ${count} ta:\n${serviceLines.join('\n')}`;
 }
 
 function analyticsSummary(result) {
   return [
-    `Davr: ${result.period}`,
-    `Daromad: ${formatMoney(result.income || 0)}`,
-    `Xarajat: ${formatMoney(result.expense || 0)}`,
-    `Sof balans: ${formatMoney(result.balance || 0)}`,
+    `Mana hisob, oka (${result.period}):`,
+    `💰 Kirim: ${formatMoney(result.income || 0)}`,
+    `💸 Chiqim: ${formatMoney(result.expense || 0)}`,
+    `⚖️ Sof balans: ${formatMoney(result.balance || 0)}`,
   ].join('\n');
 }
 

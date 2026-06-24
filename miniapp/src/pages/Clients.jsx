@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { formatMoney, formatPhone, formatDate, toInputDateTime } from '../utils/format.js';
+import { shouldWarnMapUrl } from '../utils/mapUrl.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
+import LocationDisplay from '../components/LocationDisplay.jsx';
 
 export default function Clients({ focusClientId, openAddClient, onAddClientHandled, onFocusHandled }) {
   const { t } = useApp();
@@ -169,11 +171,11 @@ function ClientDetailModal({ client, onClose, onEdit, onDelete, onOpenService })
         {client.locations && client.locations.length > 0 && (
           <div className="card-row" style={{ padding: '4px 0', alignItems: 'flex-start' }}>
             <span className="muted">{t('common.location')}</span>
-            <span style={{ textAlign: 'right' }}>
+            <div className="client-location-list">
               {client.locations.map((l, i) => (
-                <div key={i}>{l.address}</div>
+                <LocationDisplay key={i} location={l} />
               ))}
-            </span>
+            </div>
           </div>
         )}
         <div className="card-row" style={{ padding: '4px 0' }}>
@@ -224,7 +226,8 @@ function AddClientModal({ onClose, onSaved }) {
   const [form, setForm] = useState({
     name: '',
     phone: '',
-    location: '',
+    locationName: '',
+    locationMapUrl: '',
     date: datePart,
     time: timePart,
     price: '',
@@ -232,12 +235,14 @@ function AddClientModal({ onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
+    if (!form.locationName.trim()) return alert(t('common.locationRequired'));
+    if (shouldWarnMapUrl(form.locationMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
     setBusy(true);
     try {
       await api.post('/services', {
         clientName: form.name,
         clientPhone: form.phone,
-        location: form.location,
+        location: { address: form.locationName, mapUrl: form.locationMapUrl },
         serviceDateTime: new Date(`${form.date}T${form.time}`).toISOString(),
         price: Number(form.price),
         paymentMethod: 'naqd',
@@ -263,13 +268,17 @@ function AddClientModal({ onClose, onSaved }) {
         value={form.phone}
         onChange={(e) => setForm({ ...form, phone: e.target.value })}
       />
-      <label className="label">{t('common.location')}</label>
-      <div className="input-with-action">
-        <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-        <button type="button" onClick={() => document.querySelector('.input-with-action input')?.focus()}>
-          {t('clients.mapButton')}
-        </button>
-      </div>
+      <label className="label">{t('common.locationName')}</label>
+      <input className="input" value={form.locationName} onChange={(e) => setForm({ ...form, locationName: e.target.value })} />
+      <label className="label">{t('common.mapUrl')}</label>
+      <input
+        className="input"
+        type="text"
+        inputMode="url"
+        placeholder={t('common.mapUrlPlaceholder')}
+        value={form.locationMapUrl}
+        onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })}
+      />
       <div className="date-range">
         <div>
           <label className="label">{t('common.date')}</label>
@@ -297,7 +306,7 @@ function AddClientModal({ onClose, onSaved }) {
       <button
         className="btn btn-primary btn-block premium-save"
         onClick={save}
-        disabled={busy || !form.name || !form.phone || !form.location || !form.date || !form.time || !form.price}
+        disabled={busy || !form.name || !form.phone || !form.locationName || !form.date || !form.time || !form.price}
       >
         {busy ? '...' : t('common.save')}
       </button>
@@ -336,14 +345,20 @@ function EditClientModal({ client, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: client.name || '',
     phone: client.phone || '',
-    location: client.locations?.[0]?.address || '',
+    locationName: client.locations?.[0]?.address || '',
+    locationMapUrl: client.locations?.[0]?.mapUrl || '',
   });
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
+    if (shouldWarnMapUrl(form.locationMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
     setBusy(true);
     try {
-      const updated = await api.put(`/clients/${client._id}`, form);
+      const updated = await api.put(`/clients/${client._id}`, {
+        name: form.name,
+        phone: form.phone,
+        location: { address: form.locationName, mapUrl: form.locationMapUrl },
+      });
       onSaved(updated);
     } catch (e) {
       alert(e.message);
@@ -358,9 +373,11 @@ function EditClientModal({ client, onClose, onSaved }) {
       <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
       <label className="label">{t('common.phone')}</label>
       <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-      <label className="label">{t('common.location')}</label>
-      <input className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-      <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
+      <label className="label">{t('common.locationName')}</label>
+      <input className="input" value={form.locationName} onChange={(e) => setForm({ ...form, locationName: e.target.value })} />
+      <label className="label">{t('common.mapUrl')}</label>
+      <input className="input" type="text" inputMode="url" placeholder={t('common.mapUrlPlaceholder')} value={form.locationMapUrl} onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })} />
+      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !form.name || !form.phone || !form.locationName}>
         {busy ? '...' : t('common.save')}
       </button>
     </Modal>

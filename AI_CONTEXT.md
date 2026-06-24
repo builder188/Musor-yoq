@@ -1,12 +1,31 @@
 # AI_CONTEXT.md
 
+## 2026-06-23 Eslatma va lokatsiya prompti yakunlandi
+- Eski `defaultReminders` array va `service.reminders[]` oqimi runtime koddan olib tashlandi. Settings endi `reminderHoursBefore` va `confirmHoursAfter` (default 3, 1..168) saqlaydi; Mini App ikkalasini alohida sozlaydi.
+- Service jadvali: `reminderAt = serviceDateTime - X soat` oddiy matn, `confirmAt = serviceDateTime + X soat` tugmali tasdiq. Cron `reminderSent/confirmSent` atomar claim qiladi; restore/reschedule `applyServiceSchedule` bilan qayta hisoblaydi.
+- Mini App Settings eski 1 kun/1 soat/aynan vaqtida presetlarini ko'rsatmaydi; oldindan eslatma va keyingi tasdiqlash uchun alohida soat stepperlari bor. Service detail `reminderAt/confirmAt` ni ko'rsatadi.
+- Lokatsiya: DB formati faqat `{ address, mapUrl }`. Mini App formalarida `Manzil nomi` majburiy, `Xarita havolasi` ixtiyoriy; noaniq havolada ogohlantirib baribir saqlashga ruxsat beradi. Bot Telegram pinni Nominatim orqali manzilga aylantiradi va `{ address, mapUrl:null }` sifatida saqlaydi; koordinata faqat tasdiqlash sessiyasida ishlatiladi.
+- AI safety: `Sardor 300 ming berdi` kabi xabarlar Gemini'dan oldin fuzzy paymentga ketmaydi; past confidence (<0.7) har qanday classifier natijasida CLARIFY qiladi. Write high-level intent subIntent bermasa, server default write qilmay CLARIFYga o'tkazadi.
+
+## 2026-06-23 Niyat aniqlash qayta qurildi — 3 high-level intent + subIntent (ikki qatlam)
+- Gemini klassifikatori endi `intent` (MOLIYA|MIJOZ|SUXBAT|CLARIFY) + `subIntent` (9 aniq amal) qaytaradi.
+  High-level — foydalanuvchi tajribasi (CLARIFY, tugmalar); subIntent — mavjud agent ijro qatlami (MongoDB amallari).
+  Yagona manba: `backend/src/ai/intents.js` (SUB_TO_HIGH, HIGH_TO_SUBS, HIGH_DEFAULT_SUB, CONFIDENCE_THRESHOLD=0.7).
+- `runAgent` tartibi: (1) davom etayotgan slot-filling (SUXBAT pivoti shu yerda) → (2) CLARIFY → (3) sub-action dispatch.
+  `resolveAction` eski (callbacks/OCR) to'g'ridan sub-intentni ham, yangi high+sub'ni ham qabul qiladi (orqaga-moslik).
+- CLARIFY: `intent='CLARIFY'` -> `clarifyingQuestion` + `clarifyOptions[{label, subIntent}]`; conversationda saqlanadi,
+  `clarify_<i>` callback tanlangan subIntent bilan davom etadi. Past-ishonch (`<0.7`) har qanday high-level natijada server xavfsizlik to'ri bilan CLARIFY qiladi.
+- MIJOZ majburiy maydon tartibi: **ism → tel → manzil → sana/vaqt → narx → to'lov usuli** (`flow.ENTRY_REQUIRED`).
+- SUXBAT/analytics: `analyticsMetric|analyticsPeriod` signali bo'lsa routing doimo get_analytics (SEARCH→ANALYTICS promotion).
+- Eslatma (X soat oldin/keyin) va Lokatsiya (Mini App 2 maydon) joriy qilindi; eski `defaultReminders`/`service.reminders[]` runtime oqimi yo'q.
+
 ## 2026-06-23 Mini App premium redesign qollandi
 - Dizayn referensi `_design_extracted/design_handoff_miniapp_redesign/README.md` va `Musir Yoq Redesign.dc.html` asosida Mini App vizual qatlami yangilandi; yangi ogir kutubxona qoshilmadi.
 - `styles.css` premium tokenlar, Hanken Grotesk, light/dark `data-theme`, bottom-nav blur, summary/job cards, reminder chiplar va bottom-sheet formalar bilan moslandi.
 - Home: salomlashish, summary card, search pill, full-width yangi mijoz CTA va `stats.todayServices` asosidagi bugungi xizmatlar royxati; checkbox `/services/:id/complete` oqimiga ulandi.
 - Services: 3 segment (`Bugun`/`Kutilmoqda`/`Bajarildi`), `Bugun` real bugungi sana oraligiga filterlanadi, kartalar avatar+checkbox premium korinishida.
 - Finance: 3 davr segmenti (`Bugun`/`Bu oy`/`Yil`), `Joriy balans`, kirim/chiqim kartalari, CSS bar grafik va `Songgi harakatlar` matni.
-- Settings: profil karta, light/dark va til segmentlari, 3 preset reminder chip (`1 kun oldin`, `1 soat oldin`, `Aynan vaqtida`), xavfsizlik qatorlari va kod ozgartirish bottom-sheet.
+- Settings: profil karta, light/dark va til segmentlari, oldindan eslatma/keyingi tasdiqlash uchun ikki soat stepperi (+/-), xavfsizlik qatorlari va kod ozgartirish bottom-sheet.
 - Yangi mijoz formasi: Ism/Telefon/Manzil(+Xarita)/Sana+Vaqt/Xizmat haqi/som/reminder banner tartibi; Sana/Vaqt mobil viewda ham 2 ustun saqlandi.
 - Tekshiruv: `cd miniapp && npm run build` OK; production `dist` static server `http://127.0.0.1:5175/` da Playwright bilan Home/Services/Finance/Settings/Add Client modal va dark toggle tekshirildi. Backend lokal ishlamagani sabab browserda `Failed to fetch` banneri kutilgan holat.
 
@@ -201,7 +220,7 @@
 - `Client`: `name`, unique `phone`, `locations[]`, soft delete fields, `isDeletedByClientDeletion`; no active `totalDebt`.
 - `Service`: required `clientId`, denormalized `clientName/clientPhone`, required `location.address`, `serviceDateTime`, `isHistorical`, `price >= 0`, required `paymentMethod`, `paymentStatus`, `paidAmount`, `status`, `cancellationReason`, `completedAt`, `completionPromptSent`, `notes`, Telegram-only `images[].telegramFileId`, robust reminder retry fields, linked `incomeTransactionId`, client-deletion flags and soft delete.
 - `Transaction`: `type`, `amount >= 0`, enum `category` (`xizmat`, `boshqa_kirim`, `yoqilgi`, `tamirlash`, `oziq-ovqat`, `boshqa_chiqim`), `description`, `serviceId`, required `date`, soft delete. Active finance no longer uses `paymentMethod`, `note`, `clientId`, or debt payments.
-- `Settings`: `telegramUserId`, `language`, `theme`, `deleteCode`, `defaultReminders`; old `confirmDeleteCode` remains only as a virtual compatibility alias.
+- `Settings`: `telegramUserId`, `language`, `theme`, `deleteCode`, `reminderHoursBefore`, `confirmHoursAfter`; old `confirmDeleteCode` remains only as a virtual compatibility alias.
 - REST API remains service-layer driven: `/clients`, `/services`, `/finance`, `/transactions`, `/settings`, `/system`, `/data`. Public debt API is not active.
 - Delete code checks now read `Settings.deleteCode`; default remains env `CONFIRM_DELETE_CODE` or `1990`.
 - Mini App finance uses `description` and new category enum values; old `note` display is read-only fallback for older records.
@@ -250,15 +269,16 @@
 - Mini App service detail can delete unsent reminders. Finance/Clients active UI no longer shows separate debt module; payment state stays at service level.
 - PDF report labels follow Mini App language (`uz`/`ru` request field).
 
-> Boshqa AI yoki yangi sessiya uchun to'liq kontekst. Oxirgi yangilanish: 2026-06-08.
+> Boshqa AI yoki yangi sessiya uchun to'liq kontekst. Oxirgi yangilanish: 2026-06-24.
 
 ## Project overview
 **Musir Yo'q** — O'zbekistondagi yakka tartibdagi musor olib ketish biznesi egasi uchun
 Telegram bot + Mini App. Faqat bitta foydalanuvchi (egasi). Google Gemini AI markaziy aql:
-o'zbekcha ovoz/matn/rasmni tushunadi, 7 niyatga ajratadi, maydonlarni chiqaradi, bazani yangilaydi.
+o'zbekcha ovoz/matn/rasmni tushunadi, 3 asosiy niyatga (MOLIYA/MIJOZ/SUXBAT) + aniq subIntentga
+ajratadi, maydonlarni chiqaradi, bazani yangilaydi.
 
 ## Tech stack
-- Backend: Node.js + Express (ESM) · Mongoose/MongoDB · Grammy · Gemini (1.5-flash) · node-cron · PDFKit
+- Backend: Node.js + Express (ESM) · Mongoose/MongoDB · Grammy · Gemini (gemini-2.5-flash-lite) · node-cron · PDFKit
 - Frontend: React + Vite · Telegram Mini App SDK · Chart.js · i18n (uz to'liq, ru tayyor)
 
 ## Folder structure
@@ -267,7 +287,7 @@ backend/src/
   config/env.js          # env + validateEnv()
   db/connect.js
   models/                # Client, Service, Transaction, Settings, Conversation, softDelete
-  ai/                    # gemini.js (multimodal), prompts.js, agent.js (7 intent router)
+  ai/                    # gemini.js (multimodal), prompts.js, intents.js (taksonomiya), agent.js (3 high-level + subIntent router)
   bot/                   # bot.js (owner guard), flow.js (slot-filling), handlers/{commands,message,callbacks}
   services/              # clientService, serviceService, financeService, reminderService, searchService, deleteService
   routes/                # index, stats, clients, services, finance, settings, ai, reports, system
@@ -281,7 +301,7 @@ miniapp/src/
 ```
 
 ## Completed work
-- To'liq backend: modellar, AI agent (7 niyat), bot (ovoz/matn/rasm/lokatsiya), slot-filling,
+- To'liq backend: modellar, AI agent (3 high-level + subIntent), bot (ovoz/matn/rasm/lokatsiya), slot-filling,
   REST API, cron (eslatma + tozalash), PDF hisobot, initData auth.
 - To'liq Mini App: 5 sahifa, Kanban/List, Chart.js, til/mavzu, xavfli zona, tiklash.
 - Tekshiruvlar: barcha fayllar syntax OK; biznes-mantiq assert testlari; **real MongoDB**ga
@@ -289,20 +309,20 @@ miniapp/src/
 - Hujjatlar: README.md (setup/deploy), CLAUDE.md yangilandi.
 
 ## Schema (oldingi 2026-06-08 snapshot; 2026-06-20 bo'limi ustuvor)
-- **Client**: name, phone (unique, +998...), locations[{address, coordinates{lat,lng}}],
+- **Client**: name, phone (unique, +998...), locations[{address, mapUrl}],
   soft-delete. Indekslar: phone(unique), isDeleted.
   totalSpent saqlanmaydi — bajarilgan xizmatlardan hisoblanadi (getClientDetail).
-- **Service**: clientId(req), clientName/clientPhone (denorm), location{address(req), coordinates},
+- **Service**: clientId(req), clientName/clientPhone (denorm), location{address(req), mapUrl},
   serviceDateTime, isHistorical, price, paymentMethod('naqd'|'karta'|'otkazma' — apostrofsiz!),
   paymentStatus('tolanmagan'|'tolangan'|'qisman'), paidAmount, status, completedAt, notes,
-  images[], reminders[{minutesBefore, scheduledAt, sent, sentAt}], incomeTransactionId, soft-delete.
+  images[], reminderAt, reminderSent, confirmAt, confirmSent, incomeTransactionId, soft-delete.
   Indekslar: clientId, status, serviceDateTime, isDeleted.
 
 - **Transaction**: 2026-06-20 dan boshlab yuqoridagi joriy schema ustuvor:
   `type`, `amount`, enum `category`, `description`, `serviceId`, `date`, soft-delete.
 - **Legacy payment artifacts**: old `debt_payments` modeli fayli qolishi mumkin, lekin active REST/API/balance oqimida ishlatilmaydi.
 - **Settings**: telegramUserId(String, unique, req), language, theme, `deleteCode`,
-  defaultReminders[{minutesBefore}] (standart: 1440/60/0).
+  reminderHoursBefore, confirmHoursAfter (standart: 3/3 soat).
 - **Hisob qoidasi**: summary daromadi faqat income tranzaksiyalardan hisoblanadi.
   qo'shilmaydi (xizmat bajarilganda to'liq narx yozilgan, ikki marta sanalmasin).
   listTransactions faqat active Transaction kolleksiyasini qaytaradi.
@@ -320,8 +340,7 @@ miniapp/src/
 - Loyiha **ishlashga tayyor**. Kod to'liq. Faqat haqiqiy `.env` (BOT_TOKEN, OWNER_TELEGRAM_ID,
   MONGODB_URI, GEMINI_API_KEY) kerak. `backend/.env.example` va `miniapp/.env.example` mavjud.
 - 2026-06-21: Bot lokatsiya oqimi kuchaytirildi. Location yuborilganda reverse geocode natijasi avval
-  `Ha, to'g'ri` / `Nomi o'zgartirish` orqali tasdiqlanadi; koordinata saqlanadi, faqat address nomi
-  almashtirilishi mumkin. Slot-filling davomida location tasdiqlansa agent keyingi maydonga davom etadi,
+  `Ha, to'g'ri` / `Nomi o'zgartirish` orqali tasdiqlanadi; koordinata faqat tasdiq sessiyasida qoladi, DBga address + mapUrl yoziladi. Slot-filling davomida location tasdiqlansa agent keyingi maydonga davom etadi,
   suhbatsiz yuborilgan location esa yangi xizmat boshlash savoliga o'tadi.
 - 2026-06-21: Railway deploy xatosi tuzatildi. Root papkada `package.json` yo'qligi sabab Railpack app turini
   aniqlay olmagan; root workspace manifest qo'shildi. `npm run build` Mini App'ni build qiladi, `npm run start`
@@ -335,13 +354,13 @@ miniapp/src/
 - Ruscha tarjimalar to'liq emas (uz ga fallback).
 - Avtomatik testlar repo'da saqlanmadi (vaqtinchalik yozildi, ishlatib o'chirildi).
 
-## Spec qamrovi (to'liq)
-- Bot: ovoz/matn/rasm/lokatsiya · 7 niyat · bittalab savol · tasdiq xulosasi ✅
-- Eslatmalar: standart (1kun+1soat+aniq vaqt) + **maxsus override** ("2 soat oldin eslat" -> 120 daq) + tugmalar ✅
-- Mini App: 5 sahifa to'liq ✅
-- Moliya: 5 qoida (daromad bajarilganda, narx tahriri, qisman to'lov, qo'lda daromad, xarajat kategoriyalari) ✅
-- O'chirish: 1990 kod, soft-delete, 30 kun tiklash, tungi cron, bulk (clients/services/finance/all),
-  **bulk oldidan PDF eksport taklifi** ✅
+## Spec qamrovi (joriy)
+- Bot: ovoz/matn/rasm/lokatsiya · 3 high-level intent + subIntent · bittalab savol · tasdiq xulosasi.
+- Eslatmalar: `reminderAt = serviceDateTime - reminderHoursBefore`, `confirmAt = serviceDateTime + confirmHoursAfter`; cron har xabarni atomar claim qiladi va reschedule eski jadvalni bekor qiladi.
+- Lokatsiya: Client/Service DB formati `{ address, mapUrl }`; Mini App mapUrl uchun yumshoq warning, ko'rinishda faqat mapUrl bo'lsa `Xaritada ochish`.
+- Mini App: 5 sahifa + sozlamalarda alohida reminder/confirm soatlari.
+- Moliya: daromad faqat xizmat bajarilganda, balans faqat active Transaction income/expense asosida.
+- O'chirish: 1990 kod, soft-delete, 30 kun tiklash, tungi cleanup.
 
 ## Notes for another AI
 - Biznes mantiqni `services/` da o'zgartiring — bot va API ikkalasi shu yerdan foydalanadi.

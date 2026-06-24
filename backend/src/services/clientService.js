@@ -14,7 +14,7 @@ function httpError(status, message) {
 
 // Telefon bo'yicha mijozni topadi yoki yangisini yaratadi.
 // Manzil berilsa — mijoz manzillari ro'yxatiga qo'shadi (takrorlanmasa).
-export async function findOrCreateClient({ name, phone, location = '', coordinates = null }) {
+export async function findOrCreateClient({ name, phone, location = '', mapUrl = '' }) {
   const normalized = normalizePhone(phone);
   if (!normalized || !/^\+998\d{9}$/.test(normalized)) throw httpError(400, 'Telefon raqami noto\'g\'ri');
 
@@ -32,9 +32,10 @@ export async function findOrCreateClient({ name, phone, location = '', coordinat
 
   // Manzilni mijoz ro'yxatiga qo'shamiz (agar yangi bo'lsa).
   if (location) {
-    const exists = client.locations.some((l) => l.address === location);
+    const cleanMapUrl = normalizeMapUrl(mapUrl);
+    const exists = client.locations.some((l) => l.address === location && (l.mapUrl || null) === cleanMapUrl);
     if (!exists) {
-      client.locations.push({ address: location, coordinates: coordinates || { lat: null, lng: null } });
+      client.locations.push({ address: location, mapUrl: cleanMapUrl });
     }
   }
   await client.save();
@@ -99,19 +100,60 @@ export async function updateClient(id, data) {
     if (duplicate) throw httpError(409, 'Bu telefon raqam boshqa aktiv mijozda bor');
   }
 
-  // Manzil berilgan bo'lsa va hali ro'yxatda bo'lmasa — qo'shamiz (create bilan bir xil mantiq).
+  // Client edit formasidagi manzil birinchi manzilni yangilaydi; yangi xizmatlar esa ro'yxatga qo'shiladi.
   if (data.location) {
     const client = await Client.findOne({ _id: id, ...notDeleted });
     if (!client) return null;
+    const location = normalizeLocationInput(data.location);
     Object.assign(client, allowed);
-    if (!client.locations.some((l) => l.address === data.location)) {
-      client.locations.push({ address: data.location, coordinates: { lat: null, lng: null } });
+    if (location.address) {
+      if (client.locations.length > 0) {
+        client.locations[0] = location;
+        client.locations = dedupeLocations(client.locations);
+      } else {
+        client.locations.push(location);
+      }
     }
     await client.save();
     return client;
   }
 
   return Client.findOneAndUpdate({ _id: id, ...notDeleted }, allowed, { new: true });
+}
+
+function normalizeLocationInput(location) {
+  if (typeof location === 'string') {
+    return { address: location.trim(), mapUrl: null };
+  }
+  return {
+    address: String(location?.address || location?.text || '').trim(),
+    mapUrl: normalizeMapUrl(location?.mapUrl || location?.mapLink || location?.url || ''),
+  };
+}
+
+function dedupeLocations(locations = []) {
+  const seen = new Set();
+  const result = [];
+  for (const location of locations) {
+    const address = String(location?.address || '').trim();
+    if (!address) continue;
+    const key = address + '\u0000' + (location?.mapUrl || '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ address, mapUrl: location?.mapUrl || null });
+  }
+  return result;
+}
+
+function normalizeMapUrl(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    return ['http:', 'https:'].includes(url.protocol) ? url.toString() : text;
+  } catch {
+    return text;
+  }
 }
 
 function escapeRegex(str) {

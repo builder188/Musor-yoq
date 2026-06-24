@@ -6,7 +6,7 @@
 import Service, { SERVICE_STATUS, PAYMENT_STATUS } from '../models/Service.js';
 import Transaction, { TX_TYPES } from '../models/Transaction.js';
 import { findOrCreateClient } from './clientService.js';
-import { computeReminders, scheduleRemindersForService } from './reminderService.js';
+import { computeServiceSchedule, applyServiceSchedule } from './reminderService.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -42,17 +42,25 @@ function parseRequiredDate(value, message) {
   return date;
 }
 
-// Manzilni { address, coordinates } shakliga keltirish (matn yoki obyekt).
+// Manzilni DB formati: { address, mapUrl } shakliga keltirish.
 function normalizeLocation(loc) {
-  if (!loc) return { address: '', coordinates: { lat: null, lng: null } };
-  if (typeof loc === 'string') return { address: loc, coordinates: { lat: null, lng: null } };
+  if (!loc) return { address: '', mapUrl: null };
+  if (typeof loc === 'string') return { address: loc.trim(), mapUrl: null };
   return {
-    address: loc.address || loc.text || '',
-    coordinates: {
-      lat: loc.coordinates?.lat ?? loc.lat ?? null,
-      lng: loc.coordinates?.lng ?? loc.lng ?? null,
-    },
+    address: String(loc.address || loc.text || '').trim(),
+    mapUrl: normalizeMapUrl(loc.mapUrl || loc.mapLink || loc.url || ''),
   };
+}
+
+function normalizeMapUrl(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    return ['http:', 'https:'].includes(url.protocol) ? url.toString() : text;
+  } catch {
+    return text;
+  }
 }
 
 // To'lov holatini paidAmount va narxdan aniqlaydi.
@@ -60,6 +68,18 @@ function resolvePaymentStatus(paidAmount, price) {
   if (paidAmount >= price && price > 0) return PAYMENT_STATUS.PAID;
   if (paidAmount > 0) return PAYMENT_STATUS.PARTIAL;
   return PAYMENT_STATUS.UNPAID;
+}
+
+// Yangi (kelajak) xizmat uchun jadval maydonlari (Service.create payload'iga qo'shiladi).
+// applyServiceSchedule bilan bir xil mantiq: vaqti o'tib ketgan oldindan-eslatma yuborilmaydi.
+async function buildScheduleFields(serviceDateTime, now = new Date()) {
+  const { reminderAt, confirmAt } = await computeServiceSchedule(serviceDateTime);
+  return {
+    reminderAt,
+    confirmAt,
+    reminderSent: reminderAt.getTime() <= now.getTime(),
+    confirmSent: false,
+  };
 }
 
 // Yangi xizmat yaratish.
@@ -71,18 +91,17 @@ export async function createService(data) {
     name: data.clientName,
     phone: data.clientPhone,
     location: location.address,
-    coordinates: location.coordinates,
+    mapUrl: location.mapUrl,
   });
 
   const serviceDateTime = parseRequiredDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
-  const isFuture = serviceDateTime.getTime() > Date.now();
   const price = parsePositiveMoneyAmount(data.price, "Xizmat narxi noto'g'ri");
 
-  // Maxsus eslatma vaqti aytilgan bo'lsa вЂ” standartni almashtiradi.
-  // Tarixiy yozuvga (isHistorical) eslatma rejalashtirilmaydi.
-  const hasCustomOffset = data.reminderOffsetMinutes !== undefined && data.reminderOffsetMinutes !== null;
-  const customOffsets = hasCustomOffset ? [Math.max(0, Math.round(Number(data.reminderOffsetMinutes) || 0))] : null;
-  const reminders = isFuture && !data.isHistorical ? await computeReminders(serviceDateTime, customOffsets) : [];
+  // Eslatma/tasdiqlash jadvali xizmat vaqtiga nisbatan (Settings soatlari).
+  // Tarixiy yozuvga jadval qo'yilmaydi (pastda darhol "bajarildi" qilinadi).
+  const schedule = data.isHistorical
+    ? { reminderAt: null, confirmAt: null, reminderSent: true, confirmSent: true }
+    : await buildScheduleFields(serviceDateTime);
 
   const service = await Service.create({
     clientId: client._id,
@@ -97,11 +116,11 @@ export async function createService(data) {
     isHistorical: !!data.isHistorical,
     status: SERVICE_STATUS.PENDING,
     paymentStatus: PAYMENT_STATUS.UNPAID,
-    reminders,
+    ...schedule,
   });
 
-  // Tarixiy (o'tgan zamonda aytilgan) ish вЂ” bajarilgan va to'langan deb hisoblaymiz.
-  if (data.isHistorical && !isFuture) {
+  // Tarixiy (o'tgan zamonda aytilgan) ish — darhol bajarilgan va to'langan deb hisoblaymiz.
+  if (data.isHistorical) {
     return completeService(service._id, { markPaid: true });
   }
   return service;
@@ -227,24 +246,17 @@ export async function editService(serviceId, data) {
   const wasDone = service.status === SERVICE_STATUS.DONE;
   const oldPrice = service.price;
 
+  let scheduleDirty = false;
   if (data.clientName !== undefined) service.clientName = data.clientName;
   if (data.clientPhone !== undefined) service.clientPhone = data.clientPhone;
   if (data.location !== undefined) service.location = normalizeLocation(data.location);
   if (data.serviceDateTime !== undefined) {
     service.serviceDateTime = parseRequiredDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
-    if (service.status === SERVICE_STATUS.PENDING && !service.isHistorical) {
-      const sentReminders = (service.reminders || []).filter((reminder) => reminder.sent);
-      const nextReminders = service.serviceDateTime.getTime() > Date.now()
-        ? await computeReminders(service.serviceDateTime)
-        : [];
-      service.reminders = [...sentReminders, ...nextReminders];
-    }
+    scheduleDirty = true;
   }
   if (data.isHistorical !== undefined) {
     service.isHistorical = !!data.isHistorical;
-    if (service.isHistorical) {
-      service.reminders = [];
-    }
+    scheduleDirty = true;
   }
   if (data.paymentMethod !== undefined) service.paymentMethod = data.paymentMethod;
   if (data.notes !== undefined) service.notes = data.notes;
@@ -262,6 +274,12 @@ export async function editService(serviceId, data) {
     service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
   }
 
+  // Sana yoki tarixiy holat o'zgarsa — eslatma/tasdiq jadvalini qayta hisoblaymiz
+  // (eskisi bekor bo'lib, yangisi ishlaydi). Faqat kutilayotgan xizmat uchun.
+  if (scheduleDirty && service.status === SERVICE_STATUS.PENDING) {
+    await applyServiceSchedule(service);
+  }
+
   await service.save();
   return service;
 }
@@ -270,8 +288,6 @@ export async function rescheduleService(serviceId, newDateTime) {
   if (!newDateTime) throw new Error('Yangi vaqt kerak');
   return editService(serviceId, { serviceDateTime: newDateTime });
 }
-
-export { scheduleRemindersForService };
 
 // Bajarilgan xizmat daromadini qaytarish (bekor qilish/o'chirishda).
 async function reverseIncome(service) {

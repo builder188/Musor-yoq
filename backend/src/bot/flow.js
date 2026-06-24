@@ -3,20 +3,22 @@ import { normalizePhone } from '../utils/phone.js';
 import { parseMoney } from '../utils/money.js';
 import { PAYMENT_METHODS } from '../models/Service.js';
 
+// MIJOZ (SERVICE_ENTRY) majburiy maydonlar tartibi:
+// ism -> tel -> manzil -> sana/vaqt -> narx -> to'lov usuli.
 export const ENTRY_REQUIRED = {
-  SERVICE_ENTRY: ['clientPhone', 'clientName', 'location', 'serviceDateTime', 'price', 'paymentMethod'],
+  SERVICE_ENTRY: ['clientName', 'clientPhone', 'location', 'serviceDateTime', 'price', 'paymentMethod'],
   EXPENSE_ENTRY: ['amount'],
   INCOME_ENTRY: ['amount'],
 };
 
 export const QUESTIONS = {
-  clientPhone: 'Mijozning telefon raqami?',
-  clientName: 'Mijozning ismi?',
-  location: 'Qaysi manzilga borish kerak?',
-  serviceDateTime: 'Qachon borasiz? (sana va vaqt)',
-  price: 'Xizmat narxi qancha?',
-  paymentMethod: "To'lov usuli? (naqd/karta/o'tkazma)",
-  amount: 'Summasi qancha? (masalan: 50 ming)',
+  clientPhone: 'Mijozning telefon raqami nechi, oka?',
+  clientName: 'Mijozning ismi nima, oka?',
+  location: 'Qaysi manzilga borasiz, oka?',
+  serviceDateTime: 'Qachon borasiz, oka? (sana va vaqt)',
+  price: 'Xizmat haqi qancha, oka?',
+  paymentMethod: "To'lovni qanday oladi, oka? (naqd/karta/o'tkazma)",
+  amount: "Qancha bo'ldi, oka? (masalan: 50 ming)",
   category: 'Qaysi turdagi xarajat? (yoqilgi / tamirlash / oziq-ovqat / boshqa)',
 };
 
@@ -114,24 +116,6 @@ export function applyRawValue(field, rawText, collected) {
       out[field] = text;
   }
   return out;
-}
-
-// Maxsus eslatma matnini daqiqaga aylantiradi.
-// "2 soat oldin" -> 120, "30 daqiqa oldin" -> 30, "1 kun oldin" -> 1440,
-// "yarim soat" -> 30, "xizmat vaqtida" -> 0.
-export function parseReminderOffset(text) {
-  if (!text) return null;
-  const v = String(text).toLowerCase().replace(/[`'‘’]/g, '');
-  if (/(xizmat vaqti|aniq vaqt|vaqtida)/.test(v)) return 0;
-  if (/yarim\s*soat/.test(v)) return 30;
-
-  const num = parseFloat((v.match(/[\d.]+/) || [])[0]);
-  if (Number.isNaN(num)) return null;
-
-  if (/(kun|sutka|day)/.test(v)) return num > 0 ? Math.round(num * 1440) : null;
-  if (/(soat|hour|chas)/.test(v)) return num > 0 ? Math.round(num * 60) : null;
-  if (/(daqiqa|daq|minut|min)/.test(v)) return num >= 0 ? Math.round(num) : null;
-  return null;
 }
 
 export function nextMissing(intent, collected) {

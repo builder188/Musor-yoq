@@ -1,5 +1,110 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-24 Moliya qo'shimcha mantiq + bot shaxsiyati ("oka" ohangi)
+- **Aqlli toifalash:** `prompts.js` xarajat toifasini KALIT-SO'Z ro'yxati emas, MAZMUN bo'yicha tanlashga
+  yo'naltirildi ("yog' va guruch oldim"→oziq-ovqat, "magazinga ishlatdim"→boshqa_chiqim); toifa/tafsilot so'ralmaydi
+  (EXPENSE_ENTRY faqat `amount` talab qiladi), description ixtiyoriy. Server enum'ni downgrade qilmaydi.
+  Tasdiqlash: `agent.fallbackResponse` → "Boldi oka, {summa} so'm chiqim qo'shdim ✅ Toifa: {nom}" (`CATEGORY_LABEL`).
+- **Soxta CLARIFY tuzatildi:** jonli testda model ravshan xarajatlarni ("yog' va guruch...") yuqori ishonch bilan
+  ham `intent=CLARIFY` qaytarardi → bot so'rab qolardi. `agent.resolveClarify`: CLARIFY faqat HAQIQIY 2 tomonlama
+  tanlov (`clarifyOptions` 2+ farqli subIntent) yoki past ishonch (<0.7) bo'lsa hurmat qilinadi; aniq subIntent +
+  ishonch≥0.7 + fork yo'q bo'lsa so'ramay bajaradi. Jonli e2e: 3 xarajat→PROCEED, "Sardor 300 ming berdi"→CLARIFY ✓.
+- **Mini App "📥 Yuklab olish" (Moliya):** Balans ostida tugma → modal: 1) format (PDF/Excel) 2) davr (oxirgi 12 oy
+  yoki ixtiyoriy oraliq) → `POST /reports/send` (reportType=finance) backend generatsiya qilib Telegram CHATGA yuboradi
+  (Mini App ichida link YO'Q). Xato bo'lsa do'stona xabar + 🔄 Qayta urinish. `reports.js` fayldan keyin samimiy xabar
+  yuboradi: "Mana oka, {oy} uchun {format} tayyor bo'ldi. Pastga qarab qo'ying 👇"; oy nomi o'zbekcha (`UZ_MONTHS`).
+- **Bot shaxsiyati (global "oka" ohangi):** yagona `prompts.BOT_PERSONA` (yaqin/hurmatli, raqamlar aniq) `gemini.js`
+  `formulateToolResponse` + `buildAnswerPrompt`ga ulandi. Barcha statik xabarlar moslandi: `commands.js` (/start,
+  /help, /cancel, /pdf), `ui.js` (saqlash/eslatma/tasdiq), `agent.js` (fallback/ask/xato), `callbacks.js`, `message.js`,
+  `flow.js` (QUESTIONS). Pul/sana/telefon HAR DOIM aniq va tartibli qoldi.
+- **Bonus:** tool ijro biznes xatosi (mas. "xizmat topilmadi") endi umumiy "AI xato" o'rniga aniq do'stona xabar
+  sifatida chiqadi (`executeToolFlow` try/catch).
+- **Tekshiruv:** backend 48/48 `node --check` OK; modul load OK; jonli NLU e2e (toifalash + CLARIFY) OK;
+  `cd miniapp && npm run build` OK.
+
+## 2026-06-24 Yakuniy audit — niyat korreksiyasi + o'lik kod tozalash
+- **Edge case (niyat korreksiyasi) — TUZATILDI:** slot-filling o'rtasida AI niyatni xato aniqlasa-yu, foydalanuvchi
+  darhol boshqa aniq niyatni aytsa (mas. SERVICE_ENTRY o'rtasida "yo'q, benzinga 50ming"), eski sessiya tashlanib
+  yangisiga o'tadi. `agent.js`: `maybeCorrectIntent`/`hasConcreteSignal`/`answersCurrentField` — juda ehtiyotkor gating
+  (ishonch ≥0.7, boshqa WRITE amal, o'ziga xos konkret maydon, joriy maydonga sof javob EMAS). `continueEntry` cancel +
+  pivot dan keyin tekshiradi → `conversation.reset()` + `runAgent` rekursiya. Offline truth-table 8/8 OK (redirect
+  service↔expense ishlaydi; ism/sof narx/sana javoblari korreksiya deb xato olinmaydi).
+- **O'lik kod tozalandi:** `styles.css` dan eski reminder UI qoldiqlari olib tashlandi — `.reminder-presets`,
+  `.reminder-select(.active)`, `.chip-list`, `.reminder-chip(+button)`, `.failed-reminders` (hech bir JSX ishlatmaydi;
+  `.reminder-presets-card` va `.debt-text` ishlatiladi — qoldi). CSS 21.69→20.83 kB.
+- **Audit tasdiqlari (kod o'qib):** `gemini.js` yagona `classify_business_input` (intent+subIntent, 7-intent enum yo'q);
+  "." trigger yo'q; backend'da `defaultReminders`/`service.reminders[]` qoldig'i yo'q. Lokatsiya bot va Mini App'da bir
+  xil `{address,mapUrl}` (`normalizeLocation`/`normalizeLocationInput`). Reschedule (bot+API) `editService`→
+  `applyServiceSchedule` eski jadvalni bekor + qayta hisoblaydi. done→bekor_qilindi `cancelService.reverseIncome`
+  income tx'ni soft-delete qiladi. reminderAt o'tgan bo'lsa `reminderSent=true` (xatosiz, faqat confirm). Confirm/eslatma
+  cron har xizmatga ALOHIDA `confirmServiceKeyboard(service._id)` — callback data serviceId aniq.
+- **Tekshiruv:** backend 48/48 `node --check` OK; `cd miniapp && npm run build` OK (51 modul, CSS kichraydi).
+
+## 2026-06-24 Prompt 3-4 verifikatsiya — eslatma/tasdiq + lokatsiya spec'ga to'liq mos
+- **Eslatma/tasdiq (Prompt 3):** to'liq spec'ga mos tasdiqlandi. `confirmServiceKeyboard` = [✅ Bajarildi][❌ Bekor qilindi]
+  [📅 Vaqt surildi]; `serviceReminderText` (tugmasiz, `⏰ {kun} soat {HH:mm}da {ism}ga borish kerak / 📍 manzil 💰 narx so'm`),
+  `serviceConfirmText` (`❓ Bu xizmat bajarildimi?` + 👤📱 / 📍💰). Callbacklar: `complete_`→income+balans,
+  `cancel_direct_`→balansga ta'sir yo'q (sabab so'ralmaydi), `reschedule_`→"Qachonga surildi? Matn yoki ovoz orqali ayting".
+  Reschedule javobi `message.routeServiceReschedule` (matn/ovoz, `parseHumanDateTime`) → `editService` →
+  `applyServiceSchedule` reminderAt/confirmAt'ni QAYTA hisoblaydi, `*Sent` nollanadi (eski jadval bekor). Tarixiy xizmat:
+  jadval yo'q, darhol `bajarildi`. Cron har xizmatga alohida xabar + atomar claim (ikki marta yubormaydi).
+- **Lokatsiya (Prompt 4):** DB `{address, mapUrl}`. Bot: matn/ovoz→`{address,mapUrl:null}`, pin→Nominatim→tasdiq.
+  Mini App 2 maydon: `common.locationName` (Manzil nomi) + `common.mapUrl` (ixtiyoriy, placeholder, `shouldWarnMapUrl`
+  yumshoq ogohlantirish). Ko'rsatish: `LocationDisplay`/`ServiceDetailModal` → 📍address + xavfsiz [Xaritada ochish].
+  Tahrir: status'dan qat'i nazar ikkala maydon alohida tahrirlanadi (`updateClient`/`editService` mapUrl saqlaydi).
+- **Kichik UX tuzatish:** xizmat yaratuvchi 2 formaga (`Clients` ClientForm, `Services` ServiceForm) mijoz tomonida
+  `Manzil nomi` majburiy guard qo'shildi (`common.locationRequired` uz/ru) — eski xom backend "Manzil kerak" 400 alert
+  o'rniga darhol do'stona xabar. Edit-client formasi tegilmadi (u yerda manzil ixtiyoriy).
+- **Tekshiruv:** backend 48/48 `node --check` OK (o'zgarmadi); `cd miniapp && npm run build` OK (51 modul).
+
+## 2026-06-24 Goal verifikatsiya — 3-intent + eslatma + lokatsiya to'liq tekshirildi
+- Goal (3 toifali niyat aniqlash + eski mantiqni olib tashlash) bo'yicha butun kod qayta o'qib chiqildi va
+  amalda bajarilgani tasdiqlandi: `intents.js` (HIGH/SUB + CONFIDENCE_THRESHOLD=0.7), `prompts.js` (STEP1 high-level
+  MOLIYA|MIJOZ|SUXBAT, STEP2 subIntent, STEP3 CLARIFY+clarifyOptions), `agent.js` (resolveClarify past-ishonch to'ri,
+  maybePivot SUXBAT pivoti, resolveAction orqaga-moslik).
+- Eski mantiq runtime koddan yo'qligi qayta tasdiqlandi: "." nuqta-niyat belgisi yo'q; `defaultReminders`/
+  `service.reminders[]`/`parseReminderOffset`/`scheduleRemindersForService`/`awaitingReminderConfig` faqat eski
+  changelog matnida qoldi, kodda emas. Reminder oqimi to'liq `reminderAt/confirmAt` (Settings 3/3, 1..168) +
+  atomar `*Sent` claim; serviceService create/reschedule va deleteService restore `applyServiceSchedule` chaqiradi.
+- Lokatsiya DB formati `{address,mapUrl}`; Mini App `mapUrl.js` yumshoq warning + `LocationDisplay` xavfsiz havola.
+  Settings route ikkala soatni 1..168 validatsiya qiladi; flow.ENTRY_REQUIRED tartibi ism→tel→manzil→sana→narx→to'lov.
+- Doc tuzatish: `AI_CONTEXT.md` "current state" snapshotidagi eskirgan faktlar yangilandi (7 niyat→3 high-level+subIntent,
+  Gemini 1.5-flash→gemini-2.5-flash-lite, agent.js routeri tavsifi, intents.js qo'shildi).
+- Tekshiruv: backend 48/48 fayl `node --check` OK; `cd miniapp && npm run build` OK (51 modul).
+
+## 2026-06-23 Prompt 3-4 reminder/location yakunlandi
+- 3 high-level intent oqimi mustahkamlandi: past confidence (<0.7) barcha high-level natijada CLARIFY; write high-level intent subIntent bermasa default yozuv qilmaydi. Eski `maybeRouteFuzzyClientPayment` olib tashlandi, shuning uchun "Sardor 300 ming berdi" Gemini CLARIFY qoidasini chetlab o'tmaydi.
+- Eski ko'p qatlamli reminder runtime oqimi olib tashlandi: `defaultReminders`, `service.reminders[]` retry/delete endpointlari, failed-reminder Home banneri, restore'dagi `computeReminders` qoldig'i yo'q.
+- Yangi jadval: `Settings.reminderHoursBefore/confirmHoursAfter` default 3; Mini App ikkalasini alohida sozlaydi. Service `reminderAt/confirmAt` maydonlari cron orqali atomar yuboriladi.
+- Lokatsiya: DB formati `{address,mapUrl}`; Mini App manzil nomi + ixtiyoriy mapUrl beradi, noaniq havolada warning chiqadi, detail/client modal xavfsiz `Xaritada ochish` linkini ko'rsatadi.
+- Tekshiruv: barcha backend `backend/src/**/*.js` fayllari `node --check` OK; asosiy runtime importlar OK; mapUrl smoke test OK; `npm run build` OK; eski reminder runtime va DB `coordinates` qidiruvi kodda toza.
+
+## 2026-06-23 Yangi niyat aniqlash: 3 high-level intent (MOLIYA/MIJOZ/SUXBAT) + CLARIFY (1/5-prompt)
+- **Maqsad (1-bosqich):** AI har xabarni belgisiz/komandasiz, mazmundan 3 asosiy niyatga ajratadi:
+  MOLIYA (kirim/chiqim/to'lov), MIJOZ (xizmat/mijoz tahriri/status), SUXBAT (qidiruv/analitika/gap).
+  Ishonch past yoki 2 niyatga teng mos bo'lsa — taxmin qilmay CLARIFY (aniqlashtiruvchi savol + tezkor tugmalar).
+- **Arxitektura (ikki qatlam):** Gemini endi `intent` (high-level: MOLIYA|MIJOZ|SUXBAT|CLARIFY) **va**
+  `subIntent` (aniq amal: SERVICE_ENTRY/SERVICE_EDIT/CLIENT_EDIT/STATUS_UPDATE/EXPENSE_ENTRY/INCOME_ENTRY/
+  PAYMENT_UPDATE/SEARCH_QUERY/ANALYTICS_QUERY) qaytaradi. subIntent mavjud ishonchli agent ijro qatlamini
+  (slot-filling, edit, payment, tools) buzilmasdan boshqaradi. Yagona manba: yangi `backend/src/ai/intents.js`.
+- **CLARIFY oqimi:** `agent.startClarify` conversationga `pendingIntent='CLARIFY'` + `{rawText, fields, options}`
+  yozadi; `ui.clarifyKeyboard` → `clarify_0/clarify_1/...` + `clarify_cancel`; `callbacks.js` tugma bosilganda
+  saqlangan matn/maydonlar bilan tanlangan subIntentni `runAgent` orqali davom ettiradi. Gemini clarifyOptions
+  bermasa — mazmunli zaxira tugmalar. Past-ishonchli (`<0.7`) barcha high-level natijalar uchun server xavfsizlik to'ri ham CLARIFY qiladi.
+- **SUXBAT pivoti:** slot-filling o'rtasida savol berilsa (`agent.maybePivot`) — javob beriladi, keyin to'xtagan
+  maydon qayta so'raladi; sessiya yo'qolmaydi. Erkin matnli maydon (ism/manzil) faqat aniq savolda pivot bo'ladi.
+- **MIJOZ maydon tartibi:** `flow.ENTRY_REQUIRED.SERVICE_ENTRY` endi **ism → tel → manzil → sana → narx → to'lov**
+  (oldin tel birinchi edi). Lokatsiya oqimi (callbacks) ham qattiq `clientPhone` o'rniga `nextMissing` ishlatadi (ism birinchi).
+- **Analitika regressiyasini oldini olish:** "bu oyda qancha topdim" SUXBAT bo'ladi; subIntent SEARCH_QUERY chiqsa ham
+  `analyticsMetric/analyticsPeriod` signali bo'lsa routing get_analytics'ga o'tadi (prompt + agent ikki qavat himoya).
+- **"." (nuqta) niyat belgisi:** kodda topilmadi (allaqachon yo'q) — olib tashlash shart bo'lmadi.
+- **O'zgargan fayllar:** `ai/intents.js`(yangi), `ai/prompts.js`, `ai/gemini.js`, `ai/agent.js`, `bot/flow.js`,
+  `bot/ui.js`, `bot/handlers/callbacks.js`, `routes/ai.js`. Mini App o'zgarmadi (javob orqaga-mos, `subIntent` qo'shildi).
+- **Tekshiruv:** `node --check` 9 fayl OK; offline xulq-atvor testi 27/27 OK (CLARIFY/ism-birinchi/past-ishonch/legacy
+  sub-intent); **real Gemini e2e** (`gemini-2.5-flash-lite`): SERVICE_ENTRY 0.98, EXPENSE 0.95, ANALYTICS 0.95,
+  SEARCH 0.9, "Sardor 300 ming berdi"→CLARIFY (2 tugma), STATUS_UPDATE/SERVICE_EDIT to'g'ri.
+- **Eslatma/lokatsiya promptlari:** joriy qilindi. Runtime kodda `defaultReminders`/`service.reminders[]` eski oqimi qolmadi; Mini App lokatsiyasi 2 maydon.
+
 ## 2026-06-23 "salom" hali ham xato — SEARCH_QUERY crash + Gemini 503 resilience
 - Model fixi (gemini-2.5-flash-lite) dan keyin ham botda "salom" "AI bilan bog'lanishda xatolik" berardi.
   Jonli `/api/v1/ai/chat` (bot token bilan imzolangan initData orqali) test qilib aniqlandi: "salom" ->
@@ -234,7 +339,7 @@ Batafsil: `FIXLOG.md`. Asosiy o'zgarishlar (hammasi syntax + import + miniapp bu
   reverse geocode helperlari.
 - Location yuborilganda bot endi manzilni darhol yozmaydi: `Ha, to'g'ri` (`loc_confirm_*`) yoki
   `Nomi o'zgartirish` (`loc_rename_*`) tugmalari orqali tasdiqlaydi. Rename javobi text handlerda ushlanadi;
-  address o'zgaradi, coordinates saqlanadi.
+  address o'zgaradi; koordinata faqat tasdiq sessiyasida ishlatiladi, DBga address + mapUrl yoziladi.
 - Slot-filling `awaitingField === 'location'` bo'lsa, tasdiqdan keyin `runAgent()` bilan keyingi maydonga davom etadi.
   Suhbatsiz yuborilgan location esa `Bu manzil yangi xizmat uchunmi?` savoliga o'tadi. Eski `use_location` va
   `location_service_yes/no` callbacklari compatibility uchun qoldi.
@@ -245,7 +350,7 @@ Batafsil: `FIXLOG.md`. Asosiy o'zgarishlar (hammasi syntax + import + miniapp bu
 - `bot/location.js` `reverseGeocode` endi o'zbekcha qulay formatda qaytaradi (road, neighbourhood, suburb, district, city) — display_name dump o'rniga; 8s timeout (AbortSignal.timeout) va koordinata fallback qo'shildi. Jonli test: (41.31, 69.28) → "Yunusobod Tumani, Qashqar mahalla".
 - Lokatsiya oqimi (handler + locationReviewKeyboard + loc_confirm/loc_rename callbacklar + routeLocationRename) parallel tahrirda allaqachon to'liq yozilgan; men kanonik `location.js` ni yagona manba qildim.
 - Dublikat fayllar olib tashlandi: `utils/coords.js`, `services/geocode.js` (location.js codec/geocode bor; ui.js+callbacks+message location.js dan import qiladi).
-- Saqlash formati spec'ga mos: matn → coordinates null; Telegram pin → {address (reverse geocode), coordinates:{lat,lng}} (serviceService.normalizeLocation orqali).
+- Saqlash formati spec'ga mos: matn → `{address,mapUrl:null}`; Telegram pin → reverse geocode qilingan `{address,mapUrl:null}`. Coordinates DBga yozilmaydi.
 - Tekshiruv: node --check + location.js load/encode/decode/sameCoords/normalize OK; miniapp build OK.
 
 ## 2026-06-21 Railway deploy fix

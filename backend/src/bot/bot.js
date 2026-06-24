@@ -34,7 +34,7 @@ bot.use(
       awaitingConfirmation: false,
       lastServiceId: null,
       awaitingReschedule: null, // qayta rejalashtirilayotgan serviceId
-      awaitingReminderConfig: null, // maxsus eslatma kutilayotgan serviceId
+
       pendingLocation: null,
       pendingLocationRename: false,
       pendingLocationCoords: null,

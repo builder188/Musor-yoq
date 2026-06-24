@@ -16,22 +16,45 @@ export default function Settings() {
   const [oldDeleteCode, setOldDeleteCode] = useState('');
   const [newDeleteCode, setNewDeleteCode] = useState('');
   const [status, setStatus] = useState('');
-  const offsets = (settings?.defaultReminders || []).map((r) => r.minutesBefore);
+  const settingsReminderHoursBefore = normalizeReminderHours(settings?.reminderHoursBefore ?? 3);
+  const settingsConfirmHoursAfter = normalizeReminderHours(settings?.confirmHoursAfter ?? 3);
+  const [reminderDraft, setReminderDraft] = useState({
+    before: String(settingsReminderHoursBefore),
+    after: String(settingsConfirmHoursAfter),
+  });
+  const reminderBeforeValue = Number.parseInt(reminderDraft.before, 10);
+  const reminderAfterValue = Number.parseInt(reminderDraft.after, 10);
+  const reminderHoursValid = [reminderBeforeValue, reminderAfterValue].every((value) => Number.isFinite(value) && value >= 1 && value <= 168);
 
-  const updateOffsets = async (next) => {
-    const cleaned = Array.from(new Set(next.filter((n) => n >= 0))).sort((a, b) => b - a);
-    const s = await api.put('/settings', {
-      defaultReminders: cleaned.map((m) => ({ minutesBefore: m })),
+  useEffect(() => {
+    setReminderDraft({
+      before: String(settingsReminderHoursBefore),
+      after: String(settingsConfirmHoursAfter),
     });
-    setSettings(s);
+  }, [settingsReminderHoursBefore, settingsConfirmHoursAfter]);
+
+  const shiftReminderHours = (field, delta) => {
+    setReminderDraft((current) => {
+      const fallback = field === 'before' ? settingsReminderHoursBefore : settingsConfirmHoursAfter;
+      const raw = Number.parseInt(current[field], 10);
+      const base = Number.isFinite(raw) ? raw : fallback;
+      return { ...current, [field]: String(normalizeReminderHours(base + delta)) };
+    });
   };
 
-  const toggleReminderPreset = async (minutes) => {
-    setBusyAction(`reminder:${minutes}`);
+  const saveReminderHours = async () => {
+    if (!reminderHoursValid) {
+      setStatus(t('settings.reminderHoursError'));
+      return;
+    }
+    setBusyAction('reminder-hours');
     setStatus('');
     try {
-      const next = offsets.includes(minutes) ? offsets.filter((m) => m !== minutes) : [...offsets, minutes];
-      await updateOffsets(next);
+      const s = await api.put('/settings', {
+        reminderHoursBefore: normalizeReminderHours(reminderBeforeValue),
+        confirmHoursAfter: normalizeReminderHours(reminderAfterValue),
+      });
+      setSettings(s);
       setStatus(t('common.saved'));
     } catch (err) {
       setStatus(err.message);
@@ -135,18 +158,27 @@ export default function Settings() {
 
       <div className="group-label">{t('settings.reminders')}</div>
       <div className="rows-card reminder-presets-card">
-        <div className="reminder-presets">
-          {reminderPresets(t).map((preset) => (
-            <button
-              key={preset.minutes}
-              className={`reminder-select ${offsets.includes(preset.minutes) ? 'active' : ''}`}
-              disabled={busyAction === `reminder:${preset.minutes}`}
-              onClick={() => toggleReminderPreset(preset.minutes)}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
+        <ReminderHoursRow
+          title={t('settings.beforeReminder')}
+          description={formatBeforeReminderDesc(t, reminderDraft.before || settingsReminderHoursBefore)}
+          emoji="⏰"
+          value={reminderDraft.before}
+          busy={busyAction === 'reminder-hours'}
+          onShift={(delta) => shiftReminderHours('before', delta)}
+          onChange={(value) => setReminderDraft((current) => ({ ...current, before: value }))}
+        />
+        <ReminderHoursRow
+          title={t('settings.afterConfirm')}
+          description={formatAfterConfirmDesc(t, reminderDraft.after || settingsConfirmHoursAfter)}
+          emoji="❓"
+          value={reminderDraft.after}
+          busy={busyAction === 'reminder-hours'}
+          onShift={(delta) => shiftReminderHours('after', delta)}
+          onChange={(value) => setReminderDraft((current) => ({ ...current, after: value }))}
+        />
+        <button className="btn btn-primary btn-block" onClick={saveReminderHours} disabled={busyAction === 'reminder-hours' || !reminderHoursValid}>
+          {busyAction === 'reminder-hours' ? '...' : t('common.save')}
+        </button>
       </div>
 
       <div className="group-label">{t('settings.security')}</div>
@@ -252,38 +284,6 @@ function CodeChangeModal({ t, oldDeleteCode, newDeleteCode, setOldDeleteCode, se
   );
 }
 
-function reminderPresets(t) {
-  return [
-    { minutes: 1440, label: t('settings.oneDayBefore') },
-    { minutes: 60, label: t('settings.oneHourBefore') },
-    { minutes: 0, label: t('settings.onTime') },
-  ];
-}
-
-function AddReminder({ t, onAdd }) {
-  const [value, setValue] = useState(1);
-  const [unit, setUnit] = useState('hours');
-
-  const add = () => {
-    const v = parseInt(value, 10) || 0;
-    const minutes = unit === 'days' ? v * 1440 : unit === 'hours' ? v * 60 : v;
-    onAdd(minutes);
-  };
-
-  return (
-    <div className="search-box">
-      <input className="input" type="number" min="0" value={value} onChange={(e) => setValue(e.target.value)} style={{ flex: '0 0 76px' }} />
-      <select className="select" value={unit} onChange={(e) => setUnit(e.target.value)}>
-        <option value="minutes">{t('settings.minutesBefore')}</option>
-        <option value="hours">{t('settings.hoursBefore')}</option>
-        <option value="days">{t('settings.daysBefore')}</option>
-      </select>
-      <button className="btn btn-primary" onClick={add}>
-        +
-      </button>
-    </div>
-  );
-}
 
 function RestoreModal({ t, onClose }) {
   const [data, setData] = useState(null);
@@ -471,11 +471,48 @@ function DeletedRow({ title, subtitle, onRestore, t }) {
   );
 }
 
-function offsetLabel(minutes, t) {
-  if (minutes === 0) return t('settings.onTime');
-  if (minutes % 1440 === 0) return `${minutes / 1440} ${t('settings.daysBefore')}`;
-  if (minutes % 60 === 0) return `${minutes / 60} ${t('settings.hoursBefore')}`;
-  return `${minutes} ${t('settings.minutesBefore')}`;
+
+function normalizeReminderHours(value) {
+  const number = Number.parseInt(value, 10);
+  if (!Number.isFinite(number)) return 3;
+  return Math.min(168, Math.max(1, number));
+}
+
+function formatBeforeReminderDesc(t, value) {
+  const hours = normalizeReminderHours(value);
+  return t('settings.beforeReminderDesc').replace('{hours}', String(hours));
+}
+
+function formatAfterConfirmDesc(t, value) {
+  const hours = normalizeReminderHours(value);
+  return t('settings.afterConfirmDesc').replace('{hours}', String(hours));
+}
+
+function ReminderHoursRow({ title, description, emoji, value, busy, onShift, onChange }) {
+  return (
+    <div className="setting-row reminder-hours-row" style={{ cursor: 'default' }}>
+      <div className="sr-left">
+        <span className="sr-emoji">{emoji}</span>
+        <div>
+          <div>{title}</div>
+          <div className="muted small">{description}</div>
+        </div>
+      </div>
+      <div className="reminder-stepper">
+        <button className="btn btn-sm" disabled={busy} onClick={() => onShift(-1)}>-</button>
+        <input
+          className="input reminder-hours-input"
+          type="number"
+          min="1"
+          max="168"
+          inputMode="numeric"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <button className="btn btn-sm" disabled={busy} onClick={() => onShift(1)}>+</button>
+      </div>
+    </div>
+  );
 }
 
 function targetLabel(target, t) {

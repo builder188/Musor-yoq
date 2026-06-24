@@ -4,7 +4,7 @@ import Service, { SERVICE_STATUS } from '../models/Service.js';
 import Transaction from '../models/Transaction.js';
 import env from '../config/env.js';
 import Settings from '../models/Settings.js';
-import { computeReminders } from './reminderService.js';
+import { applyServiceSchedule } from './reminderService.js';
 
 const MODELS = {
   client: Client,
@@ -280,7 +280,7 @@ async function restoreServiceLinks(service) {
     && !service.isHistorical
     && new Date(service.serviceDateTime).getTime() > Date.now()
   ) {
-    service.reminders = await computeReminders(service.serviceDateTime);
+    await applyServiceSchedule(service);
   }
   await service.save();
 }

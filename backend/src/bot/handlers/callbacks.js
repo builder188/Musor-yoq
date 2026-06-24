@@ -4,14 +4,11 @@ import Conversation from '../../models/Conversation.js';
 import Client from '../../models/Client.js';
 import { generateReportPdf, resolveReportRange } from '../../routes/reports.js';
 import { completeService, cancelService, createService, recordServicePayment } from '../../services/serviceService.js';
-import { snoozeReminder } from '../../services/reminderService.js';
 import { runAgent, applyConfirmedEdit } from '../../ai/agent.js';
 import { formatMoney } from '../../utils/money.js';
 import {
   serviceConfirmationText,
-  futureServiceKeyboard,
-  notDoneKeyboard,
-  cancelConfirmKeyboard,
+  reminderInfoLine,
   locationQuestionKeyboard,
   paymentMethodKeyboard,
   ocrRecordKeyboard,
@@ -26,93 +23,28 @@ export function registerCallbacks(bot) {
     try {
       const service = await completeService(id, { markPaid: true });
       await ctx.answerCallbackQuery({ text: 'Bajarildi ✅' });
-      await ctx.editMessageText(`✅ "${service.clientName}" xizmati bajarildi.\nDaromad: ${formatMoney(service.price)}`);
+      await ctx.editMessageText(`Zo'r oka, ${service.clientName} xizmatini bajarildi deb belgiladim ✅\nDaromad: ${formatMoney(service.price)}`);
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
     }
   });
 
-  bot.callbackQuery([/^cancel_(?!confirm_|no_|direct_)(.+)$/, /^svc:cancel:(.+)$/], async (ctx) => {
-    const id = ctx.match[1];
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageText('Bekor qilasizmi?', { reply_markup: cancelConfirmKeyboard(id) });
-  });
-
-  bot.callbackQuery(/^cancel_no_(.+)$/, async (ctx) => {
-    await ctx.answerCallbackQuery({ text: 'Bekor qilinmadi' });
-    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-  });
-
-  bot.callbackQuery(/^cancel_confirm_(.+)$/, async (ctx) => {
-    const id = ctx.match[1];
-    try {
-      const service = await cancelService(id);
-      await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
-      await ctx.editMessageText(`"${service.clientName}" xizmati bekor qilindi.`);
-    } catch (err) {
-      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
-    }
-  });
-
-  bot.callbackQuery([/^cancel_direct_(.+)$/, /^svc:cancel_direct:(.+)$/], async (ctx) => {
+  // Tasdiqlash "❌ Bekor qilindi" — to'g'ridan bekor (sabab so'ralmaydi). Balansga ta'sir yo'q.
+  bot.callbackQuery([/^cancel_direct_(.+)$/, /^cancel_(.+)$/, /^svc:cancel:(.+)$/], async (ctx) => {
     const id = ctx.match[1];
     try {
       const service = await cancelService(id);
       await ctx.answerCallbackQuery({ text: 'Bekor qilindi ❌' });
-      await ctx.editMessageText(`❌ "${service.clientName}" xizmati bekor qilindi.`);
+      await ctx.editMessageText(`Mayli oka, ${service.clientName} xizmatini bekor qildim. Balansga hech narsa yozilmadi.`);
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
     }
   });
 
-  bot.callbackQuery(/^not_done_(.+)$/, async (ctx) => {
-    const id = ctx.match[1];
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageReplyMarkup({ reply_markup: notDoneKeyboard(id) });
-  });
-
-  bot.callbackQuery(/^reschedule_(.+)$/, async (ctx) => {
+  // Tasdiqlash "📅 Vaqt surildi" — yangi sana/vaqtni so'raydi (matn yoki ovoz).
+  bot.callbackQuery([/^reschedule_(.+)$/, /^snooze_(.+)$/], async (ctx) => {
     const id = ctx.match[1];
     await askForReschedule(ctx, id);
-  });
-
-  bot.callbackQuery([/^snooze_(.+)$/, /^svc:snooze:(.+)$/], async (ctx) => {
-    const id = ctx.match[1];
-    await askForReschedule(ctx, id);
-  });
-
-  bot.callbackQuery([/^quick_snooze_(.+)$/, /^svc:quick_snooze:(.+)$/], async (ctx) => {
-    const id = ctx.match[1];
-    try {
-      const service = await Service.findById(id);
-      if (!service) throw new Error('Xizmat topilmadi');
-      service.reminders.push(snoozeReminder(30));
-      await service.save();
-      await ctx.answerCallbackQuery({ text: '30 daqiqaga kechiktirildi ⏳' });
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
-      await ctx.reply(`⏳ "${service.clientName}" uchun eslatma 30 daqiqaga kechiktirildi.`);
-    } catch (err) {
-      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
-    }
-  });
-
-  // "🔕 O'chirib qo'y" — shu xizmat uchun qolgan (yuborilmagan) eslatmalarni o'chiradi.
-  bot.callbackQuery([/^mute_(.+)$/, /^disable_reminder_(.+)$/], async (ctx) => {
-    const id = ctx.match[1];
-    try {
-      const service = await Service.findById(id);
-      if (!service) throw new Error('Xizmat topilmadi');
-      const reminders = service.reminders || [];
-      const before = reminders.length;
-      service.reminders = reminders.filter((r) => r.sent);
-      const removed = before - service.reminders.length;
-      await service.save();
-      await ctx.answerCallbackQuery({ text: "Eslatmalar o'chirildi 🔕" });
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-      await ctx.reply(`🔕 "${service.clientName}" uchun qolgan ${removed} ta eslatma o'chirildi.`);
-    } catch (err) {
-      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
-    }
   });
 
   bot.callbackQuery('save_yes', async (ctx) => {
@@ -166,11 +98,8 @@ export function registerCallbacks(bot) {
 
       await ctx.answerCallbackQuery({ text: 'Saqlandi ✅' });
       await ctx.editMessageText(serviceConfirmationText(service));
-      if (new Date(service.serviceDateTime).getTime() > Date.now()) {
-        await ctx.reply('Eslatma sozlamasi:', {
-          reply_markup: futureServiceKeyboard(service._id.toString()),
-        });
-      }
+      const info = reminderInfoLine(service);
+      if (info) await ctx.reply(info);
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
     }
@@ -191,22 +120,26 @@ export function registerCallbacks(bot) {
       await ctx.answerCallbackQuery({ text: 'Joylashuv topilmadi', show_alert: true });
       return;
     }
+    const missing = nextMissing('SERVICE_ENTRY', { location });
     if (conv) {
       conv.pendingIntent = 'SERVICE_ENTRY';
       conv.collected = { location };
-      conv.awaitingField = 'clientPhone';
+      conv.awaitingField = missing;
       conv.markModified('collected');
       await conv.save();
     }
     if (ctx.session) {
       ctx.session.intent = 'SERVICE_ENTRY';
       ctx.session.collectedData = { location };
-      ctx.session.pendingField = 'clientPhone';
+      ctx.session.pendingField = missing;
       ctx.session.awaitingConfirmation = false;
     }
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText('Joylashuv yangi xizmat uchun olindi.');
-    await ctx.reply(QUESTIONS.clientPhone);
+    await ctx.editMessageText("Manzilni yangi xizmatga oldim oka.");
+    await ctx.reply(
+      QUESTIONS[missing],
+      missing === 'paymentMethod' ? { reply_markup: paymentMethodKeyboard() } : undefined
+    );
   });
 
   bot.callbackQuery(/^loc_confirm_(.+)$/, async (ctx) => {
@@ -237,7 +170,7 @@ export function registerCallbacks(bot) {
       }
       await ctx.answerCallbackQuery();
       await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-      await ctx.reply('Manzil nomini yozing. Masalan: Shayxontohur, Navro‘z bozori yaqini.');
+      await ctx.reply("Manzil nomini yozib bering oka. Masalan: Shayxontohur, Navro‘z bozori yaqini.");
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
     }
@@ -248,7 +181,7 @@ export function registerCallbacks(bot) {
     if (conv) await conv.reset();
     clearSession(ctx);
     await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
-    await ctx.editMessageText('Joylashuv bekor qilindi ✅');
+    await ctx.editMessageText('Mayli oka, joylashuvni qo\'ydim ✅');
   });
 
   bot.callbackQuery('payment_confirm_yes', async (ctx) => {
@@ -266,7 +199,7 @@ export function registerCallbacks(bot) {
       clearSession(ctx);
       await ctx.answerCallbackQuery({ text: "To'lov yozildi" });
       await ctx.editMessageText(
-        `${result.service.clientName}: ${formatMoney(result.amountApplied)} to'lov holatiga yozildi.`
+        `Boldi oka, ${result.service.clientName} uchun ${formatMoney(result.amountApplied)} to'lovni yozdim ✅`
       );
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
@@ -278,7 +211,7 @@ export function registerCallbacks(bot) {
     if (conv) await conv.reset();
     clearSession(ctx);
     await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
-    await ctx.editMessageText("To'lov yozilmadi.");
+    await ctx.editMessageText("Mayli oka, to’lovni yozmadim.");
   });
 
   bot.callbackQuery(/^payment_client_(.+)$/, async (ctx) => {
@@ -298,7 +231,7 @@ export function registerCallbacks(bot) {
       clearSession(ctx);
       await ctx.answerCallbackQuery({ text: "To'lov yozildi" });
       await ctx.editMessageText(
-        `${client.name}: ${formatMoney(result.amountApplied)} to'lov holatiga yozildi.`
+        `Boldi oka, ${client.name} uchun ${formatMoney(result.amountApplied)} to'lovni yozdim ✅`
       );
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
@@ -387,7 +320,7 @@ export function registerCallbacks(bot) {
       clearSession(ctx);
       await ctx.answerCallbackQuery({ text: "O'zgartirildi ✅" });
       const name = result.service?.clientName || result.client?.name || '';
-      await ctx.editMessageText(`✅ ${name} ma'lumoti o'zgartirildi.`);
+      await ctx.editMessageText(`Boldi oka, ${name} ma'lumotini yangiladim ✅`);
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
     }
@@ -398,7 +331,44 @@ export function registerCallbacks(bot) {
     if (conv) await conv.reset();
     clearSession(ctx);
     await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
-    await ctx.editMessageText("O'zgartirilmadi.");
+    await ctx.editMessageText("Mayli oka, o‘zgartirmadim.");
+  });
+
+  // CLARIFY — foydalanuvchi tezkor tugmadan niyatni tanladi. Saqlangan matn/maydonlar
+  // bilan tanlangan amalni davom ettiramiz (taxminsiz).
+  bot.callbackQuery(/^clarify_(\d+)$/, async (ctx) => {
+    try {
+      const conv = await Conversation.findOne({ telegramId: ctx.from.id });
+      const options = conv?.collected?.options || [];
+      const choice = options[Number(ctx.match[1])];
+      if (!conv || conv.pendingIntent !== 'CLARIFY' || !choice) {
+        await ctx.answerCallbackQuery({ text: 'Tanlov eskirgan', show_alert: true });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        return;
+      }
+      const rawText = conv.collected.rawText || '';
+      const fields = conv.collected.fields || {};
+      await conv.reset();
+      await ctx.answerCallbackQuery({ text: choice.label });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      const res = await runAgent({
+        understanding: { intent: choice.subIntent, fields, confidence: 1, reply: '' },
+        rawText,
+        conversation: conv,
+      });
+      syncSessionFromConversation(ctx, conv);
+      await sendAgentResult(ctx, res);
+    } catch (err) {
+      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true }).catch(() => {});
+    }
+  });
+
+  bot.callbackQuery('clarify_cancel', async (ctx) => {
+    const conv = await Conversation.findOne({ telegramId: ctx.from.id });
+    if (conv) await conv.reset();
+    clearSession(ctx);
+    await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
+    await ctx.editMessageText('Bekor qilindi ✅');
   });
 
   // To'lov usulini tugma orqali tanlash (slot-filling davom etadi).
@@ -419,11 +389,8 @@ export function registerCallbacks(bot) {
       });
       if (res?.tool === 'create_service' && res.result) {
         await ctx.reply(serviceConfirmationText(res.result));
-        if (new Date(res.result.serviceDateTime).getTime() > Date.now()) {
-          await ctx.reply('Eslatma sozlamasi:', {
-            reply_markup: futureServiceKeyboard(res.result.id || res.result._id),
-          });
-        }
+        const info = reminderInfoLine(res.result);
+        if (info) await ctx.reply(info);
         clearSession(ctx);
         return;
       }
@@ -441,22 +408,26 @@ export function registerCallbacks(bot) {
       await ctx.answerCallbackQuery({ text: 'Joylashuv topilmadi', show_alert: true });
       return;
     }
+    const missing = nextMissing('SERVICE_ENTRY', { location });
     if (conv) {
       conv.pendingIntent = 'SERVICE_ENTRY';
       conv.collected = { location };
-      conv.awaitingField = 'clientPhone';
+      conv.awaitingField = missing;
       conv.markModified('collected');
       await conv.save();
     }
     if (ctx.session) {
       ctx.session.intent = 'SERVICE_ENTRY';
       ctx.session.collectedData = { location };
-      ctx.session.pendingField = 'clientPhone';
+      ctx.session.pendingField = missing;
       ctx.session.awaitingConfirmation = false;
     }
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText('Joylashuv yangi xizmat uchun olindi.');
-    await ctx.reply(QUESTIONS.clientPhone);
+    await ctx.editMessageText("Manzilni yangi xizmatga oldim oka.");
+    await ctx.reply(
+      QUESTIONS[missing],
+      missing === 'paymentMethod' ? { reply_markup: paymentMethodKeyboard() } : undefined
+    );
   });
 
   bot.callbackQuery('ignore_location', async (ctx) => {
@@ -464,7 +435,7 @@ export function registerCallbacks(bot) {
     if (conv) await conv.reset();
     clearSession(ctx);
     await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
-    await ctx.editMessageText('Joylashuv bekor qilindi ✅');
+    await ctx.editMessageText('Mayli oka, joylashuvni qo\'ydim ✅');
   });
 
   // OCR navbati — yozuvlarni birin-ketin saqlash yoki o'tkazib yuborish.
@@ -519,19 +490,6 @@ export function registerCallbacks(bot) {
     const next = queue[nextIndex];
     await ctx.reply(ocrRecordText(next, nextIndex + 1, queue.length), { reply_markup: ocrRecordKeyboard() });
   });
-
-  bot.callbackQuery(/^reminder_default_(.+)$/, async (ctx) => {
-    await ctx.answerCallbackQuery({ text: 'Standart eslatmalar saqlandi ✅' });
-    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-  });
-
-  bot.callbackQuery(/^reminder_edit_(.+)$/, async (ctx) => {
-    const id = ctx.match[1];
-    if (ctx.session) ctx.session.awaitingReminderConfig = id;
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-    await ctx.reply("Qachon eslatishimni xohlaysiz? Masalan: '2 soat oldin' yoki '30 daqiqa oldin'");
-  });
 }
 
 async function getOrCreateConversation(telegramId) {
@@ -577,7 +535,7 @@ async function confirmLocation(ctx, coords) {
       conversation: conv,
     });
     syncSessionFromConversation(ctx, conv);
-    await ctx.reply(`Manzil saqlandi: ${location.address}`);
+    await ctx.reply(`Manzilni oldim oka: ${location.address}`);
     await sendAgentResult(ctx, res);
     return;
   }
@@ -598,7 +556,7 @@ async function confirmLocation(ctx, coords) {
     ctx.session.awaitingConfirmation = true;
   }
 
-  await ctx.reply(`Manzil saqlandi: ${location.address}\n\nBu manzil yangi xizmat uchunmi?`, {
+  await ctx.reply(`Manzilni oldim oka: ${location.address}\n\nBu manzil yangi xizmat uchunmi?`, {
     reply_markup: locationQuestionKeyboard(),
   });
 }
@@ -606,11 +564,8 @@ async function confirmLocation(ctx, coords) {
 async function sendAgentResult(ctx, res) {
   if (res?.tool === 'create_service' && res.result) {
     await ctx.reply(serviceConfirmationText(res.result));
-    if (new Date(res.result.serviceDateTime).getTime() > Date.now()) {
-      await ctx.reply('Eslatma sozlamasi:', {
-        reply_markup: futureServiceKeyboard(res.result.id || res.result._id),
-      });
-    }
+    const info = reminderInfoLine(res.result);
+    if (info) await ctx.reply(info);
     if (ctx.session) ctx.session.lastServiceId = res.result.id || res.result._id || null;
     return;
   }
@@ -648,7 +603,7 @@ async function askForReschedule(ctx, serviceId) {
     ctx.session.awaitingReschedule = serviceId;
   }
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText('Yangi sana va vaqtni yozing yoki yuboring:');
+  await ctx.editMessageText("Qachonga ko'chiramiz oka? Matn yoki ovoz orqali ayting.");
 }
 
 function monthKey(d = new Date()) {
@@ -676,7 +631,6 @@ function clearSession(ctx) {
   ctx.session.awaitingConfirmation = false;
   ctx.session.lastServiceId = null;
   ctx.session.awaitingReschedule = null;
-  ctx.session.awaitingReminderConfig = null;
   ctx.session.pendingLocation = null;
   ctx.session.pendingLocationRename = false;
   ctx.session.pendingLocationCoords = null;

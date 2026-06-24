@@ -15,19 +15,6 @@ export const PAYMENT_STATUS = {
   PARTIAL: 'qisman',
 };
 
-const reminderSchema = new mongoose.Schema(
-  {
-    minutesBefore: { type: Number, required: true },
-    scheduledAt: { type: Date, required: true },
-    sent: { type: Boolean, default: false },
-    sentAt: { type: Date, default: null },
-    failed: { type: Boolean, default: false },
-    retryCount: { type: Number, default: 0 },
-    nextRetryAt: { type: Date, default: null },
-  },
-  { _id: false }
-);
-
 const imageSchema = new mongoose.Schema(
   {
     telegramFileId: { type: String },
@@ -44,10 +31,7 @@ const serviceSchema = new mongoose.Schema(
 
     location: {
       address: { type: String, required: true },
-      coordinates: {
-        lat: { type: Number, default: null },
-        lng: { type: Number, default: null },
-      },
+      mapUrl: { type: String, default: null },
     },
 
     serviceDateTime: { type: Date, required: true, index: true },
@@ -70,11 +54,18 @@ const serviceSchema = new mongoose.Schema(
     },
     cancellationReason: { type: String, default: null },
     completedAt: { type: Date, default: null },
-    completionPromptSent: { type: Boolean, default: false },
+
+    // Xizmat vaqtiga nisbatan eslatma/tasdiqlash jadvali (cron shu yerga qaraydi).
+    //  - reminderAt: serviceDateTime - reminderHoursBefore (oddiy eslatma).
+    //  - confirmAt:  serviceDateTime + confirmHoursAfter (tugmali tasdiq).
+    // *Sent bayroqlari atomar belgilanadi — bir xabar ikki marta yuborilmaydi.
+    reminderAt: { type: Date, default: null, index: true },
+    reminderSent: { type: Boolean, default: false },
+    confirmAt: { type: Date, default: null, index: true },
+    confirmSent: { type: Boolean, default: false },
 
     notes: { type: String },
     images: { type: [imageSchema], default: [] },
-    reminders: { type: [reminderSchema], default: [] },
 
     incomeTransactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', default: null },
     isDeletedByClientDeletion: { type: Boolean, default: false },

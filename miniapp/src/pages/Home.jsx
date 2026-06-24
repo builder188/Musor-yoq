@@ -75,7 +75,6 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
 
       <SummaryCard stats={stats} loading={loadingStats} />
 
-      <FailedReminders items={stats?.failedReminders} onChange={loadStats} />
 
       <div className="search">
         <span className="search-icon">🔍</span>
@@ -148,67 +147,6 @@ function formatNumber(n) {
   return Math.round(Number(n) || 0)
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-}
-
-// 3 urinishdan keyin ham yuborilmagan eslatmalar — qo'lda hal qilish (qayta urinish / o'chirish).
-function FailedReminders({ items, onChange }) {
-  const { t } = useApp();
-  const [busy, setBusy] = useState(null);
-  if (!items?.length) return null;
-
-  const act = async (item, action) => {
-    const key = `${item.serviceId}:${item.reminderIndex}`;
-    setBusy(key);
-    try {
-      if (action === 'retry') {
-        await api.post(`/services/${item.serviceId}/reminders/${item.reminderIndex}/retry`);
-      } else {
-        await api.del(`/services/${item.serviceId}/reminders/${item.reminderIndex}`);
-      }
-      await onChange?.();
-    } catch {
-      /* xatolik — keyingi yuklashda yangilanadi */
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="card failed-reminders">
-      <div className="row-between mb-8">
-        <strong>⚠️ {t('home.failedTitle')} ({items.length})</strong>
-      </div>
-      <div className="muted mb-8">{t('home.failedDesc')}</div>
-      {items.map((item) => {
-        const key = `${item.serviceId}:${item.reminderIndex}`;
-        return (
-          <div key={key} className="list-item">
-            <div className="title">{item.clientName || '-'}</div>
-            <div className="sub">
-              {formatPhone(item.clientPhone)} · {formatDate(item.serviceDateTime)}
-              {item.location?.address ? ` · ${item.location.address}` : ''}
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button
-                className="btn btn-primary btn-sm"
-                disabled={busy === key}
-                onClick={() => act(item, 'retry')}
-              >
-                {t('home.retry')}
-              </button>
-              <button
-                className="btn btn-sm"
-                disabled={busy === key}
-                onClick={() => act(item, 'dismiss')}
-              >
-                {t('home.dismiss')}
-              </button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 function SearchResults({ clients, searching, onOpenClient }) {

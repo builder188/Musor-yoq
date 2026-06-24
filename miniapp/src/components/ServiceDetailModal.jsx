@@ -11,7 +11,6 @@ export default function ServiceDetailModal({
   onCancel,
   onEdit,
   onDelete,
-  onDeleteReminder,
 }) {
   const { t } = useApp();
   if (!service) return null;
@@ -36,19 +35,11 @@ export default function ServiceDetailModal({
         <Row label={t('common.paymentMethod')} value={t(`payment.${service.paymentMethod}`)} />
         {service.notes ? <Row label={t('common.notes')} value={service.notes} /> : null}
         {service.clientDeletionNote ? <Row label={t('common.notes')} value={service.clientDeletionNote} /> : null}
-        {service.reminders?.length > 0 && (
+        {(service.reminderAt || service.confirmAt) && (
           <div style={{ marginTop: 8 }}>
             <div className="label">{t('settings.reminders')}</div>
-            {service.reminders.map((reminder, index) => (
-              <div key={`${reminder.scheduledAt}-${index}`} className="card-row" style={{ padding: '4px 0' }}>
-                <span className="muted">{formatDateTime(reminder.scheduledAt)}</span>
-                {onDeleteReminder && !reminder.sent && (
-                  <button className="btn btn-sm" onClick={() => onDeleteReminder(service, index)}>
-                    {t('common.delete')}
-                  </button>
-                )}
-              </div>
-            ))}
+            {service.reminderAt && <Row label={t('settings.beforeReminder')} value={formatDateTime(service.reminderAt)} />}
+            {service.confirmAt && <Row label={t('settings.afterConfirm')} value={formatDateTime(service.confirmAt)} />}
           </div>
         )}
       </div>

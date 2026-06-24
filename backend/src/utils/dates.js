@@ -101,6 +101,33 @@ export function formatDate(d) {
   }
 }
 
+// Faqat soat:daqiqa (Asia/Tashkent) — eslatma matnlari uchun ("18:00").
+export function formatTime(d) {
+  if (!d) return '';
+  try {
+    return new Intl.DateTimeFormat('uz-UZ', {
+      timeZone: TZ,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(d));
+  } catch {
+    return '';
+  }
+}
+
+// Sanani "Bugun" / "Ertaga" / "DD.MM.YYYY" ko'rinishida (Asia/Tashkent kun chegarasi bo'yicha).
+// Eslatma matni "Bugun soat ..." aniq bo'lishi uchun — yarim tunni kesib o'tsa ham xato bermaydi.
+export function dayWord(d, base = new Date()) {
+  const target = formatDate(d);
+  if (!target) return '';
+  const tomorrow = new Date(base);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (target === formatDate(base)) return 'Bugun';
+  if (target === formatDate(tomorrow)) return 'Ertaga';
+  return target;
+}
+
 // Foydalanuvchi yozgan sana/vaqtni (nisbiy yoki aniq) Date ga aylantiradi.
 // AI'ni chetlab o'tadigan joylar uchun (masalan reschedule). Aniqlab bo'lmasa null.
 // Qo'llab-quvvatlaydi: "ertaga", "indinga", "bugun", "N kun/hafta/oy/soat/daqiqadan keyin",

@@ -1,19 +1,14 @@
 // Route Telegram messages: text / voice / image / location -> Gemini -> agent.
 import Conversation from '../../models/Conversation.js';
-import Client from '../../models/Client.js';
-import Service from '../../models/Service.js';
 import { extractNotebookRecords, transcribeAudio, understandText } from '../../ai/gemini.js';
 import { runAgent } from '../../ai/agent.js';
 import { editService } from '../../services/serviceService.js';
-import { computeReminders } from '../../services/reminderService.js';
-import { mergeFields, nextMissing, parseReminderOffset, isEntryIntent, QUESTIONS } from '../flow.js';
+import { mergeFields, nextMissing, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
 import {
-  clientChoiceKeyboard,
-  futureServiceKeyboard,
+  reminderInfoLine,
   locationQuestionKeyboard,
   locationReviewKeyboard,
-  paymentConfirmKeyboard,
   paymentMethodKeyboard,
   saveKeyboard,
   serviceConfirmationText,
@@ -21,10 +16,23 @@ import {
   ocrRecordText,
   formatBotDateTime,
 } from '../ui.js';
-import { formatMoney, parseMoney } from '../../utils/money.js';
+import { formatMoney } from '../../utils/money.js';
 import { parseHumanDateTime } from '../../utils/dates.js';
-import { formatPhone } from '../../utils/phone.js';
 import { normalizeLocationData, reverseGeocode } from '../location.js';
+import {
+  IMAGE_LIMIT_BYPASS_REPLY,
+  UNSUPPORTED_MEDIA_REPLY,
+  VIDEO_UNSUPPORTED_REPLY,
+  VOICE_MAX_DURATION_SECONDS,
+  VOICE_TOO_LONG_REPLY,
+  enableImageLimitBypass,
+  hasImageLimitBypassPhrase,
+  imageLimitReply,
+  reserveImageSlots,
+} from '../mediaLimits.js';
+
+const PHOTO_GROUP_SETTLE_MS = 1_000;
+const pendingPhotoGroups = new Map();
 
 async function getConversation(telegramId) {
   let conv = await Conversation.findOne({ telegramId });
@@ -52,7 +60,7 @@ function isAiKeyError(err) {
 async function replyAiError(ctx, err, genericText) {
   if (isAiKeyError(err)) {
     await ctx.reply(
-      "AI kaliti ishlamayapti (GEMINI_API_KEY noto'g'ri, muddati o'tgan yoki kvota tugagan).\n" +
+      "Oka, AI kaliti ishlamayapti (GEMINI_API_KEY noto'g'ri, muddati o'tgan yoki kvota tugagan).\n" +
         "Railway → Variables bo'limida to'g'ri kalitni kiriting.\n" +
         'Kalit oling: https://aistudio.google.com/apikey'
     );
@@ -87,21 +95,24 @@ export function registerMessageHandler(bot) {
       ctx.session.awaitingConfirmation = true;
       ctx.session.pendingField = conv.awaitingField;
     }
-    await ctx.reply(`Manzil topildi:\n${address}\n\nShu nom bilan saqlaymi?`, {
+    await ctx.reply(`Manzilni topdim oka:\n${address}\n\nShu nom bilan saqlaymizmi?`, {
       reply_markup: locationReviewKeyboard(coords),
     });
   });
 
   bot.on('message:voice', async (ctx) => {
+    if ((ctx.message.voice.duration || 0) > VOICE_MAX_DURATION_SECONDS) {
+      await ctx.reply(VOICE_TOO_LONG_REPLY);
+      return;
+    }
     await ctx.replyWithChatAction('typing').catch(() => {});
     try {
       const buffer = await downloadFile(ctx.message.voice.file_id, ctx.api);
       const transcription = await transcribeAudio(buffer, ctx.message.voice.mime_type || 'audio/ogg');
-      const understanding = await understandText(transcription);
-      await routeUnderstanding(ctx, { ...understanding, transcription }, transcription);
+      await handleTextInput(ctx, transcription);
     } catch (err) {
       console.error('Ovozni qayta ishlash xatosi:', err.message);
-      await replyAiError(ctx, err, "Ovozni tushunolmadim. Iltimos, qayta urinib ko'ring yoki matn yozing.");
+      await replyAiError(ctx, err, "Ovozni tushunolmadim oka, yana bir marta yuboring yoki yozib bering.");
     }
   });
 
@@ -110,118 +121,145 @@ export function registerMessageHandler(bot) {
     try {
       const buffer = await downloadFile(ctx.message.audio.file_id, ctx.api);
       const transcription = await transcribeAudio(buffer, ctx.message.audio.mime_type || 'audio/mpeg');
-      const understanding = await understandText(transcription);
-      await routeUnderstanding(ctx, { ...understanding, transcription }, transcription);
+      await handleTextInput(ctx, transcription);
     } catch (err) {
       console.error('Audio xatosi:', err.message);
-      await replyAiError(ctx, err, "Audioni tushunolmadim. Matn ko'rinishida yuboring.");
+      await replyAiError(ctx, err, "Audioni tushunolmadim oka, yozib yuborsangiz bo'ladi.");
     }
   });
 
   bot.on('message:photo', async (ctx) => {
-    await ctx.replyWithChatAction('typing').catch(() => {});
-    try {
-      const photo = ctx.message.photo[ctx.message.photo.length - 1];
-      const buffer = await downloadFile(photo.file_id, ctx.api);
-      const records = await extractNotebookRecords(buffer, 'image/jpeg', ctx.message.caption || '');
-      await routeImageRecords(ctx, records, photo.file_id);
-    } catch (err) {
-      console.error('Rasm xatosi:', err.message);
-      await replyAiError(ctx, err, "Rasmni o'qiy olmadim. Aniqroq surat yuboring yoki matn yozing.");
+    if (await handleImageLimitBypassRequest(ctx, ctx.message.caption)) return;
+    if (ctx.message.media_group_id) {
+      await enqueuePhotoGroup(ctx);
+      return;
     }
+    await processPhotoBatch([ctx]);
   });
 
   bot.on('message:text', async (ctx) => {
-    const text = ctx.message.text;
+    if (await handleImageLimitBypassRequest(ctx, ctx.message.text)) return;
     await ctx.replyWithChatAction('typing').catch(() => {});
     try {
-      const conv = await getConversation(ctx.from.id);
-      // Universal chiqish: istalgan yarim qolgan oqimdan (reschedule, eslatma,
-      // lokatsiya nomi, slot-filling, OCR) "bekor" bilan chiqish — holatlar
-      // aralashib qolib foydalanuvchi qopqonga tushmasligi uchun.
-      if (/^(bekor|otmen|otmena|cancel|to'?xtat|toxtat|stop)\b/i.test(text.trim())) {
-        await conv.reset();
-        clearAllSessionState(ctx);
-        await ctx.reply('Bekor qilindi.');
-        return;
-      }
-      // Eng yuqori ustuvorlik: maxsus eslatma vaqti kutilyapti.
-      if (ctx.session?.awaitingReminderConfig) {
-        return handleReminderConfig(ctx, text);
-      }
-      // Uzaytirish uchun sana kutilyapti.
-      if (ctx.session?.awaitingReschedule || conv.pendingIntent === 'SERVICE_RESCHEDULE') {
-        return routeServiceReschedule(ctx, conv, text);
-      }
-      if (conv.pendingIntent === 'IMAGE_RECORD_CONFIRM') {
-        return routeImageConfirmation(ctx, conv, text);
-      }
-      if (ctx.session?.pendingLocationRename) {
-        return routeLocationRename(ctx, conv, text);
-      }
-      // Foydalanuvchi OCR navbati ochiq turganda boshqa narsa yozsa — navbatni bekor qilamiz.
-      if (ctx.session?.ocrQueue?.length > 0) {
-        ctx.session.ocrQueue = [];
-        ctx.session.currentOcrIndex = 0;
-      }
-      const fuzzyPayment = await maybeRouteFuzzyClientPayment(ctx, conv, text);
-      if (fuzzyPayment) return;
-
-      const understanding = await understandText(text);
-      await routeUnderstanding(ctx, understanding, text);
+      await handleTextInput(ctx, ctx.message.text);
     } catch (err) {
       console.error('Matn NLU xatosi:', err.message);
-      await replyAiError(ctx, err, "AI bilan bog'lanishda xatolik. Birozdan keyin urinib ko'ring.");
+      await replyAiError(ctx, err, "Voy oka, hozir bir narsa chappa ketdi. Birozdan keyin yana urinib ko'ramiz.");
     }
   });
 
   // Qo'llab-quvvatlanmaydigan turlar — bot faqat matn/ovoz/rasm/lokatsiya bilan ishlaydi.
-  const unsupported = ['message:document', 'message:video', 'message:sticker', 'message:animation', 'message:video_note'];
+  bot.on('message:video', (ctx) => ctx.reply(VIDEO_UNSUPPORTED_REPLY));
+  const unsupported = ['message:document', 'message:sticker', 'message:animation', 'message:video_note'];
   for (const filter of unsupported) {
-    bot.on(filter, (ctx) => ctx.reply('Men bunday qabul qilmayman oka 🙂'));
+    bot.on(filter, (ctx) => ctx.reply(UNSUPPORTED_MEDIA_REPLY));
   }
 }
 
-async function handleReminderConfig(ctx, text) {
-  const serviceId = ctx.session?.awaitingReminderConfig;
-  const minutes = parseReminderOffset(text);
-  if (minutes === null) {
-    await ctx.reply("Tushunmadim. Masalan: '2 soat oldin', '30 daqiqa oldin' yoki 'xizmat vaqtida'.");
-    return;
-  }
-  const service = await Service.findOne({ _id: serviceId, isDeleted: { $ne: true } });
-  if (!service) {
-    if (ctx.session) ctx.session.awaitingReminderConfig = null;
-    await ctx.reply('Xizmat topilmadi.');
-    return;
-  }
-
-  // Yuborilgan eslatmalarni saqlab, qolganini yangi maxsus ofset bilan almashtiramiz.
-  const sent = (service.reminders || []).filter((r) => r.sent);
-  const fresh = await computeReminders(service.serviceDateTime, [minutes]);
-  service.reminders = [...sent, ...fresh];
-  await service.save();
-  if (ctx.session) ctx.session.awaitingReminderConfig = null;
-
-  if (!fresh.length) {
-    await ctx.reply("Bu vaqt allaqachon o'tib ketgan, eslatma qo'shilmadi.");
-    return;
-  }
-  await ctx.reply(`Eslatma sozlandi: ${reminderOffsetLabel(minutes)}.`);
+async function handleImageLimitBypassRequest(ctx, text) {
+  if (!hasImageLimitBypassPhrase(text)) return false;
+  enableImageLimitBypass(ctx.from.id);
+  await ctx.reply(IMAGE_LIMIT_BYPASS_REPLY);
+  return true;
 }
 
-function reminderOffsetLabel(minutes) {
-  if (minutes === 0) return 'xizmat vaqtida';
-  if (minutes % 1440 === 0) return `${minutes / 1440} kun oldin`;
-  if (minutes % 60 === 0) return `${minutes / 60} soat oldin`;
-  return `${minutes} daqiqa oldin`;
+function enqueuePhotoGroup(ctx) {
+  const key = `${ctx.chat?.id || ctx.from.id}:${ctx.message.media_group_id}`;
+  let group = pendingPhotoGroups.get(key);
+  if (!group) {
+    group = {
+      items: [],
+      timer: null,
+      done: null,
+      resolve: null,
+    };
+    group.done = new Promise((resolve) => {
+      group.resolve = resolve;
+    });
+    pendingPhotoGroups.set(key, group);
+  }
+
+  group.items.push(ctx);
+  if (group.timer) clearTimeout(group.timer);
+  group.timer = setTimeout(async () => {
+    try {
+      await processPhotoBatch(group.items);
+    } catch (err) {
+      console.error('Rasm albomi xatosi:', err.message);
+      await group.items[0]?.reply("Rasmlarni o'qiyolmadim oka, yana bir marta yuborib ko'ring.").catch(() => {});
+    } finally {
+      pendingPhotoGroups.delete(key);
+      group.resolve();
+    }
+  }, PHOTO_GROUP_SETTLE_MS);
+
+  return group.done;
+}
+
+async function processPhotoBatch(contexts) {
+  const ordered = [...contexts].sort((a, b) => (a.message.message_id || 0) - (b.message.message_id || 0));
+  const first = ordered[0];
+  const limit = reserveImageSlots(first.from.id, ordered.length);
+  if (!limit.allowed) {
+    await first.reply(imageLimitReply(limit.retryAfterSeconds));
+    return;
+  }
+
+  for (const item of ordered) {
+    await processSinglePhoto(item);
+  }
+}
+
+async function processSinglePhoto(ctx) {
+  await ctx.replyWithChatAction('typing').catch(() => {});
+  try {
+    const photo = ctx.message.photo[ctx.message.photo.length - 1];
+    const buffer = await downloadFile(photo.file_id, ctx.api);
+    const records = await extractNotebookRecords(buffer, 'image/jpeg', ctx.message.caption || '');
+    await routeImageRecords(ctx, records, photo.file_id);
+  } catch (err) {
+    console.error('Rasm xatosi:', err.message);
+    await replyAiError(ctx, err, "Rasmni o'qiyolmadim oka, aniqroq suratga oling yoki yozib bering.");
+  }
+}
+
+// Matn (yoki ovoz/audio transkripsiyasi) uchun yagona oqim: avval yarim qolgan
+// holatlarni (reschedule, OCR tasdiq, lokatsiya nomi) tekshiradi, keyin NLU.
+// Ovoz/audio ham shu yerga keladi — shuning uchun "vaqt surildi" ovoz bilan ham ishlaydi.
+async function handleTextInput(ctx, text) {
+  const conv = await getConversation(ctx.from.id);
+  // Universal chiqish: istalgan yarim qolgan oqimdan "bekor" bilan chiqish.
+  if (/^(bekor|otmen|otmena|cancel|to'?xtat|toxtat|stop)\b/i.test(text.trim())) {
+    await conv.reset();
+    clearAllSessionState(ctx);
+    await ctx.reply('Boldi oka, bekor qildim.');
+    return;
+  }
+  // "Vaqt surildi" uchun yangi sana kutilyapti (matn yoki ovoz).
+  if (ctx.session?.awaitingReschedule || conv.pendingIntent === 'SERVICE_RESCHEDULE') {
+    return routeServiceReschedule(ctx, conv, text);
+  }
+  if (conv.pendingIntent === 'IMAGE_RECORD_CONFIRM') {
+    return routeImageConfirmation(ctx, conv, text);
+  }
+  if (ctx.session?.pendingLocationRename) {
+    return routeLocationRename(ctx, conv, text);
+  }
+  // OCR navbati ochiq turganda boshqa narsa yozilsa — navbatni bekor qilamiz.
+  if (ctx.session?.ocrQueue?.length > 0) {
+    ctx.session.ocrQueue = [];
+    ctx.session.currentOcrIndex = 0;
+  }
+
+  const understanding = await understandText(text);
+  await routeUnderstanding(ctx, understanding, text);
 }
 
 async function routeServiceReschedule(ctx, conv, text) {
   // Nisbiy ("ertaga soat 15", "2 kundan keyin") va aniq ("2026-06-12 15:30") sanani tushunadi.
   const date = parseHumanDateTime(text);
   if (!date || Number.isNaN(date.getTime())) {
-    await ctx.reply("Sanani aniqroq yozing. Masalan: 'ertaga soat 15:00' yoki '2026-06-12 15:30'");
+    await ctx.reply("Sanani aniqroq yozib bering oka. Masalan: 'ertaga soat 15:00' yoki '2026-06-12 15:30'");
     return;
   }
   const serviceId =
@@ -229,7 +267,7 @@ async function routeServiceReschedule(ctx, conv, text) {
   if (!serviceId) {
     await conv.reset();
     if (ctx.session) ctx.session.awaitingReschedule = null;
-    await ctx.reply('Xizmat topilmadi. Qaytadan urinib ko\'ring.');
+    await ctx.reply("Xizmatni topolmadim oka, qaytadan urinib ko'ring.");
     return;
   }
   await editService(serviceId, { serviceDateTime: date.toISOString() });
@@ -240,46 +278,7 @@ async function routeServiceReschedule(ctx, conv, text) {
     ctx.session.pendingField = null;
     ctx.session.awaitingReschedule = null;
   }
-  await ctx.reply(`Xizmat vaqti uzaytirildi: ${formatBotDateTime(date)}`);
-}
-
-async function maybeRouteFuzzyClientPayment(ctx, conv, text) {
-  const match = text.match(/^(.+?)\s+(.+?)\s+(berdi|to'?ladi|toladi)$/i);
-  if (!match) return false;
-
-  const name = match[1].trim();
-  const amount = parseMoney(match[2]);
-  if (!name || !amount) return false;
-
-  const rx = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-  const clients = await Client.find({ name: rx, isDeleted: { $ne: true } }).sort({ updatedAt: -1 }).limit(8).lean();
-  if (!clients.length) return false;
-
-  conv.pendingIntent = 'PAYMENT_CLIENT_CONFIRM';
-  conv.collected = { amount, note: text, candidates: clients.map((client) => String(client._id)) };
-  conv.awaitingField = clients.length === 1 ? 'confirmClient' : 'chooseClient';
-  if (clients.length === 1) conv.collected.clientId = String(clients[0]._id);
-  conv.markModified('collected');
-  await conv.save();
-
-  if (ctx.session) {
-    ctx.session.intent = 'PAYMENT_CLIENT_CONFIRM';
-    ctx.session.collectedData = conv.collected;
-    ctx.session.pendingField = conv.awaitingField;
-    ctx.session.awaitingConfirmation = true;
-  }
-
-  if (clients.length === 1) {
-    const client = clients[0];
-    await ctx.reply(
-      `${client.name} (${formatPhone(client.phone) || client.phone})ga ${formatMoney(amount)} yozaymi?`,
-      { reply_markup: paymentConfirmKeyboard() }
-    );
-    return true;
-  }
-
-  await ctx.reply(`Qaysi ${name}?`, { reply_markup: clientChoiceKeyboard(clients) });
-  return true;
+  await ctx.reply(`Boldi oka, xizmat vaqtini ${formatBotDateTime(date)} ga ko'chirdim ✅`);
 }
 
 async function routeUnderstanding(ctx, understanding, rawText) {
@@ -289,7 +288,6 @@ async function routeUnderstanding(ctx, understanding, rawText) {
   // reschedule/eslatma kutilishini chetlab o'tib, keyingi matnni noto'g'ri ushlaydi.
   if (ctx.session) {
     ctx.session.awaitingReschedule = null;
-    ctx.session.awaitingReminderConfig = null;
     ctx.session.pendingLocationRename = false;
     ctx.session.pendingLocationCoords = null;
   }
@@ -370,7 +368,7 @@ async function routeImageConfirmation(ctx, conv, text) {
     return;
   }
 
-  await ctx.reply("Iltimos, 'ha' yoki 'yo'q' deb javob bering.");
+  await ctx.reply("Oka, ‘ha’ yoki ‘yo’q’ deb javob bering.");
 }
 
 // OCR yozuvida majburiy maydon yetishsa, uni standart SERVICE_ENTRY slot-filling
@@ -427,7 +425,7 @@ async function routeLocationRename(ctx, conv, text) {
       conversation: conv,
     });
     await syncSessionFromConversation(ctx, conv);
-    await ctx.reply(`Manzil saqlandi: ${customName}`);
+    await ctx.reply(`Manzilni oldim oka: ${customName}`);
     await sendAgentResult(ctx, res);
     return;
   }
@@ -441,7 +439,7 @@ async function routeLocationRename(ctx, conv, text) {
   ctx.session.collectedData = { location };
   ctx.session.pendingField = null;
   ctx.session.awaitingConfirmation = true;
-  await ctx.reply(`Manzil saqlandi: ${customName}\n\nBu manzil yangi xizmat uchunmi?`, {
+  await ctx.reply(`Manzilni oldim oka: ${customName}\n\nBu manzil yangi xizmat uchunmi?`, {
     reply_markup: locationQuestionKeyboard(),
   });
 }
@@ -449,11 +447,8 @@ async function routeLocationRename(ctx, conv, text) {
 async function sendAgentResult(ctx, res) {
   if (res?.tool === 'create_service' && res.result) {
     await ctx.reply(serviceConfirmationText(res.result));
-    if (new Date(res.result.serviceDateTime).getTime() > Date.now()) {
-      await ctx.reply('Eslatma sozlamasi:', {
-        reply_markup: futureServiceKeyboard(res.result.id || res.result._id),
-      });
-    }
+    const info = reminderInfoLine(res.result);
+    if (info) await ctx.reply(info);
     if (ctx.session) ctx.session.lastServiceId = res.result.id || res.result._id || null;
     return;
   }
@@ -477,7 +472,6 @@ function clearAllSessionState(ctx) {
   ctx.session.awaitingConfirmation = false;
   ctx.session.lastServiceId = null;
   ctx.session.awaitingReschedule = null;
-  ctx.session.awaitingReminderConfig = null;
   ctx.session.pendingLocation = null;
   ctx.session.pendingLocationRename = false;
   ctx.session.pendingLocationCoords = null;

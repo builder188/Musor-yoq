@@ -13,6 +13,7 @@ const router = express.Router();
 const notDeleted = { isDeleted: { $ne: true } };
 const REPORT_TYPES = new Set(['clients', 'services', 'finance', 'full']);
 const REPORT_FORMATS = new Set(['pdf', 'excel']);
+const UZ_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
 let reportBot = null;
 
 // Excel hisobot tarjimalari (sheet nomlari va sarlavhalar). Raw enum/kategoriya
@@ -75,30 +76,36 @@ router.post(
     const format = REPORT_FORMATS.has(req.body?.format) ? req.body.format : 'pdf';
     const reportType = normalizeReportType(req.body?.reportType);
     const range = resolveReportRange(req.body);
+    const formatLabel = format === 'excel' ? 'Excel' : 'PDF';
 
+    let buffer;
+    let filename;
     if (format === 'excel') {
-      const { buffer, filename } = await buildExcelPayload(req.body);
-      await reportBot.api.sendDocument(
-        req.telegramUser.id,
-        new InputFile(buffer, filename),
-        { caption: `Excel hisobot: ${reportLabel(reportType)} (${range.label})` }
-      );
-      return res.json({ ok: true, format, filename });
+      ({ buffer, filename } = await buildExcelPayload(req.body));
+    } else {
+      buffer = await generateReportPdf({
+        reportType,
+        limit: normalizeLimit(req.body?.limit),
+        range,
+        language: req.body?.language || 'uz',
+      });
+      filename = reportFilename({ reportType, range, ext: 'pdf' });
     }
 
-    const buffer = await generateReportPdf({
-      reportType,
-      limit: normalizeLimit(req.body?.limit),
-      range,
-      language: req.body?.language || 'uz',
-    });
-    const filename = reportFilename({ reportType, range, ext: 'pdf' });
     await reportBot.api.sendDocument(
       req.telegramUser.id,
       new InputFile(buffer, filename),
-      { caption: `PDF hisobot: ${reportLabel(reportType)} (${range.label})` }
+      { caption: `${formatLabel} hisobot: ${reportLabel(reportType)} (${range.label})` }
     );
-    return res.json({ ok: true, format, filename });
+    // Bot shaxsiyati: fayldan keyin samimiy "oka" ohangidagi xabar.
+    await reportBot.api
+      .sendMessage(
+        req.telegramUser.id,
+        `Mana oka, ${range.label} uchun ${formatLabel} tayyor bo'ldi. Pastga qarab qo'ying 👇`
+      )
+      .catch(() => {});
+
+    return res.json({ ok: true, format, filename, period: range.label });
   })
 );
 
@@ -501,7 +508,7 @@ function resolveReportRange(body = {}) {
     return {
       from,
       to,
-      label: `${body.month}`,
+      label: `${UZ_MONTHS[month - 1] || body.month} ${year}`,
       fileLabel: body.month,
     };
   }

@@ -19,7 +19,7 @@ router.post(
 
     // Qidiruv natijalarini ham qaytaramiz (bosiladigan natijalar uchun).
     let results = [];
-    if (understanding.intent === 'SEARCH_QUERY') {
+    if (understanding.subIntent === 'SEARCH_QUERY') {
       results = await searchServices({
         text: understanding.fields?.searchText || '',
         dateFrom: understanding.fields?.dateFrom || null,
@@ -33,6 +33,7 @@ router.post(
     res.json({
       reply: agentRes.text,
       intent: understanding.intent,
+      subIntent: understanding.subIntent,
       results,
     });
   })
@@ -55,7 +56,7 @@ router.post(
 
       sendSse(res, 'progress', { text: 'Tahlil qilmoqda...' });
       let results = [];
-      if (understanding.intent === 'SEARCH_QUERY') {
+      if (understanding.subIntent === 'SEARCH_QUERY') {
         results = await searchServices({
           text: understanding.fields?.searchText || message,
           dateFrom: understanding.fields?.dateFrom || null,
@@ -68,6 +69,7 @@ router.post(
       sendSse(res, 'result', {
         reply: agentRes.text,
         intent: understanding.intent,
+        subIntent: understanding.subIntent,
         results,
       });
     } catch (err) {
