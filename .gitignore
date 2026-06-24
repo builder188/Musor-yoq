@@ -34,3 +34,6 @@ Thumbs.db
 /*.zip
 design-reference.png
 miniapp-*-check.png
+
+# Claude Code lokal sozlamalari — har bir mashinaga xos, push qilinmaydi
+.claude/settings.local.json
