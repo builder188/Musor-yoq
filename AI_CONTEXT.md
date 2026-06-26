@@ -1,5 +1,12 @@
 # AI_CONTEXT.md
 
+## 2026-06-26 USD→UZS kurs infra (CBU API + 12h kesh, global singleton)
+- `services/exchangeRateService.js getUsdToUzsRate()`: kesh<12h → CBU asosiy URL → CBU zaxira URL → eski kesh → null. 5s timeout, hech qachon throw qilmaydi. `getRateInfo()` endpoint uchun meta beradi. `parseUsdRate` Nominalga bo'ladi, vergul/nuqta formatni tushunadi.
+- `models/ExchangeRate.js` — GLOBAL singleton (`exchange_rate_cache`, base:'USD'); **tenantScopePlugin YO'Q** (kurs hamma uchun bir xil, shaxsiy emas, kontekstsiz ishlaydi).
+- `GET /api/v1/exchange-rate` → `{usdToUzsRate, rateUpdatedAt, stale, source}` (auth ortida). `index.js` startupda fonda kursni isitadi.
+- Hozircha faqat infra; bot'da dollar→so'm avtomatik konvertatsiya keyingi ish. Asosiy manba CBU rasmiy (kalit kerak emas); zaxira — CBU "barcha valyuta" endpoint'i (bir xil manba).
+- Live CBU testi tasdiqlandi (1 USD ≈ 12013 UZS).
+
 ## 2026-06-26 To'liq multi-tenant izolyatsiya (telegramUserId + AsyncLocalStorage scope plugin)
 - Endi har bir ruxsatli Telegram ID — alohida, mustaqil ma'lumotlar to'plamiga ega. Asosi: `db/tenantScope.js` — AsyncLocalStorage (`runWithUser`/`runGlobal`/`currentUserId`) + Mongoose plugin (Client/Service/Transaction/DebtPayment). Plugin har query/aggregate/save'ga `telegramUserId` qo'shadi; **kontekstsiz so'rov XATO beradi (fail-closed)** — global ataylab `runGlobal` bilan.
 - Kontekst 6 joyda: bot guard (`runWithUser(ctx.from.id)`), API router (auth'dan keyin `runWithUser(req.telegramUser.id)`), reminder cron + cleanup cron + startup repair + migratsiya (`runGlobal`). Qolgan service/route/agent/bot kodi o'zgarmadi — scope avtomatik.

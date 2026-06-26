@@ -1,5 +1,18 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-26 USD→UZS valyuta kursi infratuzilmasi (CBU rasmiy API + kesh)
+- **Maqsad:** dollar/so'm konvertatsiya uchun backend infra (hozircha faqat infra; bot'da ishlatish keyingi ish).
+- **Manba:** CBU rasmiy bepul API (kalit kerak emas) — `https://cbu.uz/uz/arkhiv-kursov-valyut/json/USD/`. Javob `[{Ccy:'USD', Rate:'12345.67', Nominal:'1', Date}]`.
+- **Model — GLOBAL singleton:** `models/ExchangeRate.js` (kolleksiya `exchange_rate_cache`, `{base:'USD', usdToUzsRate, rateUpdatedAt, source}`). Kurs hamma uchun bir xil — shaxsiy emas, shuning uchun **tenantScopePlugin QO'YILMADI** (Settings'ga emas, alohida kolleksiyaga: per-user takror bo'lmasin). Kontekstsiz ishlaydi (startup warm, har qanday joydan).
+- **Xizmat — `services/exchangeRateService.js`:**
+  - `getUsdToUzsRate()` — fallback zanjiri: (1) kesh <12 soat → o'shani; (2) eski/yo'q → CBU asosiy URL, bo'lmasa CBU "barcha valyuta" zaxira URL (ikkalasi ham CBU rasmiy), keshga yoz; (3) CBU ishlamasa → ESKI keshni qaytar; (4) kesh ham yo'q → `null` (chaqiruvchi foydalanuvchidan so'rashga o'tadi). **Hech qachon throw qilmaydi.**
+  - `fetch` 5s timeout (`AbortSignal.timeout`), xato otmasdan fallbackga o'tadi.
+  - `parseUsdRate` — massiv yoki obyekt, USD ni topadi, Nominalga bo'ladi, vergulli/nuqtali formatni tushunadi, yaroqsizda null.
+  - `getRateInfo()` — endpoint uchun: `{usdToUzsRate, rateUpdatedAt, stale, source}`.
+- **Endpoint:** `GET /api/v1/exchange-rate` (va `/api/exchange-rate`) — `routes/exchangeRate.js`, authMiddleware ortida (barcha API kabi). Kesh modeli pluginsiz, shuning uchun tenant wrapper ichida ham muammosiz.
+- **Startup warm:** `index.js` deploy'dan keyin fonda `getUsdToUzsRate()` chaqiradi (bloklamaydi) — birinchi foydalanuvchi kutmasin.
+- **Tekshiruv:** `node --check` 5 fayl OK; import-graf OK; parse+live test 10/10 PASS — **jonli CBU so'rovi haqiqiy kurs qaytardi (1 USD = 12013.52 UZS)**, nominalga bo'lish, vergul format, yaroqsizda null hammasi tasdiqlandi.
+
 ## 2026-06-26 BUG 2 — TO'LIQ MULTI-TENANT IZOLYATSIYA (har ega alohida ma'lumot)
 - **Maqsad:** bir nechta ruxsatli Telegram ID — har biri BUTUNLAY alohida ma'lumot to'plami (mijoz/xizmat/moliya). Avval baza ajratmas edi (biriniki boshqada ko'rinardi).
 - **Arxitektura (fail-closed, qo'lda har query'ni o'zgartirmasdan):** `backend/src/db/tenantScope.js` — AsyncLocalStorage konteksti (`runWithUser(userId, fn)` / `runGlobal(fn)` / `currentUserId()`) + Mongoose **plugin**. Plugin scoped modellarning (Client/Service/Transaction/DebtPayment) HAR BIR query/aggregate/save'iga avtomatik `telegramUserId` filtrini qo'shadi va create'da uni yozadi. **Kontekst yo'q bo'lsa XATO tashlaydi** — ya'ni filtrlanmagan global so'rov tasodifan ishlamaydi; global kerak bo'lsa ATAYLAB `runGlobal`. Birorta joyni "unutib" sizdirib bo'lmaydi (eng yomoni xato, sizish emas).

@@ -13,6 +13,7 @@ import apiRouter from './routes/index.js';
 import { attachReportBot } from './routes/reports.js';
 import { attachNotifierBot } from './bot/notify.js';
 import { repairMissingServiceIncome } from './services/serviceService.js';
+import { getUsdToUzsRate } from './services/exchangeRateService.js';
 import { startReminderCron } from './cron/reminders.js';
 import { startCleanupCron } from './cron/cleanup.js';
 
@@ -109,6 +110,11 @@ async function startRuntime(app) {
   // Bajarilgan, lekin balansga tushmay qolgan eski xizmatlarni fonda tiklaymiz
   // (deploy boshlanishini bloklamaydi).
   repairMissingServiceIncome().catch((err) => console.error('Daromad tiklash xatosi:', err.message));
+
+  // Valyuta kursini fonda isitamiz (kesh bo'sh bo'lsa birinchi foydalanuvchi kutmasin).
+  getUsdToUzsRate()
+    .then((rate) => rate && console.log(`Valyuta kursi yuklandi: 1 USD = ${rate} UZS`))
+    .catch((err) => console.error('Valyuta kursini isitishda xato:', err.message));
 }
 
 // Telegram "MENU" tugmasini Mini App'ga ulaydi. Tugma bosilganda Mini App ochiladi,
