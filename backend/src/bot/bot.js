@@ -41,6 +41,8 @@ bot.use(async (ctx, next) => {
     }
     return;
   }
+  // Qulaylik uchun handlerlarga ham ochiq qo'yamiz (asosiy scope AsyncLocalStorage orqali).
+  ctx.userId = String(ctx.from.id);
   await runWithUser(ctx.from.id, next);
 });
 

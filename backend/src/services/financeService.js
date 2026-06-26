@@ -1,4 +1,5 @@
 import Transaction, { TX_TYPES, EXPENSE_CATEGORIES } from '../models/Transaction.js';
+import Service from '../models/Service.js';
 import { periodRange } from '../utils/dates.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
@@ -126,7 +127,15 @@ export async function createTransaction(data) {
     description: data.description || data.note || '',
     date,
   };
-  if (data.serviceId) tx.serviceId = data.serviceId;
+  // Faqat O'Z xizmatiga bog'lashga ruxsat: boshqa egaga tegishli (yoki noto'g'ri) serviceId
+  // e'tiborsiz qoldiriladi. Aks holda analitika $lookup'i orqali boshqa foydalanuvchi
+  // mijozi ko'rinib qolishi mumkin edi. findOne plugin orqali scoped — faqat o'zinikini topadi.
+  if (data.serviceId) {
+    try {
+      const owned = await Service.findOne({ _id: data.serviceId }).select('_id').lean();
+      if (owned) tx.serviceId = data.serviceId;
+    } catch { /* noto'g'ri serviceId — bog'lamaymiz */ }
+  }
   return Transaction.create(tx);
 }
 
