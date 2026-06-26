@@ -13,7 +13,11 @@ export const EXPENSE_CATEGORIES = ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa
 const transactionSchema = new mongoose.Schema(
   {
     type: { type: String, enum: Object.values(TX_TYPES), required: true },
-    amount: { type: Number, required: true, min: 0 },
+    amount: { type: Number, required: true, min: 0 }, // YAKUNIY summa — DOIM so'mda.
+    // Asl valyuta (dollarda aytilgan bo'lsa) — faqat eslab qolish uchun; balansda so'm ishlatiladi.
+    originalAmount: { type: Number, default: null },
+    originalCurrency: { type: String, default: null },
+    exchangeRateUsed: { type: Number, default: null },
 
     category: { type: String, enum: TX_CATEGORIES, default: null },
     description: { type: String, default: '' },

@@ -1,5 +1,5 @@
 import { InlineKeyboard } from 'grammy';
-import { formatMoney } from '../utils/money.js';
+import { formatMoney, formatConversionLine } from '../utils/money.js';
 import { formatPhone } from '../utils/phone.js';
 import { formatDateTime, formatTime, dayWord } from '../utils/dates.js';
 import { encodeCoords } from './location.js';
@@ -45,9 +45,24 @@ export function serviceConfirmationText(service) {
     `💰 ${formatMoney(service.price)}`,
     `💳 ${service.paymentMethod || '-'}`,
   ];
+  const conv = conversionLineFor(service);
+  if (conv) lines.push(conv);
   if (service.notes) lines.push(`📝 ${service.notes}`);
   lines.push(EMOJI_DIVIDER);
   return lines.join('\n');
+}
+
+// Dollarda kelishilgan summa uchun shaffof konvertatsiya satri (bo'lmasa null).
+function conversionLineFor(rec = {}) {
+  if (rec._conversion) return formatConversionLine(rec._conversion);
+  if (rec.originalCurrency === 'USD' && rec.originalAmount && rec.exchangeRateUsed) {
+    return formatConversionLine({
+      originalAmount: rec.originalAmount,
+      rate: rec.exchangeRateUsed,
+      uzsAmount: rec.price ?? rec.amount,
+    });
+  }
+  return null;
 }
 
 // Tasdiqlash so'rovi (confirmAt kelganda) tugmalari — har xizmat o'z serviceId bilan.
@@ -118,23 +133,32 @@ const ENTRY_CATEGORY_LABEL = {
 // Yangi yozuv (SERVICE/EXPENSE/INCOME) saqlashdan OLDINGI yakuniy tekshirish xulosasi.
 // Barcha majburiy maydonlar yig'ilgach ko'rsatiladi; entryConfirmKeyboard bilan birga.
 export function entrySummaryText(intent, fields = {}) {
+  const conv = conversionLineFor(fields); // dollar bo'lsa: "💵 100$ → ... so'm (kurs ...)"
   if (intent === 'SERVICE_ENTRY') {
     const location = fields.location?.address || fields.location || '-';
-    return [
+    const lines = [
       'Tekshirib chiqing oka:',
       `👤 ${fields.clientName || '-'}  📱 ${formatPhone(fields.clientPhone) || fields.clientPhone || '-'}  📍 ${location}`,
       `📅 ${fields.serviceDateTime ? formatBotDateTime(fields.serviceDateTime) : '-'}  💰 ${formatMoney(fields.price)}  💳 ${fields.paymentMethod || '-'}`,
-      "Hammasi to'g'rimi?",
-    ].join('\n');
+    ];
+    if (conv) lines.push(conv);
+    lines.push("Hammasi to'g'rimi?");
+    return lines.join('\n');
   }
   if (intent === 'INCOME_ENTRY') {
     const desc = fields.description || fields.notes || fields.incomeSource || '-';
-    return ['Tekshirib chiqing:', `💰 ${formatMoney(fields.amount)} | Kirim`, `📝 ${desc}`, "To'g'rimi?"].join('\n');
+    const lines = ['Tekshirib chiqing:', `💰 ${formatMoney(fields.amount)} | Kirim`, `📝 ${desc}`];
+    if (conv) lines.push(conv);
+    lines.push("To'g'rimi?");
+    return lines.join('\n');
   }
   // EXPENSE_ENTRY
   const desc = fields.description || fields.notes || '-';
   const category = ENTRY_CATEGORY_LABEL[fields.category] || 'Boshqa';
-  return ['Tekshirib chiqing:', `💸 ${formatMoney(fields.amount)} | ${category}`, `📝 ${desc}`, "To'g'rimi?"].join('\n');
+  const lines = ['Tekshirib chiqing:', `💸 ${formatMoney(fields.amount)} | ${category}`, `📝 ${desc}`];
+  if (conv) lines.push(conv);
+  lines.push("To'g'rimi?");
+  return lines.join('\n');
 }
 
 // Yakuniy tasdiq tugmalari: [✅ Ha, to'g'ri][✏️ Yo'q, tahrirlash kerak][❌ Bekor qilish].

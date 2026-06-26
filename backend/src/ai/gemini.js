@@ -82,6 +82,7 @@ const classifyTool = {
               notes: { type: SchemaType.STRING },
               isHistorical: { type: SchemaType.BOOLEAN },
               hasDollar: { type: SchemaType.BOOLEAN, description: 'true if amount was given in USD.' },
+              currency: { type: SchemaType.STRING, enum: ['USD', 'UZS'], description: "Currency of the money amount: 'USD' if $/dollar/dollor/usd, else 'UZS'. Still fill price/amount with the number." },
               amount: { type: SchemaType.NUMBER },
               category: {
                 type: SchemaType.STRING,
@@ -528,6 +529,13 @@ function normalizeExpenseCategoryForExtraction(value) {
   return 'boshqa_chiqim';
 }
 
+// Valyutani aniqlaydi: Gemini 'currency' yoki eski 'hasDollar' belgisidan.
+function resolveCurrency(clean = {}) {
+  if (clean.currency === 'USD' || clean.hasDollar === true) return 'USD';
+  if (clean.currency === 'UZS') return 'UZS';
+  return undefined;
+}
+
 export function normalizeExtractedFields(intent, fields = {}) {
   const clean = cleanObject(fields);
 
@@ -546,6 +554,7 @@ export function normalizeExtractedFields(intent, fields = {}) {
       notes: textOrNull(clean.notes),
       isHistorical: clean.isHistorical === true,
       hasDollar: clean.hasDollar === true,
+      currency: resolveCurrency(clean),
     };
   }
 
@@ -563,6 +572,16 @@ export function normalizeExtractedFields(intent, fields = {}) {
       category: normalizeExpenseCategoryForExtraction(clean.category || clean.description),
       description: textOrNull(clean.description || clean.notes),
       date: isoOrNull(clean.date) || new Date().toISOString(),
+      currency: resolveCurrency(clean),
+    };
+  }
+
+  if (intent === 'INCOME_ENTRY') {
+    return {
+      amount: numberOrNull(clean.amount),
+      description: textOrNull(clean.description || clean.notes || clean.incomeSource),
+      date: isoOrNull(clean.date) || new Date().toISOString(),
+      currency: resolveCurrency(clean),
     };
   }
 

@@ -89,8 +89,11 @@ Extract any of these that are present; never invent the rest.
 NORMALIZATION:
 - Phone: +998XXXXXXXXX ("90 123 45 67" -> "+998901234567").
 - Money: numeric Uzbek sums ("400 ming" -> 400000, "1.5 mln" -> 1500000, "besh yuz ming" -> 500000).
-- Dollar: if the amount is in USD ("100$", "100 dollar", "usd") set hasDollar=true and
-  leave price/amount null — the owner must confirm a som value.
+- Currency: read the money currency. If the amount is in USD ("100$", "100 dollar",
+  "dollor", "usd"), set currency="USD" and STILL fill the numeric amount into price/amount
+  (e.g. "100$" -> price 100, currency "USD"). The SERVER converts USD to som automatically
+  at today's rate. If the amount is in som, set currency="UZS" (or omit). NEVER null the
+  amount for dollars and NEVER refuse a dollar amount.
 - Date/time: ISO 8601 from the current time above. "ertaga"=+1 day, "indinga"=+2 days,
   "kecha"=-1 day. Future weekday => next occurrence; past-tense weekday => previous one.
   If a service has no time, use 09:00.
@@ -100,13 +103,13 @@ NORMALIZATION:
   changes service paymentStatus/paidAmount (no separate debt ledger).
 
 DATA EXTRACTION CONTRACT:
-- SERVICE_ENTRY: clientName, clientPhone, location, serviceDateTime, price, paymentMethod, notes, isHistorical.
-- EXPENSE_ENTRY: amount, category, description, date (default today if absent; default category "boshqa_chiqim").
-- INCOME_ENTRY:  amount, description, date.
+- SERVICE_ENTRY: clientName, clientPhone, location, serviceDateTime, price, currency, paymentMethod, notes, isHistorical.
+- EXPENSE_ENTRY: amount, currency, category, description, date (default today if absent; default category "boshqa_chiqim").
+- INCOME_ENTRY:  amount, currency, description, date.
 - SERVICE_EDIT:  targetIdentifier, editField ("narx"|"sana"|"manzil"), newValue (normalized).
 - CLIENT_EDIT:   targetIdentifier, editField ("ism"|"telefon"), newValue (phone -> +998...).
 - STATUS_UPDATE: targetClientName/targetPhone, newStatus ("bajarildi"|"bekor_qilindi").
-- PAYMENT_UPDATE: targetClientName/targetPhone, paymentAmount.
+- PAYMENT_UPDATE: targetClientName/targetPhone, paymentAmount, currency.
 - SEARCH_QUERY:  searchText, dateFrom, dateTo.
 - ANALYTICS_QUERY: analyticsPeriod, analyticsMetric.
 
@@ -127,6 +130,9 @@ Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.95,"reason":"
 
 Input: "kecha benzinga 80 ming ketdi"
 Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.95,"reason":"fuel expense","fields":{"amount":80000,"category":"yoqilgi","description":"benzin","date":"<yesterday ISO>"}}
+
+Input: "Kamol akaga ertaga soat 10da 100$ naqd, Yunusobod"
+Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.92,"reason":"new job priced in USD; server converts to som","fields":{"clientName":"Kamol aka","location":"Yunusobod","serviceDateTime":"<tomorrow 10:00 ISO>","price":100,"currency":"USD","paymentMethod":"naqd"}}
 
 Input: "yog' va guruch oldim 90 ming"
 Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.9,"reason":"groceries by meaning","fields":{"amount":90000,"category":"oziq-ovqat","description":"yog' va guruch"}}

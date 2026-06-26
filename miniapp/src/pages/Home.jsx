@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatDate, formatPhone } from '../utils/format.js';
+import { formatMoney, formatDate, formatPhone, formatDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import { useNavigationView } from '../components/useNavigationView.js';
@@ -68,6 +68,7 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
         <div>
           <div className="greet-date">{greetingDate(lang)}</div>
           <div className="greet-hello">{t('home.greeting')}</div>
+          <RateChip />
         </div>
         <button className="icon-btn" aria-label={t('settings.title')} onClick={() => goToTab?.('settings')}>
           ⚙️
@@ -148,6 +149,26 @@ function formatNumber(n) {
   return Math.round(Number(n) || 0)
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+// Bosh sahifada kichik real-time dollar kursi (CBU). 12 soatlik kesh — serverda.
+function RateChip() {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    api.get('/exchange-rate').then((d) => { if (alive) setInfo(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  if (!info?.usdToUzsRate) return null;
+  const title = info.rateUpdatedAt ? `Yangilangan: ${formatDateTime(info.rateUpdatedAt)} (CBU)` : 'Markaziy bank kursi (CBU)';
+  return (
+    <div
+      title={title}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 12, opacity: 0.7, fontWeight: 600 }}
+    >
+      💵 1$ = {formatNumber(info.usdToUzsRate)} so'm
+    </div>
+  );
 }
 
 function SearchResults({ clients, searching, onOpenClient }) {

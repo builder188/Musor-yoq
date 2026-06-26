@@ -24,14 +24,17 @@ import {
   recordServicePayment,
   editService,
   rescheduleService,
+  getTodayPendingServices,
+  getTodayServices,
 } from '../services/serviceService.js';
-import { createTransaction, getSummary, listTransactions } from '../services/financeService.js';
+import { createTransaction, getSummary, getBalanceReport, listTransactions } from '../services/financeService.js';
 import { listClients, updateClient } from '../services/clientService.js';
 import { searchServices, findServiceForUpdate, findClient, findClientsByName } from '../services/searchService.js';
+import { getUsdToUzsRate } from '../services/exchangeRateService.js';
 import { TX_TYPES } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
-import { formatMoney, parseMoney } from '../utils/money.js';
-import { formatDateTime, formatDate, parseHumanDateTime } from '../utils/dates.js';
+import { formatMoney, parseMoney, convertUsdToUzs } from '../utils/money.js';
+import { formatDateTime, formatDate, formatTime, parseHumanDateTime } from '../utils/dates.js';
 import { formatPhone, normalizePhone } from '../utils/phone.js';
 import {
   editConfirmKeyboard,
@@ -186,13 +189,9 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
   if (clarify) return startClarify({ clarify, understanding, rawText, conversation });
 
   // 3) Aniq amal (sub-action) — MongoDB operatsiyasi shu darajada bajariladi.
+  // Eslatma: dollar endi RAD ETILMAYDI — summa avtomatik so'mga aylantiriladi (pastdagi
+  // applyCurrencyConversion / handlePaymentUpdate / handleServiceEdit).
   const action = resolveAction(understanding);
-
-  if (requiresSomConfirmation(action, understanding, rawText)) {
-    return {
-      text: "Oka, dollarni saqlay olmayman. Taxminan qancha so'm bo'ladi — so'mda aytib bering.",
-    };
-  }
 
   switch (action) {
     case 'SERVICE_ENTRY':
@@ -221,6 +220,18 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
         action === 'ANALYTICS_QUERY' || hasAnalyticsSignal(understanding.fields)
           ? 'ANALYTICS_QUERY'
           : 'SEARCH_QUERY';
+      // BALANS so'rovi — standartlashtirilgan boy hisobot shabloni (deterministik, aniq format).
+      if (suxbat === 'ANALYTICS_QUERY') {
+        return buildBalanceReport(balancePeriod(understanding.fields));
+      }
+      // MIJOZLAR so'rovi (aniq sana/filtrsiz "mijozlar haqida") — bugungi mijozlar shabloni.
+      if (looksLikeTodayClients(rawText, understanding.fields)) {
+        return buildTodayClientsReport();
+      }
+      // XIZMATLAR so'rovi (aniq sana/filtrsiz "xizmatlar haqida") — bugungi xizmatlar qisqa shabloni.
+      if (looksLikeTodayServices(rawText, understanding.fields)) {
+        return buildTodayServicesReport();
+      }
       return executeToolFlow({ intent: suxbat, fields: understanding.fields || {}, rawText, mode });
     }
 
@@ -313,18 +324,79 @@ async function startClarify({ clarify, understanding, rawText, conversation }) {
   return { text: clarify.question, keyboard: clarifyKeyboard(options) };
 }
 
-function requiresSomConfirmation(action, understanding, rawText) {
-  if (!['SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'SERVICE_EDIT'].includes(action)) return false;
-  if (understanding?.fields?.hasDollar === true) return true;
-  // FAQAT foydalanuvchi matnini tekshiramiz. Avval fields JSON ham qo'shilgan edi, lekin
-  // normalizatsiyada "hasDollar" kaliti har doim bo'lgani uchun JSON ichida "dollar" so'zi
-  // doim uchrar, regex DOIM mos kelib har bir xizmat yozuviga noto'g'ri "dollarni saqlay
-  // olmayman" javobi chiqardi — dollar aytilmasa ham.
-  return /(\$|dollar|dollor|\busd\b)/i.test(String(rawText || ''));
+// ── Valyuta (dollar/so'm) aniqlash va avtomatik konvertatsiya ────────────────
+// Qaysi maydon pul summasi (intent bo'yicha).
+const AMOUNT_KEY = { SERVICE_ENTRY: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount' };
+const USD_RE = /(\$|dollar|dollor|\bdoll?ar\b|\busd\b)/i;
+
+function detectUsd(text) {
+  return USD_RE.test(String(text || ''));
+}
+
+// Bu xabar summasini dollarda berdimi? Gemini 'currency'/'hasDollar' yoki matndagi $/dollar.
+function signalsUsd(fields = {}, rawText = '') {
+  return fields?.currency === 'USD' || fields?.hasDollar === true || detectUsd(rawText);
+}
+
+// Summa kelgan xabarning valyutasini collected.currency ga yozadi (faqat summa shu turda
+// o'zgargan/birinchi marta kelgan bo'lsa — keyingi som korreksiya USD'ni o'chiradi va aksincha).
+function trackEntryCurrency(intent, collected, prevAmount, fields, rawText) {
+  const key = AMOUNT_KEY[intent];
+  if (!key) return collected;
+  const amount = collected[key];
+  if (typeof amount !== 'number' || amount <= 0) return collected;
+  if (amount !== prevAmount || collected.currency === undefined) {
+    collected.currency = signalsUsd(fields, rawText) ? 'USD' : 'UZS';
+  }
+  return collected;
+}
+
+// USD bo'lsa kurs orqali so'mga aylantiradi va asl qiymatni eslab qoladi. Kurs bo'lmasa
+// { needSom } qaytaradi (chaqiruvchi foydalanuvchidan so'mda so'raydi). IDEMPOTENT:
+// aylantirgach currency='UZS' bo'ladi, qayta chaqirilsa hech narsa qilmaydi.
+async function applyCurrencyConversion(intent, collected) {
+  const key = AMOUNT_KEY[intent];
+  if (!key) return { collected };
+  const amount = collected[key];
+  if (collected.currency !== 'USD' || typeof amount !== 'number' || amount <= 0) return { collected };
+  const rate = await getUsdToUzsRate();
+  if (!rate) return { collected, needSom: true, usdAmount: amount };
+  const uzs = convertUsdToUzs(amount, rate);
+  return {
+    collected: {
+      ...collected,
+      [key]: uzs,
+      currency: 'UZS',
+      originalAmount: amount,
+      originalCurrency: 'USD',
+      exchangeRateUsed: rate,
+      _conversion: { originalAmount: amount, rate, uzsAmount: uzs },
+    },
+  };
+}
+
+// Kurs yo'q paytidagi zaxira: summa maydonini bo'shatib, so'mda qayta so'raydi.
+async function currencyFallback({ conversation, intent, collected, usdAmount }) {
+  const key = AMOUNT_KEY[intent];
+  const cleaned = { ...collected };
+  if (key) delete cleaned[key];
+  delete cleaned.currency;
+  delete cleaned._conversion;
+  if (conversation) {
+    conversation.pendingIntent = intent;
+    conversation.collected = cleaned;
+    conversation.awaitingField = key;
+    conversation.markModified('collected');
+    await conversation.save();
+  }
+  return {
+    text: `Hozir dollar kursini ololmadim oka 😕\n${usdAmount}$ taxminan qancha so'm bo'ladi — so'mda yozib bering.`,
+  };
 }
 
 async function startEntry({ conversation, intent, fields, rawText, mode }) {
   const collected = applyEntryDefaults(intent, mergeFields({}, fields));
+  trackEntryCurrency(intent, collected, undefined, fields, rawText);
   const missing = nextMissing(intent, collected);
 
   if (missing) {
@@ -359,12 +431,16 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
   }
 
   const intent = conversation.pendingIntent;
+  const amountKey = AMOUNT_KEY[intent];
+  const prevAmount = amountKey ? conversation.collected?.[amountKey] : undefined;
   let collected = mergeFields(conversation.collected || {}, understanding.fields || {});
 
   if (conversation.awaitingField && !hasValue(conversation.awaitingField, collected)) {
     collected = applyRawValue(conversation.awaitingField, rawText, collected);
   }
   collected = applyEntryDefaults(intent, collected);
+  // Summa shu turda kelgan/o'zgargan bo'lsa — valyutasini (USD/UZS) belgilab qo'yamiz.
+  trackEntryCurrency(intent, collected, prevAmount, understanding.fields || {}, rawText);
 
   const missing = nextMissing(intent, collected);
   if (missing) {
@@ -381,6 +457,11 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
 // Barcha majburiy maydonlar yig'ilgach — DARHOL saqlamaymiz. Avval yakuniy tekshirish
 // xulosasini ko'rsatamiz (3 tugma); foydalanuvchi tasdiqlagandan keyingina saqlanadi.
 async function finalizeEntry({ conversation, intent, collected, rawText, mode }) {
+  // Dollar bo'lsa — so'mga aylantiramiz (yoki kurs yo'q bo'lsa so'mda qayta so'raymiz).
+  const conv = await applyCurrencyConversion(intent, collected);
+  if (conv.needSom) return currencyFallback({ conversation, intent, collected, usdAmount: conv.usdAmount });
+  collected = conv.collected;
+
   if (conversation && mode === 'bot') {
     conversation.pendingIntent = 'ENTRY_CONFIRM';
     conversation.collected = { confirmIntent: intent, fields: collected, rawText };
@@ -446,7 +527,25 @@ export async function editPendingEntry({ conversation, understanding, rawText = 
   if (!conversation || conversation.pendingIntent !== 'ENTRY_CONFIRM' || !intent) {
     throw new Error("Tahrirlanadigan ma'lumot topilmadi");
   }
-  const updated = buildEditedFields(intent, pending.fields || {}, understanding);
+  let updated = buildEditedFields(intent, pending.fields || {}, understanding);
+
+  // Summa tahrirlangan bo'lsa — valyutani shu tahrirdan qayta baholaymiz va eski
+  // konvertatsiya izlarini tozalaymiz (dollar→so'm yoki so'm→so'm to'g'ri ko'rinsin).
+  const amountKey = AMOUNT_KEY[intent];
+  const u = understanding?.fields || {};
+  const editedKey = u.editField ? EDIT_FIELD_TO_ENTRY[String(u.editField).toLowerCase()] : null;
+  const touchedAmount = amountKey && (u[amountKey] !== undefined || editedKey === amountKey);
+  if (touchedAmount) {
+    updated = { ...updated, currency: signalsUsd(u, rawText) ? 'USD' : 'UZS' };
+    delete updated.originalAmount;
+    delete updated.originalCurrency;
+    delete updated.exchangeRateUsed;
+    delete updated._conversion;
+    const conv = await applyCurrencyConversion(intent, updated);
+    if (conv.needSom) return currencyFallback({ conversation, intent, collected: updated, usdAmount: conv.usdAmount });
+    updated = conv.collected;
+  }
+
   const missing = nextMissing(intent, updated);
   if (missing) {
     conversation.pendingIntent = intent;
@@ -478,6 +577,14 @@ async function handlePaymentUpdate({ fields, rawText, conversation, mode }) {
   const identifier = fields.targetPhone || fields.clientPhone || fields.targetClientName || fields.clientName;
   if (!identifier) return { text: "Qaysi mijoz to'lov qildi, oka? Ism yoki telefon raqamini yuboring." };
   if (!(fields.paymentAmount || fields.amount)) return { text: "Qancha to'lov qildi, oka?" };
+  // To'lov dollarda aytilgan bo'lsa — so'mga aylantiramiz (kurs yo'q bo'lsa so'mda so'raymiz).
+  if (signalsUsd(fields, rawText)) {
+    const usd = fields.paymentAmount || fields.amount;
+    const rate = await getUsdToUzsRate();
+    if (!rate) return { text: `Hozir dollar kursini ololmadim oka 😕\n${usd}$ taxminan qancha so'm — so'mda ayting.` };
+    const uzs = convertUsdToUzs(usd, rate);
+    fields = { ...fields, paymentAmount: uzs, amount: uzs };
+  }
   const disambiguation = await maybeDisambiguate({ fields, conversation, intent: 'PAYMENT_UPDATE' });
   if (disambiguation) return disambiguation;
   return executeToolFlow({ intent: 'PAYMENT_UPDATE', fields, rawText, mode });
@@ -530,7 +637,16 @@ async function handleServiceEdit({ fields, rawText, conversation, mode }) {
   const service = await findServiceByIdentifier(identifier);
   if (!service) return { text: "Bunaqa xizmatni topolmadim oka. Mijoz ismi, telefoni yoki sanasini aniqroq ayting." };
 
-  const { data, display } = buildServiceEditData(fieldKey, fields.newValue);
+  // Narx dollarda aytilgan bo'lsa — so'mga aylantiramiz (kurs yo'q bo'lsa so'mda so'raymiz).
+  let newValue = fields.newValue;
+  if (fieldKey === 'price' && signalsUsd(fields, rawText)) {
+    const usd = parseMoney(newValue);
+    const rate = await getUsdToUzsRate();
+    if (!rate) return { text: `Hozir dollar kursini ololmadim oka 😕\n${usd}$ qancha so'm — so'mda ayting.` };
+    newValue = convertUsdToUzs(usd, rate);
+  }
+
+  const { data, display } = buildServiceEditData(fieldKey, newValue);
   if (data === null) return { text: "Yangi qiymatni tushunmadim oka, aniqroq yozing." };
 
   if (conversation) {
@@ -774,7 +890,13 @@ async function editAgentService(args) {
   if (!service) throw new Error("Bunaqa xizmatni topolmadim oka. Mijoz ismi, telefoni yoki sanasini aniqroq ayting.");
   const fieldKey = SERVICE_EDIT_FIELD[String(args.field || '').toLowerCase()];
   if (!fieldKey) throw new Error("Qaysi maydonni oka? Narx, sana yoki manzil.");
-  const { data } = buildServiceEditData(fieldKey, args.value);
+  let value = args.value;
+  if (fieldKey === 'price' && signalsUsd(args, String(args.value ?? ''))) {
+    const rate = await getUsdToUzsRate();
+    if (!rate) throw new Error("Hozir dollar kursini ololmadim oka. So'mda ayting.");
+    value = convertUsdToUzs(parseMoney(value), rate);
+  }
+  const { data } = buildServiceEditData(fieldKey, value);
   if (!data) throw new Error("Yangi qiymatni tushunmadim oka.");
   return serializeService(await editService(service._id, data));
 }
@@ -851,6 +973,9 @@ async function createAgentTransaction(args) {
     description: args.description || args.note || '',
     date: args.date || null,
     serviceId: args.serviceId || null,
+    originalAmount: args.originalAmount ?? null,
+    originalCurrency: args.originalCurrency ?? null,
+    exchangeRateUsed: args.exchangeRateUsed ?? null,
   });
   return serializeDoc(tx);
 }
@@ -939,11 +1064,14 @@ function fallbackToolCall(intent, fields, rawText) {
         name,
         args: {
           type: intent === 'INCOME_ENTRY' ? 'income' : 'expense',
-          amount: fields.amount,
+          amount: fields.amount, // allaqachon so'mda
           category: fields.category,
           description: fields.description || fields.notes || fields.incomeSource || rawText,
           date: fields.date || null,
           serviceId: fields.serviceId || null,
+          originalAmount: fields.originalAmount ?? null,
+          originalCurrency: fields.originalCurrency ?? null,
+          exchangeRateUsed: fields.exchangeRateUsed ?? null,
         },
       };
     case 'record_payment':
@@ -985,12 +1113,16 @@ function serviceArgs(fields) {
     clientPhone: fields.clientPhone,
     location: fields.location,
     serviceDateTime: fields.serviceDateTime,
-    price: fields.price,
+    price: fields.price, // allaqachon so'mda (kerak bo'lsa konvertatsiya qilingan)
     paymentMethod: fields.paymentMethod,
     notes: fields.notes || '',
     isHistorical: !!fields.isHistorical,
     images: fields.images || [],
     imageFileId: fields.imageFileId || null,
+    // Asl valyuta (dollarda kelishilgan bo'lsa) — eslab qolish uchun.
+    originalAmount: fields.originalAmount ?? null,
+    originalCurrency: fields.originalCurrency ?? null,
+    exchangeRateUsed: fields.exchangeRateUsed ?? null,
   };
 }
 
@@ -1037,6 +1169,9 @@ function serializeService(service) {
     reminderAt: s.reminderAt,
     confirmAt: s.confirmAt,
     notes: s.notes,
+    originalAmount: s.originalAmount ?? null,
+    originalCurrency: s.originalCurrency ?? null,
+    exchangeRateUsed: s.exchangeRateUsed ?? null,
   };
 }
 
@@ -1114,6 +1249,161 @@ function analyticsSummary(result) {
     `💸 Chiqim: ${formatMoney(result.expense || 0)}`,
     `⚖️ Sof balans: ${formatMoney(result.balance || 0)}`,
   ].join('\n');
+}
+
+// ── Standartlashtirilgan so'rov-javob shablonlari ─────────────────────────────
+
+const PERIOD_LABEL = {
+  today: 'bugun',
+  week: 'bu hafta',
+  month: 'bu oy',
+  last_month: "o'tgan oy",
+  year: 'bu yil',
+  all: 'umumiy',
+};
+
+// Balans davri: davr aytilmasa — JORIY (umumiy) balans.
+function balancePeriod(fields = {}) {
+  const p = fields?.analyticsPeriod;
+  if (p && ['today', 'week', 'month', 'last_month', 'year', 'all'].includes(p)) return p;
+  return 'all';
+}
+
+// 1. BALANS SO'ROVI — boy hisobot shabloni (real aggregatsiyadan).
+async function buildBalanceReport(period) {
+  const r = await getBalanceReport(period);
+  const lines = [
+    `💰 Balans hisoboti (${PERIOD_LABEL[period] || 'umumiy'})`,
+    '',
+    `💵 Umumiy balans: ${formatMoney(r.balance || 0)}`,
+    `📈 Kirim: ${formatMoney(r.income || 0)}`,
+    `📉 Chiqim: ${formatMoney(r.expense || 0)}`,
+    '',
+  ];
+  if (r.biggestExpense) {
+    lines.push(
+      `🔺 Eng katta xarajat: ${formatMoney(r.biggestExpense.amount)} (${CATEGORY_LABEL[r.biggestExpense.category] || 'Boshqa'}, ${formatDate(r.biggestExpense.date)})`
+    );
+  }
+  if (r.smallestExpense) {
+    lines.push(
+      `🔻 Eng kichik xarajat: ${formatMoney(r.smallestExpense.amount)} (${CATEGORY_LABEL[r.smallestExpense.category] || 'Boshqa'}, ${formatDate(r.smallestExpense.date)})`
+    );
+  }
+  if (r.topService) {
+    lines.push(
+      `🏆 Eng qimmat xizmat: ${r.topService.clientName || 'mijoz'} — ${formatMoney(r.topService.price)} (${formatDate(r.topService.date)})`
+    );
+  }
+  lines.push(`✅ Bajarilgan xizmatlar: ${r.doneCount} ta`);
+  lines.push(`⏳ Kutilayotgan xizmatlar: ${r.pendingCount} ta`);
+  return { text: lines.join('\n'), tool: 'balance_report' };
+}
+
+const KEYCAP_EMOJI = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+function listNumber(i) {
+  return KEYCAP_EMOJI[i] || `${i + 1}.`;
+}
+
+// Aniq sana/filtrsiz "mijozlar haqida ma'lumot" / "hozir kimga borishim kerak" so'rovini
+// aniqlaydi (aniq joy/sana berilgan qidiruvni o'zgartirmaydi).
+function looksLikeTodayClients(rawText = '', fields = {}) {
+  if (fields?.dateFrom || fields?.dateTo) return false;
+  const v = String(rawText || '').toLowerCase();
+  // "hozir kimga/qayerga borishim/boraman" — kelasi/hozirgi zamon (o'tgan "borganman" emas).
+  if (/(kim|qayer)\w*\s+bor(ish|a)/.test(v)) return true;
+  if (/\bnavbat(dagi|da|im)?\b/.test(v)) return true;
+  if (/\bbugun(gi)?\b[\s\S]{0,15}\bmijoz/.test(v)) return true;
+  if (
+    /\bmijoz(lar|im|larim)?\b/.test(v) &&
+    /(bugun|hozir|haqida|royxat|ro['’]?yxat|malumot|ma['’]?lumot|kim|qaysi|necha)/.test(v)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+// 2. MIJOZLAR SO'ROVI — bugungi mijozlar shabloni + eng yaqin mijoz tavsiyasi.
+async function buildTodayClientsReport() {
+  const services = await getTodayPendingServices();
+  if (!services.length) {
+    return { text: 'Bugun uchun barcha ishlar tugadi oka 🎉', tool: 'today_clients' };
+  }
+
+  const lines = services.map((s, i) => {
+    const name = s.clientName || 'Nomsiz';
+    const time = formatTime(s.serviceDateTime);
+    const address = s.location?.address || '-';
+    return `${listNumber(i)} ${name} — ${time} — 📍${address}`;
+  });
+
+  // Eng yaqin mijoz: joriy vaqtga serviceDateTime bo'yicha eng yaqini (faqat vaqt, masofa emas).
+  const now = Date.now();
+  let nearest = services[0];
+  let best = Math.abs(new Date(nearest.serviceDateTime).getTime() - now);
+  for (const s of services) {
+    const diff = Math.abs(new Date(s.serviceDateTime).getTime() - now);
+    if (diff < best) {
+      best = diff;
+      nearest = s;
+    }
+  }
+
+  const text = [
+    "Ha bo'ldi oka, mana mijozlar haqida ma'lumot 📋",
+    '',
+    'Bugungi mijozlar:',
+    ...lines,
+    '',
+    `👉 Hozir siz ${nearest.clientName || 'mijoz'} xizmatiga borishingiz kerak`,
+  ].join('\n');
+  return { text, tool: 'today_clients' };
+}
+
+// Aniq sana/filtrsiz "xizmatlar haqida" / "bugungi ishlar" so'rovini aniqlaydi.
+// "mijoz" emas, "xizmat/ish/reja" so'zlariga tayanadi (aniq joy/sana qidiruvi — bunda emas).
+function looksLikeTodayServices(rawText = '', fields = {}) {
+  if (fields?.dateFrom || fields?.dateTo) return false;
+  const v = String(rawText || '').toLowerCase();
+  if (/\bbugun(gi)?\b[\s\S]{0,15}\b(xizmat|ish|reja)/.test(v)) return true;
+  if (
+    /\b(xizmat(lar|im|larim)?|ish(lar|im|larim)?|reja(m|lar|larim)?)\b/.test(v) &&
+    /(bugun|hozir|haqida|royxat|ro['’]?yxat|malumot|ma['’]?lumot|qaysi|qanday|necha|qancha|bor)/.test(v)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+const SERVICE_STATUS_ICON = {
+  [SERVICE_STATUS.DONE]: '✅',
+  [SERVICE_STATUS.PENDING]: '⏳',
+};
+
+// 3. XIZMATLAR SO'ROVI — bugungi xizmatlar qisqa shabloni (status ikonkalari + yakuniy son).
+async function buildTodayServicesReport() {
+  const services = await getTodayServices();
+  if (!services.length) {
+    return { text: "Bugun uchun xizmat yo'q oka 📭", tool: 'today_services' };
+  }
+
+  const lines = services.map((s, i) => {
+    const name = s.clientName || 'Nomsiz';
+    const time = formatTime(s.serviceDateTime);
+    const icon = SERVICE_STATUS_ICON[s.status] || '⏳';
+    return `${listNumber(i)} ${name} — ${time} ${icon}`;
+  });
+  const done = services.filter((s) => s.status === SERVICE_STATUS.DONE).length;
+  const pending = services.filter((s) => s.status === SERVICE_STATUS.PENDING).length;
+
+  const text = [
+    `🧹 Bugungi xizmatlar (${services.length} ta)`,
+    '',
+    ...lines,
+    '',
+    `✅ ${done} bajarildi · ⏳ ${pending} kutilmoqda`,
+  ].join('\n');
+  return { text, tool: 'today_services' };
 }
 
 export default { runAgent };

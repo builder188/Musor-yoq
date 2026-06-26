@@ -1,5 +1,5 @@
 import Transaction, { TX_TYPES, EXPENSE_CATEGORIES } from '../models/Transaction.js';
-import Service from '../models/Service.js';
+import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { periodRange } from '../utils/dates.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
@@ -62,6 +62,46 @@ export async function getSummary(period = 'all') {
   return { period, income, expense, totalIncome: income, totalExpense: expense, balance: income - expense, from, to };
 }
 
+// Boyitilgan balans hisoboti (standartlashtirilgan shablon uchun): kirim/chiqim/balans
+// ustiga eng katta/kichik xarajat, eng qimmat xizmat va bajarilgan/kutilayotgan xizmat soni.
+// Barcha qiymatlar real aggregatsiyadan (davr filtri bilan); tenant plugin avtomatik scope qiladi.
+export async function getBalanceReport(period = 'all') {
+  const { from, to } = periodRange(period);
+  const summary = await getSummary(period);
+
+  const expenseMatch = { ...notDeleted, type: TX_TYPES.EXPENSE, date: { $gte: from, $lte: to } };
+  const serviceMatch = { ...notDeleted, serviceDateTime: { $gte: from, $lte: to } };
+
+  // Eng katta / eng kichik xarajat va eng qimmat xizmat — bitta-bittadan top yozuv.
+  const [maxExpense] = await Transaction.aggregate([{ $match: expenseMatch }, { $sort: { amount: -1 } }, { $limit: 1 }]);
+  const [minExpense] = await Transaction.aggregate([{ $match: expenseMatch }, { $sort: { amount: 1 } }, { $limit: 1 }]);
+  const [topService] = await Service.aggregate([
+    { $match: serviceMatch },
+    { $sort: { price: -1 } },
+    { $limit: 1 },
+    { $project: { clientName: 1, price: 1, serviceDateTime: 1 } },
+  ]);
+
+  // Kutilayotgan xizmatlar: aniq davr berilsa o'sha oraliq; umumiy (joriy) holatda
+  // kelajakdagilar ham sanaladi (yuqori chegara qo'yilmaydi).
+  const pendingFilter = { ...notDeleted, status: SERVICE_STATUS.PENDING };
+  pendingFilter.serviceDateTime = period === 'all' ? { $gte: from } : { $gte: from, $lte: to };
+
+  const [doneCount, pendingCount] = await Promise.all([
+    Service.countDocuments({ ...notDeleted, status: SERVICE_STATUS.DONE, serviceDateTime: { $gte: from, $lte: to } }),
+    Service.countDocuments(pendingFilter),
+  ]);
+
+  return {
+    ...summary,
+    biggestExpense: maxExpense ? { amount: maxExpense.amount, category: maxExpense.category, date: maxExpense.date } : null,
+    smallestExpense: minExpense ? { amount: minExpense.amount, category: minExpense.category, date: minExpense.date } : null,
+    topService: topService ? { clientName: topService.clientName, price: topService.price, date: topService.serviceDateTime } : null,
+    doneCount,
+    pendingCount,
+  };
+}
+
 export async function getMonthlyChart(year = new Date().getFullYear()) {
   const from = new Date(year, 0, 1);
   const to = new Date(year, 11, 31, 23, 59, 59, 999);
@@ -119,13 +159,16 @@ export async function createTransaction(data) {
 
   const tx = {
     type,
-    amount,
+    amount, // DOIM so'mda (agent dollarni oldindan aylantiradi)
     category: normalizeCategory(
       type,
       data.category || (type === TX_TYPES.EXPENSE ? detectExpenseCategory(data.description || data.note || '') : null)
     ),
     description: data.description || data.note || '',
     date,
+    originalAmount: data.originalAmount ?? null,
+    originalCurrency: data.originalCurrency ?? null,
+    exchangeRateUsed: data.exchangeRateUsed ?? null,
   };
   // Faqat O'Z xizmatiga bog'lashga ruxsat: boshqa egaga tegishli (yoki noto'g'ri) serviceId
   // e'tiborsiz qoldiriladi. Aks holda analitika $lookup'i orqali boshqa foydalanuvchi

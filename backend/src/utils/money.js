@@ -43,3 +43,18 @@ export function formatMoney(amount) {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
   return `${sign}${formatted} so'm`;
 }
+
+// USD summasini so'mga aylantiradi, 100 so'mgacha yaxlitlaydi.
+export function convertUsdToUzs(amount, rate) {
+  const usd = Number(amount);
+  const r = Number(rate);
+  if (!Number.isFinite(usd) || !Number.isFinite(r) || usd <= 0 || r <= 0) return null;
+  return Math.round((usd * r) / 100) * 100;
+}
+
+// Shaffoflik uchun konvertatsiya satri (tasdiqlash/xulosa xabarida):
+//   "💵 100$ → 1 205 200 so'm (kurs: 1$ = 12 052 so'm)"
+export function formatConversionLine({ originalAmount, rate, uzsAmount } = {}) {
+  if (!originalAmount || !rate || !uzsAmount) return null;
+  return `💵 ${originalAmount}$ → ${formatMoney(uzsAmount)} (kurs: 1$ = ${formatMoney(rate)})`;
+}

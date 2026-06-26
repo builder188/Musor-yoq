@@ -38,7 +38,11 @@ const serviceSchema = new mongoose.Schema(
     serviceDateTime: { type: Date, required: true, index: true },
     isHistorical: { type: Boolean, default: false },
 
-    price: { type: Number, required: true, min: 0 },
+    price: { type: Number, required: true, min: 0 }, // YAKUNIY summa — DOIM so'mda (balans/hisobot shu).
+    // Asl valyuta (dollarda kelishilган bo'lsa) — faqat eslab qolish uchun; balansda ishlatilmaydi.
+    originalAmount: { type: Number, default: null }, // mas. 100
+    originalCurrency: { type: String, default: null }, // mas. 'USD'
+    exchangeRateUsed: { type: Number, default: null }, // mas. 12052 (1$ = ... so'm)
     paymentMethod: { type: String, enum: PAYMENT_METHODS, required: true },
     paymentStatus: {
       type: String,

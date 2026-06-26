@@ -8,6 +8,7 @@ import Transaction, { TX_TYPES } from '../models/Transaction.js';
 import { findOrCreateClient } from './clientService.js';
 import { computeServiceSchedule, applyServiceSchedule } from './reminderService.js';
 import { runGlobal } from '../db/tenantScope.js';
+import { startOfDay, endOfDay } from '../utils/dates.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -114,7 +115,10 @@ export async function createService(data) {
     clientPhone: client.phone,
     location,
     serviceDateTime,
-    price,
+    price, // DOIM so'mda (agent dollarni oldindan aylantiradi)
+    originalAmount: data.originalAmount ?? null,
+    originalCurrency: data.originalCurrency ?? null,
+    exchangeRateUsed: data.exchangeRateUsed ?? null,
     paymentMethod: data.paymentMethod,
     notes: data.notes || '',
     images: normalizeImages(data.images, data.imageFileId),
@@ -399,6 +403,30 @@ export async function listServices({
     Service.countDocuments(filter),
   ]);
   return { items, page: pageNumber, limit: limitNumber, total };
+}
+
+// Bugungi (Asia/Tashkent kun chegarasi) kutilayotgan xizmatlar, vaqt bo'yicha tartiblangan.
+// "Mijozlar haqida ma'lumot" standart shabloni va eng yaqin mijoz tavsiyasi uchun.
+export async function getTodayPendingServices() {
+  return Service.find({
+    ...notDeleted,
+    status: SERVICE_STATUS.PENDING,
+    serviceDateTime: { $gte: startOfDay(), $lte: endOfDay() },
+  })
+    .sort({ serviceDateTime: 1 })
+    .lean();
+}
+
+// Bugungi barcha xizmatlar (kutilmoqda + bajarildi; bekor qilingani chiqmaydi), vaqt
+// bo'yicha tartiblangan. "Xizmatlar haqida ma'lumot" qisqa shabloni uchun.
+export async function getTodayServices() {
+  return Service.find({
+    ...notDeleted,
+    status: { $in: [SERVICE_STATUS.PENDING, SERVICE_STATUS.DONE] },
+    serviceDateTime: { $gte: startOfDay(), $lte: endOfDay() },
+  })
+    .sort({ serviceDateTime: 1 })
+    .lean();
 }
 
 export async function listUpcomingServices(days = 7) {

@@ -1,5 +1,19 @@
 # AI_CONTEXT.md
 
+## 2026-06-26 Dollar/so'm avto-konvertatsiya (rad etish olib tashlandi)
+- Bot endi dollarni RAD ETMAYDI (`agent.requiresSomConfirmation` o'chirildi). "100$"/"100 dollar" → summa + `currency='USD'` ajratiladi (Gemini `currency` maydoni + `agent.detectUsd` regex zaxira), `getUsdToUzsRate()` bilan so'mga aylantiriladi (`money.convertUsdToUzs=round(amount*rate/100)*100`).
+- Valyuta `rawText`dan alohida kuzatiladi (`trackEntryCurrency`) chunki `parseMoney("100$")=100` belgini tashlaydi. Konvertatsiya: `applyCurrencyConversion` (idempotent) — `finalizeEntry`, `handlePaymentUpdate`, `handleServiceEdit`/`editAgentService`, `editPendingEntry`. Kurs yo'q → `currencyFallback` (so'mda qayta so'raydi).
+- Asl valyuta saqlanadi: `originalAmount/originalCurrency/exchangeRateUsed` (Service+Transaction); balans/hisobot DOIM so'mda. Tasdiq/xulosa xabarida `formatConversionLine` ("💵 100$ → 1 205 200 so'm (kurs: 1$ = 12 052 so'm)").
+- Mini App bosh sahifada kichik real-time kurs (`Home.RateChip` → `/exchange-rate`).
+- Tekshiruv: backend node --check OK, konvertatsiya/UI 7/7, Mini App build OK (54 modul).
+
+## 2026-06-26 AI so'rov-javob standart shablonlari (BALANS + MIJOZLAR + XIZMATLAR)
+- Bot va Mini App AI chatdagi o'qish so'rovlari endi DETERMINISTIK, aniq formatli shablon javob beradi (Gemini qayta yozmaydi — format buzilmaydi, tezroq). `runAgent` SEARCH/ANALYTICS routing: BALANS (ANALYTICS) → MIJOZLAR (looksLikeTodayClients) → XIZMATLAR (looksLikeTodayServices) → umumiy qidiruv (executeToolFlow).
+- **BALANS** (ANALYTICS_QUERY): `buildBalanceReport(period)` → `financeService.getBalanceReport(period)` real aggregatsiya: kirim/chiqim/balans + eng katta/kichik xarajat ($sort amount) + eng qimmat xizmat ($sort price) + bajarilgan/kutilayotgan xizmat soni. Davr aytilmasa → `all` (umumiy/joriy); aytilsa `analyticsPeriod` (today/week/month/last_month/year). Kutilayotgan: `all`da kelajak ham sanaladi (yuqori chegara yo'q), aniq davrda oraliq ichida. Emoji: 💰💵📈📉🔺🔻🏆✅⏳.
+- **MIJOZLAR** (SEARCH_QUERY, aniq sana/filtrsiz): `looksLikeTodayClients` "mijozlar haqida"/"bugungi mijozlar"/"hozir kimga borishim kerak"/"navbatdagi" ni aniqlaydi (o'tgan zamon "borganman" yoki aniq joy "Chilonzordagi" — oddiy qidiruv, ushlanmaydi; dateFrom/dateTo bo'lsa rad). `buildTodayClientsReport` → `getTodayPendingServices()` (bugun, kutilmoqda, vaqt asc). Ro'yxat 1️⃣2️⃣… + ism — soat — 📍manzil; tavsiya: joriy vaqtga serviceDateTime bo'yicha eng yaqin (faqat vaqt). Bo'sh → "Bugun uchun barcha ishlar tugadi oka 🎉".
+- **XIZMATLAR** (SEARCH_QUERY, aniq sana/filtrsiz, QISQAROQ): `looksLikeTodayServices` "xizmat/ish/reja" so'zlariga tayanadi (mijoz emas — MIJOZLAR'dan ajraladi; "Chilonzordagi xizmatlar"/sana — qidiruv). `buildTodayServicesReport` → `getTodayServices()` (bugun, kutilmoqda+bajarildi, vaqt asc). Format: 🧹 Bugungi xizmatlar (N ta) → 1️⃣ ism — soat ✅/⏳ → "✅ X bajarildi · ⏳ Y kutilmoqda". Bo'sh → "Bugun uchun xizmat yo'q oka 📭".
+- Har ikkala mode ('bot' va 'query') uchun ishlaydi (o'qish so'rovlari mode-gated emas). Tekshiruv: `node --check` 3 fayl OK; routing 15/15 PASS (MIJOZLAR/XIZMATLAR/SEARCH ajratish + o'tgan-zamon/joy/sana rad); 3 shablon render mock data bilan format mosligi tasdiqlandi; export'lar import bilan resolve.
+
 ## 2026-06-26 USD→UZS kurs infra (CBU API + 12h kesh, global singleton)
 - `services/exchangeRateService.js getUsdToUzsRate()`: kesh<12h → CBU asosiy URL → CBU zaxira URL → eski kesh → null. 5s timeout, hech qachon throw qilmaydi. `getRateInfo()` endpoint uchun meta beradi. `parseUsdRate` Nominalga bo'ladi, vergul/nuqta formatni tushunadi.
 - `models/ExchangeRate.js` — GLOBAL singleton (`exchange_rate_cache`, base:'USD'); **tenantScopePlugin YO'Q** (kurs hamma uchun bir xil, shaxsiy emas, kontekstsiz ishlaydi).
