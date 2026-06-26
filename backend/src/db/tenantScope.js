@@ -87,13 +87,28 @@ export function tenantScopePlugin(schema) {
 
   // Yaratish/saqlash: telegramUserId yo'q bo'lsa kontekstdan yozamiz.
   // Aniq berilgan qiymat (mas. tiklash/repair) ustun — uni buzmaymiz.
+  //
+  // MUHIM: stamping `pre('validate')` da bo'lishi SHART. Mongoose 8 validatsiyani
+  // (jumladan `required` tekshiruvini) pre('save') hooklardan OLDIN ishlatadi. Agar
+  // faqat pre('save') da yozsak, telegramUserni aniq bermagan create'lar (mas.
+  // Client.create / Transaction.create) "Path `telegramUserId` is required" xatosi
+  // beradi — chunki required tekshiruvi stamping'dan oldin o'tadi. global + qiymat yo'q
+  // bo'lsa — required validatsiya xatosi (global create egasini ataylab belgilashi shart,
+  // mas. repair income tranzaksiyasi).
+  function stampTenant(doc, kind) {
+    if (doc.telegramUserId) return;
+    const store = requireStore(kind);
+    if (store.userId) doc.telegramUserId = store.userId;
+  }
+
+  schema.pre('validate', function stampTenantOnValidate() {
+    stampTenant(this, 'validate');
+  });
+
+  // Backstop: `save({ validateBeforeSave: false })` bilan saqlansa pre('validate')
+  // ishlamaydi — shu sabab save'da ham yozamiz (idempotent: yuqorida yozilgan bo'lsa skip).
   schema.pre('save', function stampTenantOnSave(next) {
-    if (!this.telegramUserId) {
-      const store = requireStore('save');
-      if (store.userId) this.telegramUserId = store.userId;
-      // global + qiymat yo'q bo'lsa — required validatsiya xatosi (global create egasini
-      // ataylab belgilashi shart, mas. repair income tranzaksiyasi).
-    }
+    stampTenant(this, 'save');
     next();
   });
 
