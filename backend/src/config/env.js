@@ -119,7 +119,12 @@ function botMode() {
 
 const env = {
   BOT_TOKEN: required('BOT_TOKEN'),
-  OWNER_TELEGRAM_ID: required('OWNER_TELEGRAM_ID'),
+  // Ruxsat berilgan Telegram IDlar (vergul bilan). Yangi nom ALLOWED_TELEGRAM_IDS;
+  // eski OWNER_TELEGRAM_ID ham qabul qilinadi (Railway'ni o'zgartirmasdan ishlaydi).
+  ALLOWED_TELEGRAM_IDS: optional('ALLOWED_TELEGRAM_IDS', 'OWNER_TELEGRAM_ID'),
+  // Migratsiya: eski (bitta-egali) ma'lumotlar biriktiriladigan "asosiy egasi".
+  // Bo'lmasa ro'yxatdagi birinchi ID ishlatiladi.
+  LEGACY_OWNER_ID: optional('LEGACY_OWNER_ID', 'OWNER_TELEGRAM_ID'),
   MONGODB_URI: firstMongoUri(),
   GEMINI_API_KEY: required('GEMINI_API_KEY'),
   GEMINI_MODEL: resolveGeminiModel(),
@@ -141,7 +146,7 @@ process.env.TZ = env.TZ;
 
 export function getEnvIssues() {
   const missing = [];
-  for (const key of ['BOT_TOKEN', 'OWNER_TELEGRAM_ID', 'MONGODB_URI', 'GEMINI_API_KEY']) {
+  for (const key of ['BOT_TOKEN', 'ALLOWED_TELEGRAM_IDS', 'MONGODB_URI', 'GEMINI_API_KEY']) {
     if (!env[key]) missing.push(key);
   }
 
@@ -162,9 +167,9 @@ export function getEnvIssues() {
   if (env.BOT_TOKEN && !/^\d+:[A-Za-z0-9_-]{30,}$/.test(env.BOT_TOKEN)) {
     errors.push('BOT_TOKEN formati noto\'g\'ri. @BotFather bergan haqiqiy tokenni kiriting.');
   }
-  const telegramIds = parseTelegramIds(env.OWNER_TELEGRAM_ID);
-  if (env.OWNER_TELEGRAM_ID && (telegramIds.length === 0 || telegramIds.some((id) => !/^\d+$/.test(id)))) {
-    errors.push('OWNER_TELEGRAM_ID faqat raqamli Telegram IDlardan iborat bo\'lishi kerak. Bir nechta ID bo\'lsa vergul bilan yozing: 6028715926,606578823');
+  const telegramIds = parseTelegramIds(env.ALLOWED_TELEGRAM_IDS);
+  if (env.ALLOWED_TELEGRAM_IDS && (telegramIds.length === 0 || telegramIds.some((id) => !/^\d+$/.test(id)))) {
+    errors.push('ALLOWED_TELEGRAM_IDS faqat raqamli Telegram IDlardan iborat bo\'lishi kerak. Bir nechta ID bo\'lsa vergul bilan yozing: 6028715926,606578823');
   }
   if (env.MONGODB_URI && !/^mongodb(\+srv)?:\/\//i.test(env.MONGODB_URI)) {
     errors.push('MONGODB_URI mongodb:// yoki mongodb+srv:// bilan boshlanishi kerak.');
@@ -205,9 +210,12 @@ export function validateEnv() {
 }
 
 export const isProd = () => env.NODE_ENV === 'production';
-export const ownerIds = () => parseTelegramIds(env.OWNER_TELEGRAM_ID);
+// Ruxsat berilgan (allowlist) Telegram IDlar — har biri o'z mustaqil ma'lumotlar to'plamiga ega.
+export const ownerIds = () => parseTelegramIds(env.ALLOWED_TELEGRAM_IDS);
 export const ownerId = () => Number(ownerIds()[0] || 0);
 export const isOwnerTelegramId = (telegramId) => ownerIds().includes(String(telegramId || '').trim());
+// Migratsiya uchun eski/asosiy egasi (telegramUserId'siz yozuvlar shunga biriktiriladi).
+export const legacyOwnerId = () => parseTelegramIds(env.LEGACY_OWNER_ID)[0] || ownerIds()[0] || null;
 
 // Mini App manzili: aniq MINIAPP_URL bo'lsa o'shani, bo'lmasa Railway public
 // domenini ishlatadi (backend Mini App'ni shu domen ildizida static beradi).

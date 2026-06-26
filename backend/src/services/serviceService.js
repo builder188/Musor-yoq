@@ -7,6 +7,7 @@ import Service, { SERVICE_STATUS, PAYMENT_STATUS } from '../models/Service.js';
 import Transaction, { TX_TYPES } from '../models/Transaction.js';
 import { findOrCreateClient } from './clientService.js';
 import { computeServiceSchedule, applyServiceSchedule } from './reminderService.js';
+import { runGlobal } from '../db/tenantScope.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -77,7 +78,10 @@ async function buildScheduleFields(serviceDateTime, now = new Date()) {
   return {
     reminderAt,
     confirmAt,
+    // Oldindan eslatma vaqti o'tib ketgan bo'lsa yuborilmaydi (kech kiritilgan ish).
     reminderSent: reminderAt.getTime() <= now.getTime(),
+    // Xizmat vaqtidagi eslatma — vaqti hali kelmagan bo'lsa, o'sha paytda yuboriladi.
+    startReminderSent: new Date(serviceDateTime).getTime() <= now.getTime(),
     confirmSent: false,
   };
 }
@@ -100,10 +104,11 @@ export async function createService(data) {
   // Eslatma/tasdiqlash jadvali xizmat vaqtiga nisbatan (Settings soatlari).
   // Tarixiy yozuvga jadval qo'yilmaydi (pastda darhol "bajarildi" qilinadi).
   const schedule = data.isHistorical
-    ? { reminderAt: null, confirmAt: null, reminderSent: true, confirmSent: true }
+    ? { reminderAt: null, confirmAt: null, reminderSent: true, startReminderSent: true, confirmSent: true }
     : await buildScheduleFields(serviceDateTime);
 
   const service = await Service.create({
+    telegramUserId: client.telegramUserId, // xizmat egasi = mijoz egasi (joriy foydalanuvchi)
     clientId: client._id,
     clientName: client.name,
     clientPhone: client.phone,
@@ -126,6 +131,44 @@ export async function createService(data) {
   return service;
 }
 
+// Bajarilgan xizmat uchun FAOL daromad yozuvi borligini kafolatlaydi.
+//  1) Bog'langan tranzaksiya sog'lom bo'lsa — o'shani qaytaradi.
+//  2) Bog'lanmagan, lekin shu xizmatga faol income bo'lsa — bog'lab qaytaradi.
+//  3) Hech qanday income bo'lmasa — yaratadi (o'z-o'zini tuzatish: "bajarildi, lekin
+//     balansga tushmagan" holatni tuzatadi). Qasddan o'chirilgan (soft-deleted) income
+//     bo'lsa — tegmaydi (bekor/o'chirishda qaytarilgan daromadni qayta tiklamaslik uchun).
+// Qaytaradi: { transaction, created } — `created` = yangi yozuv yaratildimi.
+async function ensureServiceIncome(service) {
+  if (service.incomeTransactionId) {
+    const linked = await Transaction.findOne({ _id: service.incomeTransactionId, isDeleted: { $ne: true } });
+    if (linked) return { transaction: linked, created: false };
+  }
+  const active = await Transaction.findOne({ serviceId: service._id, type: TX_TYPES.INCOME, isDeleted: { $ne: true } });
+  if (active) {
+    if (String(service.incomeTransactionId) !== String(active._id)) {
+      service.incomeTransactionId = active._id;
+      await service.save();
+    }
+    return { transaction: active, created: false };
+  }
+  // Faol income yo'q. O'chirilgan (qasddan olib tashlangan) income bo'lsa — tiklamaymiz.
+  const removed = await Transaction.findOne({ serviceId: service._id, type: TX_TYPES.INCOME });
+  if (removed || !(service.price > 0)) return { transaction: null, created: false };
+
+  const transaction = await Transaction.create({
+    telegramUserId: service.telegramUserId, // daromad egasi = xizmat egasi (global repair'da ham to'g'ri)
+    type: TX_TYPES.INCOME,
+    amount: service.price,
+    category: 'xizmat',
+    description: `Xizmat: ${service.clientName}`,
+    serviceId: service._id,
+    date: service.completedAt || new Date(),
+  });
+  service.incomeTransactionId = transaction._id;
+  await service.save();
+  return { transaction, created: true };
+}
+
 // Xizmatni bajarilgan deb belgilash -> daromad yozish.
 export async function completeService(serviceId, { newPrice = null, markPaid = false, includeTransaction = false } = {}) {
   const service = await Service.findOne({ _id: serviceId, ...notDeleted });
@@ -134,23 +177,20 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
   if (newPrice !== null && newPrice !== undefined) {
     service.price = parsePositiveMoneyAmount(newPrice, "Xizmat narxi noto'g'ri");
   }
+  // Allaqachon bajarilgan — daromad yozuvi BORligini kafolatlaymiz (balansga tushmay
+  // qolgan bo'lsa shu yerda tiklanadi). Narx o'zgargan bo'lsa, summani moslaymiz.
   if (service.status === SERVICE_STATUS.DONE) {
     if (newPrice !== null && newPrice !== undefined) {
       service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
-      if (service.incomeTransactionId) {
-        await Transaction.findByIdAndUpdate(service.incomeTransactionId, { amount: service.price });
-      }
       await service.save();
+    }
+    const { transaction, created } = await ensureServiceIncome(service);
+    if (transaction && !created && newPrice !== null && newPrice !== undefined && transaction.amount !== service.price) {
+      await Transaction.findByIdAndUpdate(transaction._id, { amount: service.price });
+      transaction.amount = service.price;
     }
     if (!includeTransaction) return service;
-    const transaction = service.incomeTransactionId
-      ? await Transaction.findById(service.incomeTransactionId).lean()
-      : await Transaction.findOne({ serviceId: service._id, type: TX_TYPES.INCOME, isDeleted: { $ne: true } }).lean();
-    if (!service.incomeTransactionId && transaction?._id) {
-      service.incomeTransactionId = transaction._id;
-      await service.save();
-    }
-    return { service, transaction };
+    return { service, transaction, created };
   }
   if (service.status === SERVICE_STATUS.CANCELLED) {
     throw badRequest("Bekor qilingan xizmatni bajarib bo'lmaydi");
@@ -172,6 +212,8 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
     { new: true }
   );
   if (!completed) {
+    // Boshqa tik (double-click) atomar ravishda ulgurdi: u daromadni yaratmoqda —
+    // bu yerda FAQAT mavjudini qidiramiz (dublikat yozuvning oldini olamiz).
     const current = await Service.findOne({ _id: serviceId, ...notDeleted });
     const transaction = current?.incomeTransactionId
       ? await Transaction.findById(current.incomeTransactionId).lean()
@@ -182,11 +224,12 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
       current.incomeTransactionId = transaction._id;
       await current.save();
     }
-    return includeTransaction ? { service: current, transaction } : current;
+    return includeTransaction ? { service: current, transaction, created: false } : current;
   }
 
-  // Daromad tranzaksiyasi (to'liq narx вЂ” xizmat bajarilgani uchun).
+  // Daromad tranzaksiyasi (to'liq narx — xizmat bajarilgani uchun).
   const transaction = await Transaction.create({
+    telegramUserId: completed.telegramUserId, // daromad egasi = xizmat egasi
     type: TX_TYPES.INCOME,
     amount: completed.price,
     category: 'xizmat',
@@ -197,7 +240,28 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
   completed.incomeTransactionId = transaction._id;
   await completed.save();
 
-  return includeTransaction ? { service: completed, transaction } : completed;
+  return includeTransaction ? { service: completed, transaction, created: true } : completed;
+}
+
+// Startup tiklash: bajarilgan, lekin daromad yozuvi yo'qolib qolgan xizmatlarni topib,
+// balansga tiklaydi (eski/qisman muvaffaqiyatsiz yozuvlar uchun). Dublikat yaratmaydi.
+// Startup maintenance — BARCHA foydalanuvchilar bo'yicha (runGlobal). Har bir income
+// tranzaksiyasi o'z xizmatining telegramUserId si bilan yaratiladi (ensureServiceIncome).
+export async function repairMissingServiceIncome() {
+  return runGlobal(async () => {
+    const doneServices = await Service.find({ ...notDeleted, status: SERVICE_STATUS.DONE });
+    let repaired = 0;
+    for (const service of doneServices) {
+      try {
+        const { created } = await ensureServiceIncome(service);
+        if (created) repaired += 1;
+      } catch (err) {
+        console.error('Daromad tiklashda xato:', err.message);
+      }
+    }
+    if (repaired > 0) console.log(`[REPAIR] ${repaired} ta bajarilgan xizmatga yo'qolgan daromad balansga tiklandi`);
+    return repaired;
+  });
 }
 
 // Xizmatni bekor qilish. Bajarilgan bo'lsa вЂ” daromadni qaytaramiz.

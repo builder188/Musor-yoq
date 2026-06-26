@@ -1,13 +1,28 @@
 // Eslatma/tasdiqlash cron — har daqiqada bir marta ishlaydi.
-//   1) reminderAt kelganda: oddiy eslatma (tugmasiz), xizmat hali kelajakda bo'lsa.
-//   2) confirmAt  kelganda: "bajarildimi?" tasdiq so'rovi (tugmali).
-// Ikki marta yubormaslik kafolati: har bir xabar ATOMAR claim qilinadi
-// (findOneAndUpdate sent:false -> true). Yuborish xato bo'lsa, bayroq qaytariladi (keyingi tik qayta uradi).
+//   1) reminderAt kelganda: oldindan eslatma (tugmasiz), xizmat hali kelajakda bo'lsa.
+//   2) serviceDateTime kelganda: xizmat VAQTIDAGI eslatma (tugmasiz, "hozir vaqti").
+//   3) confirmAt  kelganda: "bajarildimi?" tasdiq so'rovi (tugmali).
+//
+// MULTI-TENANT: cron BARCHA foydalanuvchilarning xizmatlarini birga tekshiradi (runGlobal),
+// lekin har bir eslatma FAQAT o'sha yozuvning egasiga (service.telegramUserId) yuboriladi —
+// boshqa foydalanuvchilarga emas.
+//
+// DUBLIKAT BO'LMASLIGI (eng muhim kafolat): har bir xabar yuborishdan OLDIN atomar "claim"
+// qilinadi (findOneAndUpdate sent:false -> true). Claim qilingach bayroq HECH QACHON
+// qaytarilmaydi — Telegram xatosi/timeout bo'lsa ham. Sababi: xato xabar AKTUAL yetib
+// borgandan KEYIN ham kelishi mumkin; bayroqni qaytarsak keyingi tik QAYTA yuboradi
+// (dublikat). Shuning uchun "ko'pi bilan bir marta": dublikatdan ko'ra (juda kamdan-kam)
+// yo'qotish afzal. Foydalanuvchi botni bloklagan bo'lsa (403) — at-most-once tufayli
+// xabar bir marta uriniladi va qaytmaydi (cheksiz qayta-yuborish/spam bo'lmaydi).
 import cron from 'node-cron';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import Conversation from '../models/Conversation.js';
-import { ownerIds } from '../config/env.js';
-import { serviceReminderText, serviceConfirmText, confirmServiceKeyboard } from '../bot/ui.js';
+import { runGlobal } from '../db/tenantScope.js';
+import { serviceReminderText, serviceStartReminderText, serviceConfirmText, confirmServiceKeyboard } from '../bot/ui.js';
+
+// Xizmat vaqtidagi eslatma juda kech qolsa ("hozir vaqti" demaslik uchun) — masalan bot
+// bir necha soat o'chiq bo'lsa yoki eski/o'tib ketgan yozuv bo'lsa — jimgina belgilab o'tamiz.
+const START_REMINDER_GRACE_MS = 2 * 60 * 60 * 1000;
 
 // Bitta tik tugamasdan ikkinchisi boshlanmasin (bitta instansda qo'shimcha himoya).
 let running = false;
@@ -21,25 +36,35 @@ async function withLock(fn) {
   }
 }
 
-async function broadcast(bot, text, extra) {
-  const recipients = ownerIds();
-  if (recipients.length === 0) throw new Error('OWNER_TELEGRAM_ID topilmadi');
-  await Promise.all(recipients.map((telegramId) => bot.api.sendMessage(telegramId, text, extra)));
+// Eslatmani FAQAT o'sha yozuvning egasiga yuboradi. Yetkazilsa 1, aks holda 0.
+// 403 (botni bloklagan) / 400 (chat topilmadi) — DOIMIY xatolar: at-most-once tufayli
+// qayta urinilmaydi, faqat aniq loglanadi (cheksiz qayta-yuborish/spam bo'lmaydi).
+async function sendToOwner(bot, telegramUserId, text, extra) {
+  const id = String(telegramUserId || '').trim();
+  if (!id) {
+    console.error('Eslatma yuborilmadi: yozuvda telegramUserId yo\'q');
+    return 0;
+  }
+  try {
+    await bot.api.sendMessage(id, text, extra);
+    return 1;
+  } catch (err) {
+    const desc = err?.description || err?.error?.description || err?.message || err;
+    console.error(`Eslatma ${id} ga yetmadi (qayta yuborilmaydi): ${desc}`);
+    return 0;
+  }
 }
 
-// "Bajarildimi?" so'rovi yuborilgan xizmatni eslab qoladi — egasi tugma bosmasdan
-// matn/ovoz bilan ("ha bajardim", "yo'q", "keyinroq") javob bersa shu xizmatga bog'lanadi.
-async function markConfirmContext(serviceId) {
-  const recipients = ownerIds();
-  await Promise.all(
-    recipients.map((telegramId) =>
-      Conversation.updateOne(
-        { telegramId },
-        { $set: { lastConfirmServiceId: String(serviceId), lastConfirmAt: new Date() } },
-        { upsert: true }
-      ).catch(() => null)
-    )
-  );
+// "Bajarildimi?" so'rovi yuborilgan xizmatni FAQAT o'sha egasining suhbatida eslab qoladi —
+// egasi tugma bosmasdan matn/ovoz bilan ("ha bajardim", "yo'q") javob bersa shu xizmatga bog'lanadi.
+async function markConfirmContext(serviceId, telegramUserId) {
+  const id = Number(telegramUserId);
+  if (!Number.isFinite(id)) return;
+  await Conversation.updateOne(
+    { telegramId: id },
+    { $set: { lastConfirmServiceId: String(serviceId), lastConfirmAt: new Date() } },
+    { upsert: true }
+  ).catch(() => null);
 }
 
 // reminderAt kelgan kelajak xizmatlar uchun oddiy eslatma.
@@ -72,16 +97,44 @@ async function fireReminders(bot) {
     );
     if (!claimed) continue; // boshqa tik ulgurdi yoki holat o'zgardi
 
-    try {
-      await broadcast(bot, serviceReminderText(claimed));
-    } catch (err) {
-      console.error('Eslatma yuborishda xato:', err.message);
-      // Yuborilmadi — bayroqni qaytaramiz, keyingi tik qayta uradi.
-      await Service.updateOne(
-        { _id: claimed._id, reminderAt: claimed.reminderAt, status: SERVICE_STATUS.PENDING, isDeleted: { $ne: true } },
-        { $set: { reminderSent: false } }
-      );
-    }
+    // Claim bajarildi — bayroqni QAYTARMAYMIZ (yuqoridagi izoh: dublikatdan saqlanish).
+    const delivered = await sendToOwner(bot, claimed.telegramUserId, serviceReminderText(claimed));
+    if (delivered === 0) console.error(`Oldindan eslatma yetmadi (xizmat ${claimed._id}, ega ${claimed.telegramUserId}).`);
+  }
+}
+
+// Xizmat vaqti kelgan (serviceDateTime <= now) xizmatlar uchun "hozir vaqti" eslatmasi.
+async function fireStartReminders(bot) {
+  const now = new Date();
+  const due = await Service.find({
+    isDeleted: { $ne: true },
+    status: SERVICE_STATUS.PENDING,
+    isHistorical: { $ne: true },
+    startReminderSent: false,
+    serviceDateTime: { $lte: now },
+  })
+    .sort({ serviceDateTime: 1 })
+    .limit(50);
+
+  for (const service of due) {
+    const claimed = await Service.findOneAndUpdate(
+      {
+        _id: service._id,
+        startReminderSent: false,
+        status: SERVICE_STATUS.PENDING,
+        isDeleted: { $ne: true },
+      },
+      { $set: { startReminderSent: true } },
+      { new: true }
+    );
+    if (!claimed) continue; // boshqa tik ulgurdi yoki holat o'zgardi
+
+    // Juda kech qolgan eslatma — "hozir vaqti" demaymiz, faqat belgilab o'tamiz (tasdiq baribir keladi).
+    if (now.getTime() - new Date(claimed.serviceDateTime).getTime() > START_REMINDER_GRACE_MS) continue;
+
+    // Claim bajarildi — bayroqni QAYTARMAYMIZ (dublikatdan saqlanish).
+    const delivered = await sendToOwner(bot, claimed.telegramUserId, serviceStartReminderText(claimed));
+    if (delivered === 0) console.error(`Vaqt eslatmasi yetmadi (xizmat ${claimed._id}, ega ${claimed.telegramUserId}).`);
   }
 }
 
@@ -112,29 +165,31 @@ async function fireConfirms(bot) {
     );
     if (!claimed) continue;
 
-    try {
-      // Har xizmatga ALOHIDA xabar (o'z serviceId, o'z tugmalari) — birlashtirilmaydi.
-      await broadcast(bot, serviceConfirmText(claimed), {
-        reply_markup: confirmServiceKeyboard(claimed._id.toString()),
-      });
+    // Claim bajarildi — bayroqni QAYTARMAYMIZ (dublikatdan saqlanish).
+    // Har xizmatga ALOHIDA xabar (o'z serviceId, o'z tugmalari) — birlashtirilmaydi.
+    const delivered = await sendToOwner(bot, claimed.telegramUserId, serviceConfirmText(claimed), {
+      reply_markup: confirmServiceKeyboard(claimed._id.toString()),
+    });
+    if (delivered > 0) {
       // Tugmasiz (matn/ovoz) javob shu xizmatga tegishli bo'lishi uchun eslab qo'yamiz.
-      await markConfirmContext(claimed._id);
-    } catch (err) {
-      console.error('Tasdiq so\'rovida xato:', err.message);
-      await Service.updateOne(
-        { _id: claimed._id, confirmAt: claimed.confirmAt, status: SERVICE_STATUS.PENDING, isDeleted: { $ne: true } },
-        { $set: { confirmSent: false } }
-      );
+      await markConfirmContext(claimed._id, claimed.telegramUserId);
+    } else {
+      console.error(`Tasdiq so'rovi yetmadi (xizmat ${claimed._id}, ega ${claimed.telegramUserId}).`);
     }
   }
 }
 
 export function startReminderCron(bot) {
   cron.schedule('* * * * *', () => {
-    withLock(async () => {
-      await fireReminders(bot);
-      await fireConfirms(bot);
-    }).catch((err) => console.error('Reminder cron xatosi:', err.message));
+    // runGlobal: cron barcha foydalanuvchilar yozuvlarini ko'radi (ataylab — har biri
+    // o'z egasiga yuboriladi). Tenant-scope plugin global rejimda filtr qo'shmaydi.
+    runGlobal(() =>
+      withLock(async () => {
+        await fireReminders(bot);
+        await fireStartReminders(bot);
+        await fireConfirms(bot);
+      })
+    ).catch((err) => console.error('Reminder cron xatosi:', err.message));
   });
-  console.log('Eslatma cron ishga tushdi (har daqiqada: oldindan eslatma + tasdiq so\'rovi)');
+  console.log('Eslatma cron ishga tushdi (har daqiqada: oldindan + xizmat vaqtida eslatma + tasdiq so\'rovi)');
 }

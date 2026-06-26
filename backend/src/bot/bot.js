@@ -3,6 +3,7 @@ import { Bot, session, InlineKeyboard } from 'grammy';
 import { MongoDBAdapter } from '@grammyjs/storage-mongodb';
 import mongoose from 'mongoose';
 import env, { isOwnerTelegramId } from '../config/env.js';
+import { runWithUser } from '../db/tenantScope.js';
 
 // Mongoose ulanishining native DB handle'i; ulanishdan oldin ham xavfsiz (amallar bufferlanadi).
 const db = mongoose.connection;
@@ -28,15 +29,19 @@ bot.api.config.use(async (prev, method, payload, signal) => {
   return result;
 });
 
+// Owner-only guard + tenant konteksti. Ruxsat berilgan foydalanuvchining BUTUN keyingi
+// oqimi (session, handlerlar, AI agent, DB so'rovlari) runWithUser ichida bajariladi —
+// shu sabab har bir DB so'rovi avtomatik shu foydalanuvchiga scope qilinadi (boshqalarning
+// ma'lumoti ko'rinmaydi). Ruxsatsiz foydalanuvchi — e'tiborsiz qoldiriladi (kontekst yo'q).
 bot.use(async (ctx, next) => {
   if (!isOwnerTelegramId(ctx.from?.id)) {
     if (ctx.message?.text?.startsWith('/start')) {
       console.warn(`Unauthorized /start from Telegram ID ${ctx.from?.id || 'unknown'}`);
-      await ctx.reply("Bu bot faqat egasi uchun. Railway'da OWNER_TELEGRAM_ID ni tekshiring.");
+      await ctx.reply("Bu bot faqat ruxsat berilgan foydalanuvchilar uchun. Railway'da ALLOWED_TELEGRAM_IDS ni tekshiring.");
     }
     return;
   }
-  await next();
+  await runWithUser(ctx.from.id, next);
 });
 
 // Sessiya MongoDB'da saqlanadi — bot restart bo'lsa ham suhbat davom etadi.

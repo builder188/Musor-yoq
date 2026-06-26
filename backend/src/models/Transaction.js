@@ -1,5 +1,6 @@
 // Moliyaviy tranzaksiya: daromad yoki xarajat.
 import mongoose from 'mongoose';
+import { tenantScopePlugin } from '../db/tenantScope.js';
 
 export const TX_TYPES = {
   INCOME: 'income',
@@ -27,10 +28,14 @@ const transactionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Multi-tenant: telegramUserId maydoni + avtomatik scope.
+transactionSchema.plugin(tenantScopePlugin);
+
 // Indekslar: type, date, serviceId, isDeleted.
 transactionSchema.index({ type: 1 });
-transactionSchema.index({ date: -1 });
 transactionSchema.index({ serviceId: 1 });
 transactionSchema.index({ isDeleted: 1 });
+// Eng ko'p ishlatiladigan filtr/aggregatsiya: ega + sana oralig'i.
+transactionSchema.index({ telegramUserId: 1, date: -1 });
 
 export default mongoose.model('Transaction', transactionSchema);

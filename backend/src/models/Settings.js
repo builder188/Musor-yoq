@@ -1,13 +1,16 @@
 // Sozlamalar — har bir Telegram foydalanuvchi (egasi) uchun bitta hujjat.
+// Diqqat: bu modelga tenantScopePlugin QO'YILMAYDI — u allaqachon telegramUserId
+// kaliti bilan ishlaydi (har egada bitta hujjat), scope o'sha kalit orqali.
 import mongoose from 'mongoose';
 import env, { ownerId } from '../config/env.js';
+import { currentUserId } from '../db/tenantScope.js';
 
 const settingsSchema = new mongoose.Schema(
   {
     telegramUserId: { type: String, unique: true, required: true },
 
     language: { type: String, enum: ['uz', 'ru'], default: 'uz' },
-    theme: { type: String, enum: ['light', 'dark', 'auto'], default: 'auto' },
+    theme: { type: String, enum: ['light', 'dark', 'auto'], default: 'light' },
     deleteCode: { type: String, default: env.CONFIRM_DELETE_CODE || '1990' },
 
     // Eslatma/tasdiqlash xizmat vaqtiga NISBATAN:
@@ -19,9 +22,12 @@ const settingsSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Egasining sozlamalarini olish (bo'lmasa — yaratish).
-settingsSchema.statics.getSingleton = async function getSingleton(telegramId = ownerId()) {
-  const telegramUserId = String(telegramId || ownerId());
+// Foydalanuvchi sozlamalarini olish (bo'lmasa — default bilan yaratish).
+// telegramId berilmasa: joriy scoped foydalanuvchi (AsyncLocalStorage), u ham bo'lmasa
+// asosiy egasi. Shu sabab reminderService/deleteService kabi no-arg chaqiruvlar ham
+// avtomatik TO'G'RI egasining sozlamalarini oladi (multi-tenant).
+settingsSchema.statics.getSingleton = async function getSingleton(telegramId) {
+  const telegramUserId = String(telegramId || currentUserId() || ownerId());
   let doc = await this.findOne({ telegramUserId });
   if (!doc) {
     doc = await this.create({ telegramUserId });

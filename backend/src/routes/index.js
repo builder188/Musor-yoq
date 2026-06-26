@@ -1,6 +1,7 @@
 // Barcha API marshrutlarini yig'ish va auth bilan himoyalash.
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
+import { runWithUser } from '../db/tenantScope.js';
 import statsRouter from './stats.js';
 import clientsRouter from './clients.js';
 import servicesRouter from './services.js';
@@ -20,6 +21,15 @@ router.get('/health', (req, res) => res.json({ ok: true, service: 'musir-yoq' })
 
 // Quyidagilarning hammasi avtorizatsiya talab qiladi.
 router.use(authMiddleware);
+
+// Tenant konteksti: shu so'rovning butun ishlov berishi (route handler, service qatlam,
+// AI agent, DB so'rovlari) joriy foydalanuvchiga scope qilinadi. authMiddleware allaqachon
+// req.telegramUser.id ni allowlist bo'yicha tasdiqlagan.
+router.use((req, res, next) => {
+  const id = req.telegramUser?.id;
+  if (!id) return res.status(401).json({ error: 'Avtorizatsiya xatosi' });
+  runWithUser(id, () => next());
+});
 
 router.use('/stats', statsRouter);
 router.use('/clients', clientsRouter);

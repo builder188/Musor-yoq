@@ -1,5 +1,20 @@
 # AI_CONTEXT.md
 
+## 2026-06-26 To'liq multi-tenant izolyatsiya (telegramUserId + AsyncLocalStorage scope plugin)
+- Endi har bir ruxsatli Telegram ID — alohida, mustaqil ma'lumotlar to'plamiga ega. Asosi: `db/tenantScope.js` — AsyncLocalStorage (`runWithUser`/`runGlobal`/`currentUserId`) + Mongoose plugin (Client/Service/Transaction/DebtPayment). Plugin har query/aggregate/save'ga `telegramUserId` qo'shadi; **kontekstsiz so'rov XATO beradi (fail-closed)** — global ataylab `runGlobal` bilan.
+- Kontekst 6 joyda: bot guard (`runWithUser(ctx.from.id)`), API router (auth'dan keyin `runWithUser(req.telegramUser.id)`), reminder cron + cleanup cron + startup repair + migratsiya (`runGlobal`). Qolgan service/route/agent/bot kodi o'zgarmadi — scope avtomatik.
+- Schema: `telegramUserId` (required, index) + Client `{telegramUserId,phone}` compound partial-unique (eski faqat-phone unique o'rniga). `Settings.getSingleton` default `currentUserId()`ga (reminder/deleteCode to'g'ri egadan); default theme 'light'.
+- Env: `ALLOWED_TELEGRAM_IDS` (eski `OWNER_TELEGRAM_ID` fallback). Migratsiya idempotent startupda (`db/migrateTenancy.js`) — eski yozuvlarni `legacyOwnerId`ga biriktiradi.
+- Eslatma cron endi FAQAT `service.telegramUserId`ga yuboradi (broadcast emas) — multi-tenant + BUG1 (at-most-once, 403 spam yo'q) birga.
+- Tekshiruv: 29/29 tenant unit/sim test (DB'siz), import-graf 10/10, node --check OK. Jonli 2-akkaunt testi — foydalanuvchi zimmasida.
+
+## 2026-06-26 Eslatma dublikati tuzatildi — at-most-once (claim-first, rollback yo'q)
+- `cron/reminders.js` eslatmalari endi "ko'pi bilan bir marta": atomar claim (`findOneAndUpdate sent:false→true`) yuborishdan OLDIN bo'ladi va claimdan keyin bayroq HECH QACHON qaytarilmaydi (send xatosida ham). Eski kod xatoda `sent:false` ga qaytarardi → keyingi tik qayta yuborardi (dublikat/spam).
+- `broadcast` `Promise.all` → `Promise.allSettled`: har owner'ga mustaqil; bitta owner (botni bloklagan) xato bersa qolganlari spam bo'lmaydi; yetkazilgan son qaytadi. Bu allowlist (`OWNER_TELEGRAM_ID` ko'p ID) holatidagi har-daqiqa-spam bug'ining asosiy sababi edi.
+- Dublikatsizlik kafolati zanjiri: bir marta start (`index.js:95`) → intra-process `withLock` → cross-instance atomar claim. Rollback olib tashlangani claim'ni qayta ochmaydi.
+- Trade-off: claim bilan send orasida crash bo'lsa juda kamdan-kam yo'qotish mumkin — dublikatdan afzal; 3 tur eslatma bir-birini qisman qoplaydi.
+- OGOHLANTIRISH: hali ham `broadcast` BARCHA owner'larga yuboradi va `Service/Client/Transaction` da `ownerId` yo'q. Haqiqiy "mustaqil biznes" izolyatsiyasi (per-owner data + eslatma faqat egaga) — keyingi alohida ish.
+
 ## 2026-06-24 Responsive shell + yangi ma'lumot yakuniy tasdiqlash
 - Mini App shell responsive qayta qurildi: `>=768px` desktop sidebar (`SidebarNav`, collapsed state localStorage), `<768px` eski bottom nav; resize listener shellni reloadsiz almashtiradi. Modal/detail viewlar `AppContext` navigation stack orqali ichki `Orqaga` tugmasiga ulangan.
 - Bot yangi yozuv oqimlari (`SERVICE_ENTRY`, `EXPENSE_ENTRY`, `INCOME_ENTRY`) endi to'g'ridan DBga yozmaydi: barcha majburiy maydonlar yig'ilgach `ENTRY_CONFIRM` pending holati saqlanadi va `ui.entrySummaryText` xulosasi `ui.entryConfirmKeyboard()` 3 tugmasi bilan ko'rsatiladi: [✅ Ha, to'g'ri=`entry_save`][✏️ Yo'q, tahrirlash kerak=`entry_edit`][❌ Bekor qilish=`entry_cancel`]. `entry_save`/matnli `ha|to'g'ri|saqla` → `confirmPendingEntry()` real `create_service/create_transaction`ni bajaradi. `entry_cancel`/`bekor` reset qiladi ("hech narsa saqlanmadi"). `entry_edit`/`yo'q`/`tahrirla` (yoki to'g'ridan "narxi 200 ming" kabi matn) → `agent.editPendingEntry` AI orqali maydonni `collected.fields` ustiga yozadi (`mergeFields(...,{overwrite:true})`) va yangilangan xulosani xuddi shu 3 tugma bilan QAYTA ko'rsatadi (tasdiqlanmaguncha loop). Matn/ovoz javoblari tugma bilan bir xil (`answers.interpretEntryConfirm`). Eski 2-tugmali `saveKeyboard` (save_yes/save_no) endi faqat OCR rasm tasdig'i uchun.
@@ -335,6 +350,14 @@ miniapp/src/
 
 ## Important decisions / assumptions
 - **Daromad tan olinishi:** faqat `bajarildi` xizmat daromad tranzaksiyasini yaratadi.
+  `ensureServiceIncome` har "bajarildi"da FAOL income borligini kafolatlaydi (yo'q bo'lsa
+  yaratadi — o'z-o'zini tuzatish). Startup `repairMissingServiceIncome()` eski DONE+income-yo'q
+  xizmatlarni balansga tiklaydi. Soft-deleted income (bekor/o'chirishda qaytarilgan) qayta tiklanmaydi.
+- **Eslatma jadvali (3 bosqich):** (1) `reminderAt` = serviceDateTime − reminderHoursBefore (oldindan,
+  vaqti o'tib ketgan bo'lsa yuborilmaydi); (2) `startReminderSent` — xizmat VAQTIDA eslatma
+  (`serviceDateTime` kelganda, cron `fireStartReminders`, 2 soat grace); (3) `confirmAt` =
+  serviceDateTime + confirmHoursAfter ("bajarildimi?" tugmali). 1 va 2 mustaqil: <3 soat oldin
+  kiritilsa faqat vaqtida; 3+ soat bo'lsa ikkalasi ham. Mini App'da bajarildi → `notifyOwner` (bot xabari).
 - **To'lov holati:** xizmat ichida `paymentStatus` va `paidAmount`; alohida qarz modeli faol emas.
   Botdan "bajarildi" deyilsa, to'langan deb olinadi (markPaid=true).
 - **Tarixiy yozuv** (o'tgan zamon): o'tmishdagi sana bo'lsa avtomatik `bajarildi` + to'langan deb yoziladi.

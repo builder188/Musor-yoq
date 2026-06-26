@@ -1,5 +1,6 @@
-// Mijoz modeli. Telefon raqami bo'yicha noyob (unique).
+// Mijoz modeli. Telefon raqami bo'yicha noyob (unique) — HAR EGA ICHIDA.
 import mongoose from 'mongoose';
+import { tenantScopePlugin } from '../db/tenantScope.js';
 
 const locationSchema = new mongoose.Schema(
   {
@@ -24,12 +25,16 @@ const clientSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Multi-tenant: telegramUserId maydoni + avtomatik scope.
+clientSchema.plugin(tenantScopePlugin);
+
 // Indekslar:
-//  - phone faqat aktiv (isDeleted:false) mijozlar orasida noyob (partial unique).
-//    Bu soft-delete qilingan raqamni qayta ishlatishga imkon beradi.
+//  - phone HAR BIR EGA ICHIDA aktiv (isDeleted:false) mijozlar orasida noyob
+//    (compound partial unique). 2 xil egada bir xil raqamli mijoz bo'lishi MUMKIN —
+//    ular bog'liq emas. Soft-delete qilingan raqam qayta ishlatilishi mumkin.
 //  - isDeleted tez filtrlash uchun.
 clientSchema.index(
-  { phone: 1 },
+  { telegramUserId: 1, phone: 1 },
   { unique: true, partialFilterExpression: { isDeleted: false } }
 );
 clientSchema.index({ isDeleted: 1 });

@@ -31,6 +31,7 @@ export async function applyServiceSchedule(service, { now = new Date() } = {}) {
     service.reminderAt = null;
     service.confirmAt = null;
     service.reminderSent = true;
+    service.startReminderSent = true;
     service.confirmSent = true;
     return service;
   }
@@ -41,6 +42,9 @@ export async function applyServiceSchedule(service, { now = new Date() } = {}) {
   service.confirmAt = confirmAt;
   // Oldindan eslatma faqat vaqti hali kelmagan bo'lsa yuboriladi (kech eslatma — bekor).
   service.reminderSent = reminderAt.getTime() <= nowMs;
+  // Xizmat VAQTIDAGI eslatma: vaqti hali kelmagan bo'lsa yuboriladi. Agar 3 soatlik
+  // oldindan eslatma o'tib ketgan bo'lsa (kech kiritilgan ish) — shu eslatma o'rnini bosadi.
+  service.startReminderSent = new Date(service.serviceDateTime).getTime() <= nowMs;
   // Tasdiqlash har doim yuborilishi kerak (kech bo'lsa ham — xizmat hal qilinishi shart).
   service.confirmSent = false;
   return service;

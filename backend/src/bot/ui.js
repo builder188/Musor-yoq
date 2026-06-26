@@ -205,6 +205,14 @@ export function serviceReminderText(service) {
   ].join('\n');
 }
 
+// Xizmat VAQTIDAGI eslatma — tugmasiz ("hozir borish vaqti keldi").
+export function serviceStartReminderText(service) {
+  return [
+    `⏰ Oka, hozir ${service.clientName || 'mijoz'}ga borish vaqti keldi — soat ${formatTime(service.serviceDateTime)}.`,
+    `📍 ${locationLabel(service)}  💰 ${formatMoney(service.price)}`,
+  ].join('\n');
+}
+
 // Tasdiqlash so'rovi (confirmAt) — tugmali ("Bajarildimi?").
 export function serviceConfirmText(service) {
   const phone = formatPhone(service.clientPhone) || service.clientPhone || '-';
@@ -219,8 +227,15 @@ export function serviceConfirmText(service) {
 export function reminderInfoLine(service) {
   if (!service || service.isHistorical) return null;
   const parts = [];
-  if (service.reminderAt && new Date(service.reminderAt).getTime() > Date.now()) {
-    parts.push(`⏰ ${formatDateTime(service.reminderAt)} da eslatib qo'yaman, oka`);
+  const nowMs = Date.now();
+  const svcMs = new Date(service.serviceDateTime).getTime();
+  // Oldindan eslatma — faqat vaqti hali kelmagan va xizmat vaqtidan oldin bo'lsa.
+  if (service.reminderAt && new Date(service.reminderAt).getTime() > nowMs && new Date(service.reminderAt).getTime() < svcMs) {
+    parts.push(`⏰ ${formatDateTime(service.reminderAt)} da oldindan eslatib qo'yaman, oka`);
+  }
+  // Xizmat vaqtida ham eslatma (vaqti hali kelmagan bo'lsa).
+  if (Number.isFinite(svcMs) && svcMs > nowMs) {
+    parts.push(`⏰ Xizmat vaqtida (${formatDateTime(service.serviceDateTime)}) ham eslatib qo'yaman`);
   }
   if (service.confirmAt) {
     parts.push(`✅ ${formatDateTime(service.confirmAt)} da "bajardingizmi?" deb so'rayman`);

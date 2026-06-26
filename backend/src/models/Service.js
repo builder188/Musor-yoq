@@ -1,5 +1,6 @@
 // Xizmat (musor olib ketish ishi) modeli.
 import mongoose from 'mongoose';
+import { tenantScopePlugin } from '../db/tenantScope.js';
 
 export const SERVICE_STATUS = {
   PENDING: 'kutilmoqda',
@@ -56,11 +57,14 @@ const serviceSchema = new mongoose.Schema(
     completedAt: { type: Date, default: null },
 
     // Xizmat vaqtiga nisbatan eslatma/tasdiqlash jadvali (cron shu yerga qaraydi).
-    //  - reminderAt: serviceDateTime - reminderHoursBefore (oddiy eslatma).
+    //  - reminderAt: serviceDateTime - reminderHoursBefore (oldindan eslatma).
+    //  - startReminderSent: xizmat VAQTIDA ("hozir borish vaqti") eslatma yuborilganmi.
+    //    Vaqti serviceDateTime ga teng, shuning uchun alohida sana saqlanmaydi.
     //  - confirmAt:  serviceDateTime + confirmHoursAfter (tugmali tasdiq).
     // *Sent bayroqlari atomar belgilanadi — bir xabar ikki marta yuborilmaydi.
     reminderAt: { type: Date, default: null, index: true },
     reminderSent: { type: Boolean, default: false },
+    startReminderSent: { type: Boolean, default: false },
     confirmAt: { type: Date, default: null, index: true },
     confirmSent: { type: Boolean, default: false },
 
@@ -79,5 +83,10 @@ const serviceSchema = new mongoose.Schema(
 
 // Indekslar: clientId, status, serviceDateTime (yuqorida), isDeleted.
 serviceSchema.index({ isDeleted: 1 });
+// Multi-tenant: telegramUserId maydoni + avtomatik scope (har bir query/aggregate/save).
+serviceSchema.plugin(tenantScopePlugin);
+// Eng ko'p ishlatiladigan filtrlar telegramUserId bilan birga keladi.
+serviceSchema.index({ telegramUserId: 1, serviceDateTime: -1 });
+serviceSchema.index({ telegramUserId: 1, status: 1 });
 
 export default mongoose.model('Service', serviceSchema);

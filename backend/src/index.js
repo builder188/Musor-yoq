@@ -8,8 +8,11 @@ import { webhookCallback } from 'grammy';
 
 import env, { getEnvIssues, miniAppUrl } from './config/env.js';
 import { connectDB } from './db/connect.js';
+import { migrateTenancy } from './db/migrateTenancy.js';
 import apiRouter from './routes/index.js';
 import { attachReportBot } from './routes/reports.js';
+import { attachNotifierBot } from './bot/notify.js';
+import { repairMissingServiceIncome } from './services/serviceService.js';
 import { startReminderCron } from './cron/reminders.js';
 import { startCleanupCron } from './cron/cleanup.js';
 
@@ -65,8 +68,17 @@ async function startRuntime(app) {
   await connectDB();
   runtime.db = true;
 
+  // Multi-tenant backfill: eski (telegramUserId'siz) yozuvlarni asosiy egasiga biriktiradi.
+  // Idempotent — bot/API yozuvlardan OLDIN, bir marta (keyin no-op) ishlaydi.
+  try {
+    await migrateTenancy();
+  } catch (err) {
+    console.error('Tenant migratsiya xatosi:', err.message);
+  }
+
   const { bot } = await import('./bot/bot.js');
   attachReportBot(bot);
+  attachNotifierBot(bot);
   await setupMenuButton(bot);
 
   if (env.BOT_MODE === 'webhook') {
@@ -93,6 +105,10 @@ async function startRuntime(app) {
   startCleanupCron();
   runtime.ready = true;
   console.log('Backend tayyor');
+
+  // Bajarilgan, lekin balansga tushmay qolgan eski xizmatlarni fonda tiklaymiz
+  // (deploy boshlanishini bloklamaydi).
+  repairMissingServiceIncome().catch((err) => console.error('Daromad tiklash xatosi:', err.message));
 }
 
 // Telegram "MENU" tugmasini Mini App'ga ulaydi. Tugma bosilganda Mini App ochiladi,

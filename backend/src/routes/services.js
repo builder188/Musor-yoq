@@ -13,6 +13,8 @@ import {
 } from '../services/serviceService.js';
 import { softDeleteOne } from '../services/deleteService.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
+import { notifyOwner } from '../bot/notify.js';
+import { formatMoney } from '../utils/money.js';
 import env from '../config/env.js';
 import Service from '../models/Service.js';
 
@@ -95,12 +97,18 @@ router.put(
 router.patch(
   '/:id/complete',
   asyncHandler(async (req, res) => {
-    const service = await completeService(req.params.id, {
+    const result = await completeService(req.params.id, {
       newPrice: req.body?.newPrice ?? null,
       markPaid: req.body?.markPaid !== false, // standart: to'langan
       includeTransaction: true,
     });
-    res.json(service);
+    // Mini App orqali bajarildi belgilandi — egaga Telegram'da ham xabar beramiz va
+    // daromad balansga yozilganini bildiramiz. Faqat shu chaqiruvda yangi yozilgan bo'lsa
+    // (cron "bajarildimi?" so'rashidan oldin ham — status DONE bo'lgani uchun so'ramaydi).
+    if (result?.created && result?.service) {
+      notifyOwner(serviceCompletedNotice(result.service)).catch(() => {});
+    }
+    res.json(result);
   })
 );
 
@@ -131,5 +139,13 @@ router.delete(
     res.json({ ok: true, service });
   })
 );
+
+// Mini App'dan bajarildi belgilanganda egaga yuboriladigan Telegram xabari.
+function serviceCompletedNotice(service) {
+  return [
+    `✅ Oka, ${service.clientName || 'mijoz'} xizmatini bajarildi deb belgiladingiz.`,
+    `💰 ${formatMoney(service.price)} balansga yozildi.`,
+  ].join('\n');
+}
 
 export default router;
