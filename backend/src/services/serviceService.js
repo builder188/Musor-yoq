@@ -406,7 +406,7 @@ export async function listServices({
 }
 
 // Bugungi (Asia/Tashkent kun chegarasi) kutilayotgan xizmatlar, vaqt bo'yicha tartiblangan.
-// "Mijozlar haqida ma'lumot" standart shabloni va eng yaqin mijoz tavsiyasi uchun.
+// Mijozlar/xizmatlar standart shablonlari va "keyingi mijoz" tavsiyasining yagona manbasi.
 export async function getTodayPendingServices() {
   return Service.find({
     ...notDeleted,
@@ -417,16 +417,28 @@ export async function getTodayPendingServices() {
     .lean();
 }
 
-// Bugungi barcha xizmatlar (kutilmoqda + bajarildi; bekor qilingani chiqmaydi), vaqt
-// bo'yicha tartiblangan. "Xizmatlar haqida ma'lumot" qisqa shabloni uchun.
-export async function getTodayServices() {
-  return Service.find({
-    ...notDeleted,
-    status: { $in: [SERVICE_STATUS.PENDING, SERVICE_STATUS.DONE] },
-    serviceDateTime: { $gte: startOfDay(), $lte: endOfDay() },
-  })
-    .sort({ serviceDateTime: 1 })
-    .lean();
+// Joriy vaqtga serviceDateTime bo'yicha eng yaqin (|Δt| eng kichik) xizmatni tanlaydi.
+// Lokatsiya/masofa HISOBGA OLINMAYDI — faqat vaqt. Bo'sh ro'yxatda null.
+// MIJOZLAR/XIZMATLAR tavsiyasi va get_next_client BIR XIL mantiqdan foydalanadi (takror yo'q).
+export function pickNearestByTime(services = []) {
+  if (!services.length) return null;
+  const now = Date.now();
+  let nearest = services[0];
+  let best = Math.abs(new Date(nearest.serviceDateTime).getTime() - now);
+  for (const s of services) {
+    const diff = Math.abs(new Date(s.serviceDateTime).getTime() - now);
+    if (diff < best) {
+      best = diff;
+      nearest = s;
+    }
+  }
+  return nearest;
+}
+
+// get_next_client(): "Endi qaysi mijoz uyiga boraman?" — bugungi, status=kutilmoqda
+// xizmatlardan joriy vaqtga eng yaqinini (BIRINCHISINI) qaytaradi. Hech narsa bo'lmasa null.
+export async function getNextClient() {
+  return pickNearestByTime(await getTodayPendingServices());
 }
 
 export async function listUpcomingServices(days = 7) {

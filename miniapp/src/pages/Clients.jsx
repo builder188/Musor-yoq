@@ -8,6 +8,7 @@ import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
+import MapQuickLinks from '../components/MapQuickLinks.jsx';
 import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
 
 export default function Clients({ focusClientId, openAddClient, onAddClientHandled, onFocusHandled }) {
@@ -287,6 +288,7 @@ function AddClientModal({ onClose, onSaved }) {
         value={form.locationMapUrl}
         onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })}
       />
+      <MapQuickLinks />
       <div className="date-range">
         <div>
           <label className="label">{t('common.date')}</label>
@@ -404,6 +406,7 @@ function EditClientModal({ client, onClose, onSaved }) {
       <input className="input" value={form.locationName} onChange={(e) => setForm({ ...form, locationName: e.target.value })} />
       <label className="label">{t('common.mapUrl')}</label>
       <input className="input" type="text" inputMode="url" placeholder={t('common.mapUrlPlaceholder')} value={form.locationMapUrl} onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })} />
+      <MapQuickLinks />
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !form.name || !form.phone || !form.locationName}>
         {busy ? '...' : t('common.save')}
       </button>

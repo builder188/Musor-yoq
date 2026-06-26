@@ -8,6 +8,7 @@ import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
 import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
+import MapQuickLinks from '../components/MapQuickLinks.jsx';
 
 const STATUSES = ['kutilmoqda', 'bajarildi', 'bekor_qilindi'];
 const SERVICE_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
@@ -574,6 +575,7 @@ function ServiceFormModal({ service, onClose, onSaved }) {
       <input className="input" value={form.locationName} onChange={(e) => setForm({ ...form, locationName: e.target.value })} />
       <label className="label">{t('common.mapUrl')}</label>
       <input className="input" type="text" inputMode="url" placeholder={t('common.mapUrlPlaceholder')} value={form.locationMapUrl} onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })} />
+      <MapQuickLinks />
       <label className="label">{t('common.date')}</label>
       <input className="input" type="datetime-local" value={form.serviceDateTime} onChange={(e) => setForm({ ...form, serviceDateTime: e.target.value })} />
       <label className="label">{t('common.price')}</label>

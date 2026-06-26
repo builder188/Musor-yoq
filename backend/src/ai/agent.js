@@ -24,17 +24,16 @@ import {
   recordServicePayment,
   editService,
   rescheduleService,
-  getTodayPendingServices,
-  getTodayServices,
 } from '../services/serviceService.js';
-import { createTransaction, getSummary, getBalanceReport, listTransactions } from '../services/financeService.js';
+import { createTransaction, getSummary, listTransactions } from '../services/financeService.js';
 import { listClients, updateClient } from '../services/clientService.js';
 import { searchServices, findServiceForUpdate, findClient, findClientsByName } from '../services/searchService.js';
 import { getUsdToUzsRate } from '../services/exchangeRateService.js';
+import { answerReadQuery } from './queries.js';
 import { TX_TYPES } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { formatMoney, parseMoney, convertUsdToUzs } from '../utils/money.js';
-import { formatDateTime, formatDate, formatTime, parseHumanDateTime } from '../utils/dates.js';
+import { formatDateTime, formatDate, parseHumanDateTime } from '../utils/dates.js';
 import { formatPhone, normalizePhone } from '../utils/phone.js';
 import {
   editConfirmKeyboard,
@@ -216,22 +215,13 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
     case 'ANALYTICS_QUERY': {
       // Raqamli savol (analyticsMetric/analyticsPeriod bor) qidiruv emas — model
       // SEARCH_QUERY desa ham get_analytics'ga yo'naltiramiz (javob sifati buzilmasin).
-      const suxbat =
-        action === 'ANALYTICS_QUERY' || hasAnalyticsSignal(understanding.fields)
-          ? 'ANALYTICS_QUERY'
-          : 'SEARCH_QUERY';
-      // BALANS so'rovi — standartlashtirilgan boy hisobot shabloni (deterministik, aniq format).
-      if (suxbat === 'ANALYTICS_QUERY') {
-        return buildBalanceReport(balancePeriod(understanding.fields));
-      }
-      // MIJOZLAR so'rovi (aniq sana/filtrsiz "mijozlar haqida") — bugungi mijozlar shabloni.
-      if (looksLikeTodayClients(rawText, understanding.fields)) {
-        return buildTodayClientsReport();
-      }
-      // XIZMATLAR so'rovi (aniq sana/filtrsiz "xizmatlar haqida") — bugungi xizmatlar qisqa shabloni.
-      if (looksLikeTodayServices(rawText, understanding.fields)) {
-        return buildTodayServicesReport();
-      }
+      const isAnalytics = action === 'ANALYTICS_QUERY' || hasAnalyticsSignal(understanding.fields);
+      // Standart o'qish-shablonlari (balans / mijozlar / xizmatlar / keyingi mijoz) —
+      // bot va Mini App BIR XIL modulni chaqiradi (ai/queries.js). Mos kelmasa null →
+      // umumiy qidiruv/tahlilga tushadi.
+      const templated = await answerReadQuery({ rawText, fields: understanding.fields || {}, isAnalytics });
+      if (templated) return templated;
+      const suxbat = isAnalytics ? 'ANALYTICS_QUERY' : 'SEARCH_QUERY';
       return executeToolFlow({ intent: suxbat, fields: understanding.fields || {}, rawText, mode });
     }
 
@@ -1249,161 +1239,6 @@ function analyticsSummary(result) {
     `💸 Chiqim: ${formatMoney(result.expense || 0)}`,
     `⚖️ Sof balans: ${formatMoney(result.balance || 0)}`,
   ].join('\n');
-}
-
-// ── Standartlashtirilgan so'rov-javob shablonlari ─────────────────────────────
-
-const PERIOD_LABEL = {
-  today: 'bugun',
-  week: 'bu hafta',
-  month: 'bu oy',
-  last_month: "o'tgan oy",
-  year: 'bu yil',
-  all: 'umumiy',
-};
-
-// Balans davri: davr aytilmasa — JORIY (umumiy) balans.
-function balancePeriod(fields = {}) {
-  const p = fields?.analyticsPeriod;
-  if (p && ['today', 'week', 'month', 'last_month', 'year', 'all'].includes(p)) return p;
-  return 'all';
-}
-
-// 1. BALANS SO'ROVI — boy hisobot shabloni (real aggregatsiyadan).
-async function buildBalanceReport(period) {
-  const r = await getBalanceReport(period);
-  const lines = [
-    `💰 Balans hisoboti (${PERIOD_LABEL[period] || 'umumiy'})`,
-    '',
-    `💵 Umumiy balans: ${formatMoney(r.balance || 0)}`,
-    `📈 Kirim: ${formatMoney(r.income || 0)}`,
-    `📉 Chiqim: ${formatMoney(r.expense || 0)}`,
-    '',
-  ];
-  if (r.biggestExpense) {
-    lines.push(
-      `🔺 Eng katta xarajat: ${formatMoney(r.biggestExpense.amount)} (${CATEGORY_LABEL[r.biggestExpense.category] || 'Boshqa'}, ${formatDate(r.biggestExpense.date)})`
-    );
-  }
-  if (r.smallestExpense) {
-    lines.push(
-      `🔻 Eng kichik xarajat: ${formatMoney(r.smallestExpense.amount)} (${CATEGORY_LABEL[r.smallestExpense.category] || 'Boshqa'}, ${formatDate(r.smallestExpense.date)})`
-    );
-  }
-  if (r.topService) {
-    lines.push(
-      `🏆 Eng qimmat xizmat: ${r.topService.clientName || 'mijoz'} — ${formatMoney(r.topService.price)} (${formatDate(r.topService.date)})`
-    );
-  }
-  lines.push(`✅ Bajarilgan xizmatlar: ${r.doneCount} ta`);
-  lines.push(`⏳ Kutilayotgan xizmatlar: ${r.pendingCount} ta`);
-  return { text: lines.join('\n'), tool: 'balance_report' };
-}
-
-const KEYCAP_EMOJI = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-function listNumber(i) {
-  return KEYCAP_EMOJI[i] || `${i + 1}.`;
-}
-
-// Aniq sana/filtrsiz "mijozlar haqida ma'lumot" / "hozir kimga borishim kerak" so'rovini
-// aniqlaydi (aniq joy/sana berilgan qidiruvni o'zgartirmaydi).
-function looksLikeTodayClients(rawText = '', fields = {}) {
-  if (fields?.dateFrom || fields?.dateTo) return false;
-  const v = String(rawText || '').toLowerCase();
-  // "hozir kimga/qayerga borishim/boraman" — kelasi/hozirgi zamon (o'tgan "borganman" emas).
-  if (/(kim|qayer)\w*\s+bor(ish|a)/.test(v)) return true;
-  if (/\bnavbat(dagi|da|im)?\b/.test(v)) return true;
-  if (/\bbugun(gi)?\b[\s\S]{0,15}\bmijoz/.test(v)) return true;
-  if (
-    /\bmijoz(lar|im|larim)?\b/.test(v) &&
-    /(bugun|hozir|haqida|royxat|ro['’]?yxat|malumot|ma['’]?lumot|kim|qaysi|necha)/.test(v)
-  ) {
-    return true;
-  }
-  return false;
-}
-
-// 2. MIJOZLAR SO'ROVI — bugungi mijozlar shabloni + eng yaqin mijoz tavsiyasi.
-async function buildTodayClientsReport() {
-  const services = await getTodayPendingServices();
-  if (!services.length) {
-    return { text: 'Bugun uchun barcha ishlar tugadi oka 🎉', tool: 'today_clients' };
-  }
-
-  const lines = services.map((s, i) => {
-    const name = s.clientName || 'Nomsiz';
-    const time = formatTime(s.serviceDateTime);
-    const address = s.location?.address || '-';
-    return `${listNumber(i)} ${name} — ${time} — 📍${address}`;
-  });
-
-  // Eng yaqin mijoz: joriy vaqtga serviceDateTime bo'yicha eng yaqini (faqat vaqt, masofa emas).
-  const now = Date.now();
-  let nearest = services[0];
-  let best = Math.abs(new Date(nearest.serviceDateTime).getTime() - now);
-  for (const s of services) {
-    const diff = Math.abs(new Date(s.serviceDateTime).getTime() - now);
-    if (diff < best) {
-      best = diff;
-      nearest = s;
-    }
-  }
-
-  const text = [
-    "Ha bo'ldi oka, mana mijozlar haqida ma'lumot 📋",
-    '',
-    'Bugungi mijozlar:',
-    ...lines,
-    '',
-    `👉 Hozir siz ${nearest.clientName || 'mijoz'} xizmatiga borishingiz kerak`,
-  ].join('\n');
-  return { text, tool: 'today_clients' };
-}
-
-// Aniq sana/filtrsiz "xizmatlar haqida" / "bugungi ishlar" so'rovini aniqlaydi.
-// "mijoz" emas, "xizmat/ish/reja" so'zlariga tayanadi (aniq joy/sana qidiruvi — bunda emas).
-function looksLikeTodayServices(rawText = '', fields = {}) {
-  if (fields?.dateFrom || fields?.dateTo) return false;
-  const v = String(rawText || '').toLowerCase();
-  if (/\bbugun(gi)?\b[\s\S]{0,15}\b(xizmat|ish|reja)/.test(v)) return true;
-  if (
-    /\b(xizmat(lar|im|larim)?|ish(lar|im|larim)?|reja(m|lar|larim)?)\b/.test(v) &&
-    /(bugun|hozir|haqida|royxat|ro['’]?yxat|malumot|ma['’]?lumot|qaysi|qanday|necha|qancha|bor)/.test(v)
-  ) {
-    return true;
-  }
-  return false;
-}
-
-const SERVICE_STATUS_ICON = {
-  [SERVICE_STATUS.DONE]: '✅',
-  [SERVICE_STATUS.PENDING]: '⏳',
-};
-
-// 3. XIZMATLAR SO'ROVI — bugungi xizmatlar qisqa shabloni (status ikonkalari + yakuniy son).
-async function buildTodayServicesReport() {
-  const services = await getTodayServices();
-  if (!services.length) {
-    return { text: "Bugun uchun xizmat yo'q oka 📭", tool: 'today_services' };
-  }
-
-  const lines = services.map((s, i) => {
-    const name = s.clientName || 'Nomsiz';
-    const time = formatTime(s.serviceDateTime);
-    const icon = SERVICE_STATUS_ICON[s.status] || '⏳';
-    return `${listNumber(i)} ${name} — ${time} ${icon}`;
-  });
-  const done = services.filter((s) => s.status === SERVICE_STATUS.DONE).length;
-  const pending = services.filter((s) => s.status === SERVICE_STATUS.PENDING).length;
-
-  const text = [
-    `🧹 Bugungi xizmatlar (${services.length} ta)`,
-    '',
-    ...lines,
-    '',
-    `✅ ${done} bajarildi · ⏳ ${pending} kutilmoqda`,
-  ].join('\n');
-  return { text, tool: 'today_services' };
 }
 
 export default { runAgent };
