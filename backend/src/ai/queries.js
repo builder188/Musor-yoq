@@ -208,10 +208,14 @@ function smallTalkReply(rawText = '') {
   const v = String(rawText || '').toLowerCase().trim();
   if (!v) return null;
   if (/\d/.test(v)) return null; // raqam bor — suhbat emas
-  // Ma'lumotga ishora bo'lgan gap (qidiruv/savol/yozuv) — suhbat emas.
-  if (/(qancha|nechta|necha|qachon|qayer|qaysi|\bkim\b|balans|foyda|daromad|xarajat|qarz|mijoz|xizmat|hisob|royxat|ro'yxat|manzil|narx|telefon|bor)\b/.test(v)) {
+  // Ma'lumotga ishora bo'lgan gap (qidiruv/savol/yozuv) — suhbat emas. Biznes so'zlari STEM
+  // sifatida tekshiriladi (qo'shimchali shakllar ham: "mijozlar", "xizmatlar", "narxi") —
+  // trailing \b qo'yilsa "mijozlar" tushib qolib, "salom mijozlar" xato suhbat bo'lardi.
+  if (/(qancha|nechta|necha|qachon|qayer|qaysi|balans|foyda|daromad|xarajat|qarz|mijoz|xizmat|hisob|royxat|ro'yxat|manzil|narx|telefon|kirim|chiqim|to'lov|tolov)/.test(v)) {
     return null;
   }
+  // Qisqa, ko'p ma'noli so'zlar faqat butun so'z sifatida bloklaydi.
+  if (/\b(kim|bor)\b/.test(v)) return null;
   const words = v.split(/\s+/).filter(Boolean);
   if (words.length > 6) return null; // uzun gap — ehtimol haqiqiy so'rov
   for (const { cat, re } of SMALL_TALK) {
