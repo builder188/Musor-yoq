@@ -16,6 +16,7 @@ export default function Finance() {
   const [summary, setSummary] = useState(null);
   const [chart, setChart] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(null);
   const [editingTx, setEditingTx] = useState(null);
@@ -25,18 +26,21 @@ export default function Finance() {
   const load = async () => {
     setLoading(true);
     try {
-      const [s, c, tx] = await Promise.all([
+      const [s, c, tx, mat] = await Promise.all([
         api.get(`/finance/summary?period=${period}`),
         api.get('/finance/chart'),
         api.get(`/finance/transactions?period=${period}`),
+        api.get(`/finance/materials?period=${period}`),
       ]);
       setSummary(s);
       setChart(c);
       setTransactions(normalizeTransactions(tx));
+      setMaterials(Array.isArray(mat) ? mat : []);
     } catch {
       setSummary(null);
       setChart(null);
       setTransactions([]);
+      setMaterials([]);
     } finally {
       setLoading(false);
     }
@@ -99,6 +103,8 @@ export default function Finance() {
               </div>
             </div>
           )}
+
+          {materials.length > 0 && <MaterialsCard materials={materials} t={t} />}
 
           <div className="section-title">{t('finance.recentActions')}</div>
           {transactions.length === 0 ? (
@@ -298,6 +304,25 @@ function IncomeExpenseRow({ summary }) {
         </div>
         <div className="io-value out">−{formatNumber(expense)}</div>
       </div>
+    </div>
+  );
+}
+
+// Material sotuvi bo'yicha kategoriya statistikasi (davr summasi). Faqat material
+// sotilgan bo'lsa ko'rsatiladi. Har qator: material nomi, kg (bo'lsa), jami summa.
+function MaterialsCard({ materials, t }) {
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>♻️ {t('finance.materials')}</div>
+      {materials.map((m) => (
+        <div key={m.material} className="row-between" style={{ padding: '6px 0' }}>
+          <div style={{ fontSize: '14px' }}>
+            {m.material}
+            {m.totalKg > 0 && <span className="muted"> · {formatNumber(m.totalKg)} kg</span>}
+          </div>
+          <span className="text-income">+{formatNumber(m.total)}</span>
+        </div>
+      ))}
     </div>
   );
 }

@@ -122,6 +122,8 @@ export default {
     chart: 'Daromad / Xarajat',
     last6: 'Oxirgi 6 oy',
     transactions: 'Tranzaksiyalar',
+    materials: 'Material sotuvi',
+    materialsEmpty: 'Hali material sotilmagan',
     recentActions: "So'nggi harakatlar",
     addPayment: "To'lov qo'shish",
     addTransaction: "Qo'shish",
@@ -223,6 +225,9 @@ export default {
     'oziq-ovqat': 'Oziq-ovqat',
     boshqa_chiqim: 'Boshqa',
     boshqa: 'Boshqa',
+    material: 'Material',
+    xizmat: 'Xizmat',
+    boshqa_kirim: 'Boshqa kirim',
   },
 
   paymentStatus: {

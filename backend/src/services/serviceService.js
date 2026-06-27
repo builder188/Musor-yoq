@@ -1,4 +1,4 @@
-// Xizmatlar bilan ishlash вЂ” biznes mantig'ining yuragi.
+// Xizmatlar bilan ishlash - biznes mantig'ining yuragi.
 // MUHIM moliyaviy qoidalar:
 //  - Daromad faqat xizmat "bajarildi" bo'lganda yoziladi.
 //  - Bajarilgandan keyin narx tahrirlansa, bog'langan daromad qayta hisoblanadi.
@@ -268,7 +268,7 @@ export async function repairMissingServiceIncome() {
   });
 }
 
-// Xizmatni bekor qilish. Bajarilgan bo'lsa вЂ” daromadni qaytaramiz.
+// Xizmatni bekor qilish. Bajarilgan bo'lsa - daromadni qaytaramiz.
 export async function cancelService(serviceId, reason = null) {
   const service = await Service.findOne({ _id: serviceId, ...notDeleted });
   if (!service) throw notFound('Xizmat topilmadi');
@@ -334,7 +334,7 @@ export async function editService(serviceId, data) {
     service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
   }
 
-  // Bajarilgan xizmat narxi o'zgargan bo'lsa вЂ” moliyani moslashtiramiz.
+  // Bajarilgan xizmat narxi o'zgargan bo'lsa - moliyani moslashtiramiz.
   if (wasDone && data.price !== undefined && service.price !== oldPrice) {
     if (service.incomeTransactionId) {
       await Transaction.findByIdAndUpdate(service.incomeTransactionId, { amount: service.price });
@@ -368,7 +368,7 @@ async function reverseIncome(service) {
   service.incomeTransactionId = null;
 }
 
-// Xizmatlar ro'yxati вЂ” filtrlar bilan (Kanban/List uchun).
+// Xizmatlar ro'yxati - filtrlar bilan (Kanban/List uchun).
 export async function listServices({
   status = null,
   clientId = null,

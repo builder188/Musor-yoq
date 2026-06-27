@@ -15,7 +15,7 @@ export async function connectDB() {
   conn.on('reconnected', () => console.log('MongoDB qayta ulandi ✅'));
   conn.on('error', (err) => console.error('MongoDB xatosi:', err.message));
   conn.on('disconnected', () =>
-    console.warn('MongoDB uzildi — drayver avtomatik qayta ulanishga urinmoqda...')
+    console.warn('MongoDB uzildi - drayver avtomatik qayta ulanishga urinmoqda...')
   );
 
   await mongoose.connect(env.MONGODB_URI, {

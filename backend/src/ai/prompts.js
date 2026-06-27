@@ -41,7 +41,7 @@ STEP 1 — pick exactly ONE high-level intent:
 
 STEP 2 — pick the precise subIntent inside that high-level intent:
 - MIJOZ  => SERVICE_ENTRY | SERVICE_EDIT | CLIENT_EDIT | STATUS_UPDATE
-- MOLIYA => EXPENSE_ENTRY | INCOME_ENTRY | PAYMENT_UPDATE
+- MOLIYA => EXPENSE_ENTRY | INCOME_ENTRY | MATERIAL_SALE | PAYMENT_UPDATE
 - SUXBAT => SEARCH_QUERY | ANALYTICS_QUERY
 
 subIntent meanings:
@@ -54,7 +54,16 @@ subIntent meanings:
   editField ("ism"|"telefon"), newValue.
 - STATUS_UPDATE  - mark an existing service "bajarildi" or "bekor_qilindi" with no new job details.
 - EXPENSE_ENTRY  - business spending ("benzin oldim", "mashina tamiri").
-- INCOME_ENTRY   - extra non-service income ("eski temir sotdim", "boshqa ishdan pul tushdi").
+- MATERIAL_SALE  - selling recyclable materials pulled from trash, by weight: cotton, wood,
+  iron, plastic, aluminium, copper, brick, etc. Trigger when a MATERIAL is sold, usually with
+  kg and/or a price ("30 kg paxtani 300 mingga sotdim", "temir sotdim 200 ming", "5 kg mis,
+  kilosi 80 ming"). Extract: materialName (the material itself, base form: "paxta"->"Paxta",
+  "temirni"->"temir"), quantityKg (kg amount), amount (TOTAL sum if stated), pricePerKg (per-kg
+  price if stated), currency. The TOTAL amount the owner states always wins. Known materials:
+  Paxta, Taxta, Yengil temir, Og'ir temir, Salafan, Plastik, Plassmassa, Alyuminiy, Mis, G'isht
+  — map to these when it clearly matches; otherwise keep whatever material the owner said (a NEW
+  category is fine, never force it into "boshqa"). Do NOT invent kg or price that wasn't said.
+- INCOME_ENTRY   - extra non-service, non-material income ("boshqa ishdan pul tushdi", "qarz qaytdi").
 - PAYMENT_UPDATE - a client paid for an existing service; updates only that service's
   payment state, never a new balance income.
 - SEARCH_QUERY   - find concrete records: WHICH/WHERE/WHEN ("Chilonzordagi mijozlar",
@@ -106,6 +115,7 @@ DATA EXTRACTION CONTRACT:
 - SERVICE_ENTRY: clientName, clientPhone, location, serviceDateTime, price, currency, paymentMethod, notes, isHistorical.
 - EXPENSE_ENTRY: amount, currency, category, description, date (default today if absent; default category "boshqa_chiqim").
 - INCOME_ENTRY:  amount, currency, description, date.
+- MATERIAL_SALE: materialName (required), quantityKg, amount (total, if stated), pricePerKg (if stated), currency, date.
 - SERVICE_EDIT:  targetIdentifier, editField ("narx"|"sana"|"manzil"), newValue (normalized).
 - CLIENT_EDIT:   targetIdentifier, editField ("ism"|"telefon"), newValue (phone -> +998...).
 - STATUS_UPDATE: targetClientName/targetPhone, newStatus ("bajarildi"|"bekor_qilindi").
@@ -139,6 +149,15 @@ Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.9,"reason":"
 
 Input: "magazinga 400 ming ishlatdim"
 Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.85,"reason":"unclear shop spending","fields":{"amount":400000,"category":"boshqa_chiqim","description":"magazin"}}
+
+Input: "30 kg paxtani 300 mingga sotdim"
+Args: {"intent":"MOLIYA","subIntent":"MATERIAL_SALE","confidence":0.95,"reason":"sold cotton by weight, total stated","fields":{"materialName":"Paxta","quantityKg":30,"amount":300000}}
+
+Input: "5 kg mis sotdim, kilosi 80 ming"
+Args: {"intent":"MOLIYA","subIntent":"MATERIAL_SALE","confidence":0.93,"reason":"sold copper, per-kg price stated; server computes total","fields":{"materialName":"Mis","quantityKg":5,"pricePerKg":80000}}
+
+Input: "chyorniy taxta sotdim, narxi 150 ming"
+Args: {"intent":"MOLIYA","subIntent":"MATERIAL_SALE","confidence":0.9,"reason":"sold a material not in the known list; keep it as a new category","fields":{"materialName":"chyorniy taxta","amount":150000}}
 
 Input: "Akmalning ishini bajardim deb belgila"
 Args: {"intent":"MIJOZ","subIntent":"STATUS_UPDATE","confidence":0.9,"reason":"mark existing service done","fields":{"targetClientName":"Akmal","newStatus":"bajarildi"}}

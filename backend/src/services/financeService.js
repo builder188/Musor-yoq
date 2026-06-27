@@ -1,6 +1,7 @@
-import Transaction, { TX_TYPES, EXPENSE_CATEGORIES } from '../models/Transaction.js';
+import Transaction, { TX_TYPES, EXPENSE_CATEGORIES, MATERIAL_CATEGORY } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { periodRange } from '../utils/dates.js';
+import { resolveMaterialName, buildMaterialDescription } from './materialService.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 const CATEGORY_KEYWORDS = {
@@ -37,7 +38,11 @@ function detectExpenseCategory(text = '') {
 }
 
 function normalizeCategory(type, category) {
-  if (type === TX_TYPES.INCOME) return category === 'xizmat' ? 'xizmat' : 'boshqa_kirim';
+  if (type === TX_TYPES.INCOME) {
+    const value = String(category || '').trim().toLowerCase();
+    if (value === MATERIAL_CATEGORY) return MATERIAL_CATEGORY;
+    return category === 'xizmat' ? 'xizmat' : 'boshqa_kirim';
+  }
   const value = String(category || '').trim().toLowerCase();
   if (EXPENSE_CATEGORIES.includes(value)) return value;
   if (["yoqilg'i", 'yoqilg’i', 'fuel'].includes(value)) return 'yoqilgi';
@@ -152,24 +157,40 @@ export async function listTransactions({
   return { items, page: pageNumber, limit: limitNumber, total };
 }
 
+function optionalPositiveNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
+
 export async function createTransaction(data) {
   const type = data.type === TX_TYPES.INCOME ? TX_TYPES.INCOME : TX_TYPES.EXPENSE;
   const amount = parsePositiveAmount(data.amount);
   const date = parseOptionalDate(data.date) || new Date();
+  const category = normalizeCategory(
+    type,
+    data.category || (type === TX_TYPES.EXPENSE ? detectExpenseCategory(data.description || data.note || '') : null)
+  );
 
   const tx = {
     type,
     amount, // DOIM so'mda (agent dollarni oldindan aylantiradi)
-    category: normalizeCategory(
-      type,
-      data.category || (type === TX_TYPES.EXPENSE ? detectExpenseCategory(data.description || data.note || '') : null)
-    ),
+    category,
     description: data.description || data.note || '',
     date,
     originalAmount: data.originalAmount ?? null,
     originalCurrency: data.originalCurrency ?? null,
     exchangeRateUsed: data.exchangeRateUsed ?? null,
   };
+
+  // Material sotuvi: nomni kanonik shaklga keltiramiz (dublikat kategoriyaning oldini olish),
+  // miqdor/kilo narxini saqlaymiz va izohni toza quramiz ("Paxta · 30 kg").
+  if (category === MATERIAL_CATEGORY) {
+    const resolved = (await resolveMaterialName(data.materialName)) || 'Boshqa';
+    tx.materialName = resolved;
+    tx.quantityKg = optionalPositiveNumber(data.quantityKg);
+    tx.pricePerKg = optionalPositiveNumber(data.pricePerKg);
+    tx.description = buildMaterialDescription(resolved, tx.quantityKg);
+  }
   // Faqat O'Z xizmatiga bog'lashga ruxsat: boshqa egaga tegishli (yoki noto'g'ri) serviceId
   // e'tiborsiz qoldiriladi. Aks holda analitika $lookup'i orqali boshqa foydalanuvchi
   // mijozi ko'rinib qolishi mumkin edi. findOne plugin orqali scoped — faqat o'zinikini topadi.

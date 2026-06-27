@@ -113,6 +113,8 @@ export default {
     chart: 'Доход / Расход',
     last6: 'Последние 6 мес.',
     transactions: 'Транзакции',
+    materials: 'Продажа материалов',
+    materialsEmpty: 'Материалы ещё не продавались',
     recentActions: 'Последние операции',
     addPayment: 'Добавить оплату',
     addTransaction: 'Добавить',
@@ -193,6 +195,9 @@ export default {
     'oziq-ovqat': 'Еда',
     boshqa_chiqim: 'Прочее',
     boshqa: 'Прочее',
+    material: 'Материал',
+    xizmat: 'Услуга',
+    boshqa_kirim: 'Прочий доход',
   },
 
   paymentStatus: {

@@ -1,5 +1,6 @@
 import { InlineKeyboard } from 'grammy';
 import { formatMoney, formatConversionLine } from '../utils/money.js';
+import { formatKg } from '../services/materialService.js';
 import { formatPhone } from '../utils/phone.js';
 import { formatDateTime, formatTime, dayWord } from '../utils/dates.js';
 import { encodeCoords } from './location.js';
@@ -143,6 +144,17 @@ export function entrySummaryText(intent, fields = {}) {
     ];
     if (conv) lines.push(conv);
     lines.push("Hammasi to'g'rimi?");
+    return lines.join('\n');
+  }
+  if (intent === 'MATERIAL_SALE') {
+    const name = fields.materialName || 'Material';
+    const qty = typeof fields.quantityKg === 'number' && fields.quantityKg > 0 ? `${formatKg(fields.quantityKg)} kg ` : '';
+    const lines = ['Tekshirib chiqing oka:', `♻️ ${qty}${name} — 💰 ${formatMoney(fields.amount)}`];
+    if (typeof fields.pricePerKg === 'number' && fields.pricePerKg > 0) {
+      lines.push(`📊 1 kg: ${formatMoney(fields.pricePerKg)}`);
+    }
+    if (conv) lines.push(conv);
+    lines.push("To'g'rimi?");
     return lines.join('\n');
   }
   if (intent === 'INCOME_ENTRY') {

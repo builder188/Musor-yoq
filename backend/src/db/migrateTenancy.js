@@ -1,7 +1,7 @@
 // Bir martalik (idempotent) migratsiya: eski bitta-egali ma'lumotlarni multi-tenantga
 // ko'chiradi. telegramUserId'siz qolgan har bir yozuvga eski/asosiy egani yozadi.
 //
-// IDEMPOTENT — faqat telegramUserId yetishmagan yozuvlarga tegadi, shuning uchun startupda
+// IDEMPOTENT - faqat telegramUserId yetishmagan yozuvlarga tegadi, shuning uchun startupda
 // har safar xavfsiz ishlaydi (birinchi safardan keyin no-op). Qo'lda "bir marta ishlatib
 // keyin o'chirish" o'rniga shunday qildik: hech narsa unutilmaydi, qayta deploy ham xavfsiz.
 import Client from '../models/Client.js';
@@ -21,7 +21,7 @@ const TARGETS = [
 export async function migrateTenancy() {
   const legacy = legacyOwnerId();
   if (!legacy) {
-    console.warn('[MIGRATION] Asosiy egasi IDsi topilmadi — tenant backfill o\'tkazib yuborildi.');
+    console.warn('[MIGRATION] Asosiy egasi IDsi topilmadi - tenant backfill o\'tkazib yuborildi.');
     return 0;
   }
   const owner = String(legacy);
@@ -39,7 +39,7 @@ export async function migrateTenancy() {
       total += n;
     }
     if (total) console.log(`[MIGRATION] Jami ${total} ta yozuv ko'chirildi (asosiy egasi: ${owner}).`);
-    else console.log('[MIGRATION] Backfill shart emas — barcha yozuvlarda telegramUserId bor.');
+    else console.log('[MIGRATION] Backfill shart emas - barcha yozuvlarda telegramUserId bor.');
     return total;
   });
 }

@@ -59,7 +59,7 @@ async function fetchFreshRate() {
   try {
     return await fetchFromUrl(CBU_PRIMARY_URL);
   } catch (primaryErr) {
-    console.warn(`CBU asosiy manba xato (${primaryErr.message}) — zaxira endpoint sinaladi`);
+    console.warn(`CBU asosiy manba xato (${primaryErr.message}) - zaxira endpoint sinaladi`);
     return fetchFromUrl(CBU_FALLBACK_URL);
   }
 }

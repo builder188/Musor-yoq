@@ -91,6 +91,9 @@ const classifyTool = {
               description: { type: SchemaType.STRING },
               date: { type: SchemaType.STRING },
               incomeSource: { type: SchemaType.STRING },
+              materialName: { type: SchemaType.STRING, description: 'MATERIAL_SALE: the sold material, base form (e.g. "Paxta", "Mis", "chyorniy taxta").' },
+              quantityKg: { type: SchemaType.NUMBER, description: 'MATERIAL_SALE: quantity in kilograms, if stated.' },
+              pricePerKg: { type: SchemaType.NUMBER, description: 'MATERIAL_SALE: price per kilogram, if stated.' },
               targetClientName: { type: SchemaType.STRING },
               targetPhone: { type: SchemaType.STRING },
               newStatus: { type: SchemaType.STRING, enum: ['bajarildi', 'bekor_qilindi'] },
@@ -580,6 +583,17 @@ export function normalizeExtractedFields(intent, fields = {}) {
     return {
       amount: numberOrNull(clean.amount),
       description: textOrNull(clean.description || clean.notes || clean.incomeSource),
+      date: isoOrNull(clean.date) || new Date().toISOString(),
+      currency: resolveCurrency(clean),
+    };
+  }
+
+  if (intent === 'MATERIAL_SALE') {
+    return {
+      materialName: textOrNull(clean.materialName || clean.incomeSource),
+      quantityKg: numberOrNull(clean.quantityKg),
+      pricePerKg: numberOrNull(clean.pricePerKg),
+      amount: numberOrNull(clean.amount),
       date: isoOrNull(clean.date) || new Date().toISOString(),
       currency: resolveCurrency(clean),
     };

@@ -1,5 +1,21 @@
 # AI_CONTEXT.md
 
+## 2026-06-27 Railway log audit - npm warning + log encoding
+- **Log tahlili:** Railway logidagi `[err] npm warn config production Use --omit=dev instead` fatal backend xatosi emas; npm `production` config ogohlantirishini stderr'ga yozgani uchun Railway uni `err` sifatida ko'rsatgan. Backend o'zi MongoDB, webhook, cron va kurs keshini muvaffaqiyatli start qilgan.
+- **Tuzatish:** repo ildiziga `railway.json` qo'shildi: build `npm run build`, deploy start bevosita `node backend/src/index.js`. Runtime endi nested `npm run start --workspace ...` wrapper'iga kirmaydi, shuning uchun production-config npm warning runtime logida chiqmasligi kerak.
+- **Log tozaligi:** runtime console loglaridagi uzun tirelar ASCII `-` ga almashtirildi (`migrateTenancy`, `connect`, `exchangeRateService`) - Railway/log viewer mojibake (`вЂ”`) chiqarmasligi uchun. `backend/.env.example` buzilib qolgan `smash :)` holatidan normal namunaga qaytarildi.
+- **Self-check:** `railway.json` JSON parse OK; barcha `backend/src/**/*.js` `node --check` OK; material flow smoke OK; `npm run build` OK; `git diff --check` OK (faqat CRLF ogohlantirishlari).
+
+## 2026-06-27 Material sotish (paxta/temir/plastik...) — yangi daromad manbai
+- **Maqsad:** egasi musordan chiqqan materiallarni sotgani (masalan "30 kg paxtani 300 mingga sotdim") oddiy KIRIM sifatida yozilsin, balans/oylik grafik/hisobot/kategoriya statistikasiga to'liq kirsin.
+- **Niyat:** MOLIYA ichida 4-chi subIntent `MATERIAL_SALE` (`ai/intents.js`). Gemini ajratadi: `materialName` (asos shakl: "paxtani"→"Paxta"), `quantityKg`, `amount` (umumiy summa), `pricePerKg` (prompt + classify schema + `normalizeExtractedFields`).
+- **Saqlanishi:** `Transaction` `category='material'` (income), `materialName/quantityKg/pricePerKg` maydonlari. Izoh toza quriladi ("Paxta · 30 kg") — Mini App ro'yxati/PDF/Excel/qidiruvda ko'rinadi. Balans (`getSummary`) va oylik grafik AVTOMATIK qamraydi (income transaction).
+- **Kategoriya:** 10 asosiy (`materialService.DEFAULT_MATERIALS`: Paxta, Taxta, Yengil/Og'ir temir, Salafan, Plastik, Plassmassa, Alyuminiy, Mis, G'isht). `resolveMaterialName` kanonik nomga keltiradi (dublikat yo'q); ro'yxatda yo'q narsa → YANGI kategoriya o'sha nom bilan (rad etmaydi). "Keyingi safar ham tanilsin": avval ishlatilgan nomlar `Transaction.distinct` dan olinadi.
+- **Ma'lumot mantig'i:** umumiy summa har doim ustun (foydalanuvchi aytgani). Faqat miqdor+summa bo'lsa kilo narxi YUMSHOQ (1 martalik) so'raladi (`flow.nextSoftAsk` + `agent.maybeAskSoft`, `_softAsked` bayrog'i); javob bermasa qistab so'ralmay saqlanadi. Faqat miqdor+kilo narxi bo'lsa umumiy summa avtomatik hisoblanadi (`applyEntryDefaults`).
+- **Tasdiq:** "Bo'ldi oka, 30 kg Paxta — 300 000 so'mga sotilgani yozildi ✅" (`agent.fallbackResponse`). Saqlashdan oldin yakuniy tekshiruv xulosasi (`ui.entrySummaryText` MATERIAL_SALE).
+- **Statistika:** `materialService.getMaterialStats(period)` (materialName bo'yicha jami/kg/soni) → `GET /api/finance/materials`; Mini App Finance'da "♻️ Material sotuvi" kartochkasi. `GET /api/finance/materials/categories` → tanilgan kategoriyalar. PDF kategoriya ustunida materialName ko'rsatiladi.
+- **Tekshiruv:** `node --check` 11 fayl OK; pure-logic 23/23 PASS; agent uchburchak oqim (S1 to'liq→confirm, S2 yumshoq so'rov, S3 javob, S4 rad-nag yo'q, S5 summa so'rash) 5/5 PASS; gemini import-graf + extraction; Mini App Finance.jsx esbuild OK. Jonli Gemini/DB testi foydalanuvchida.
+
 ## 2026-06-26 Oddiy suhbat (salom/rahmat/xayr) endi qidiruv emas
 - **Muammo:** egasi "rahmat ukam" / "salom" / "xayr" yozsa, dastur uni SEARCH_QUERY deb olib "qidiruv amalga oshirildi, hech narsa topilmadi" javobini berardi.
 - **Tuzatish:** `ai/queries.js` ga `smallTalkReply(rawText)` qo'shildi va `answerReadQuery` ichida data-shablonlardan KEYIN, qidiruvga o'tishdan OLDIN chaqiriladi. Tasniflar: thanks/greeting/bye/howareyou/ack → iliq "oka" javob (`tool:'small_talk'`). DB'ga tegmaydi.

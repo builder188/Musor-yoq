@@ -10,8 +10,25 @@ import {
 } from '../services/financeService.js';
 import { softDeleteOne } from '../services/deleteService.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
+import { getMaterialStats, listKnownMaterials } from '../services/materialService.js';
 
 const router = Router();
+
+// GET /api/finance/materials?period= — material sotuvi bo'yicha kategoriya statistikasi.
+router.get(
+  '/materials',
+  asyncHandler(async (req, res) => {
+    res.json(await getMaterialStats(req.query.period || 'all'));
+  })
+);
+
+// GET /api/finance/materials/categories — tanilgan kategoriyalar (10 asosiy + yaratilganlar).
+router.get(
+  '/materials/categories',
+  asyncHandler(async (req, res) => {
+    res.json(await listKnownMaterials());
+  })
+);
 
 // GET /api/finance/summary?period=today|month|last_month|year|all
 router.get(
@@ -77,7 +94,6 @@ router.put(
     res.json(await updateTransaction(req.params.id, req.body));
   })
 );
-// DELETE /api/finance/transactions/:id вЂ” tasdiqlash kodi kerak.
 // DELETE /api/finance/transactions/:id - tasdiqlash kodi kerak.
 router.delete(
   '/transactions/:id',

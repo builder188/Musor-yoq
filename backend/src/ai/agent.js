@@ -7,6 +7,7 @@ import {
   applyRawValue,
   hasValue,
   nextMissing,
+  nextSoftAsk,
   QUESTIONS,
   normalizeExpenseCategory,
 } from '../bot/flow.js';
@@ -27,6 +28,7 @@ import {
 } from '../services/serviceService.js';
 import { createTransaction, getSummary, listTransactions } from '../services/financeService.js';
 import { listClients, updateClient } from '../services/clientService.js';
+import { formatKg } from '../services/materialService.js';
 import { searchServices, findServiceForUpdate, findClient, findClientsByName } from '../services/searchService.js';
 import { getUsdToUzsRate } from '../services/exchangeRateService.js';
 import { answerReadQuery } from './queries.js';
@@ -57,7 +59,7 @@ const PIVOT_SUBS = new Set(['SEARCH_QUERY', 'ANALYTICS_QUERY']);
 const FREE_TEXT_FIELDS = new Set(['clientName', 'location', 'notes', 'description']);
 // Slot-filling o'rtasida niyat korreksiyasi faqat shu aniq yozuv amallari uchun.
 const WRITE_ACTIONS = new Set([
-  'SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'STATUS_UPDATE',
+  'SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'MATERIAL_SALE', 'STATUS_UPDATE',
   'SERVICE_EDIT', 'CLIENT_EDIT', 'PAYMENT_UPDATE',
 ]);
 
@@ -112,6 +114,14 @@ function hasConcreteSignal(action, f = {}) {
     case 'EXPENSE_ENTRY':
     case 'INCOME_ENTRY':
       return typeof f.amount === 'number' && f.amount > 0;
+    case 'MATERIAL_SALE':
+      // Aniq material nomi + (umumiy summa YOKI miqdor*kilo narxi) — haqiqiy yangi sotuv.
+      return Boolean(
+        f.materialName &&
+          ((typeof f.amount === 'number' && f.amount > 0) ||
+            (typeof f.quantityKg === 'number' && f.quantityKg > 0 &&
+              typeof f.pricePerKg === 'number' && f.pricePerKg > 0))
+      );
     case 'SERVICE_ENTRY':
       // Shunchaki ism emas — to'liqroq yangi ish (sana/narx/tel ham bor).
       return Boolean(f.clientName && (f.serviceDateTime || f.price || f.clientPhone));
@@ -148,6 +158,7 @@ const TOOL_BY_INTENT = {
   SERVICE_ENTRY: 'create_service',
   EXPENSE_ENTRY: 'create_transaction',
   INCOME_ENTRY: 'create_transaction',
+  MATERIAL_SALE: 'create_transaction',
   STATUS_UPDATE: 'update_service_status',
   SERVICE_EDIT: 'edit_service',
   CLIENT_EDIT: 'edit_client',
@@ -196,6 +207,7 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
     case 'SERVICE_ENTRY':
     case 'EXPENSE_ENTRY':
     case 'INCOME_ENTRY':
+    case 'MATERIAL_SALE':
       if (mode === 'query') return { text: "Buni bot orqali bajaramiz oka. Bu yer faqat qidiruv va tahlil uchun." };
       return startEntry({ conversation, intent: action, fields: understanding.fields || {}, rawText, mode });
 
@@ -291,6 +303,7 @@ function defaultClarifyOptions(understanding) {
     { label: 'Mijoz / xizmat', subIntent: 'SERVICE_ENTRY' },
     { label: 'Xarajat', subIntent: 'EXPENSE_ENTRY' },
     { label: 'Daromad', subIntent: 'INCOME_ENTRY' },
+    { label: 'Material sotish', subIntent: 'MATERIAL_SALE' },
     { label: "Mijoz to'lovi", subIntent: 'PAYMENT_UPDATE' },
     { label: 'Qidiruv / savol', subIntent: 'SEARCH_QUERY' },
   ];
@@ -316,7 +329,7 @@ async function startClarify({ clarify, understanding, rawText, conversation }) {
 
 // ── Valyuta (dollar/so'm) aniqlash va avtomatik konvertatsiya ────────────────
 // Qaysi maydon pul summasi (intent bo'yicha).
-const AMOUNT_KEY = { SERVICE_ENTRY: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount' };
+const AMOUNT_KEY = { SERVICE_ENTRY: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount', MATERIAL_SALE: 'amount' };
 const USD_RE = /(\$|dollar|dollor|\bdoll?ar\b|\busd\b)/i;
 
 function detectUsd(text) {
@@ -352,16 +365,24 @@ async function applyCurrencyConversion(intent, collected) {
   const rate = await getUsdToUzsRate();
   if (!rate) return { collected, needSom: true, usdAmount: amount };
   const uzs = convertUsdToUzs(amount, rate);
+  const converted = {
+    ...collected,
+    [key]: uzs,
+    currency: 'UZS',
+    originalAmount: amount,
+    originalCurrency: 'USD',
+    exchangeRateUsed: rate,
+    _conversion: { originalAmount: amount, rate, uzsAmount: uzs },
+  };
+  if (intent === 'MATERIAL_SALE' && typeof collected.pricePerKg === 'number' && collected.pricePerKg > 0) {
+    const pricePerKgUzs = convertUsdToUzs(collected.pricePerKg, rate);
+    if (pricePerKgUzs) {
+      converted.originalPricePerKg = collected.pricePerKg;
+      converted.pricePerKg = pricePerKgUzs;
+    }
+  }
   return {
-    collected: {
-      ...collected,
-      [key]: uzs,
-      currency: 'UZS',
-      originalAmount: amount,
-      originalCurrency: 'USD',
-      exchangeRateUsed: rate,
-      _conversion: { originalAmount: amount, rate, uzsAmount: uzs },
-    },
+    collected: converted,
   };
 }
 
@@ -399,13 +420,43 @@ async function startEntry({ conversation, intent, fields, rawText, mode }) {
     }
     return askField(missing);
   }
+  const soft = await maybeAskSoft({ conversation, intent, collected, mode });
+  if (soft) return soft;
   return finalizeEntry({ conversation, intent, collected, rawText, mode });
+}
+
+// Material sotuvida kilo narxi yumshoq (bir martalik) so'raladi: miqdor va umumiy summa bor,
+// lekin kilo narxi yo'q bo'lsa "1 kg necha pul?" deb so'raymiz. Javob shart emas — keyingi
+// xabarda raqam bo'lmasa ham, _softAsked bayrog'i tufayli oqim qistab so'ramay yakunlanadi.
+async function maybeAskSoft({ conversation, intent, collected, mode }) {
+  if (mode !== 'bot') return null;
+  const field = nextSoftAsk(intent, collected);
+  if (!field || collected._softAsked) return null;
+  collected._softAsked = true;
+  if (conversation) {
+    conversation.pendingIntent = intent;
+    conversation.collected = collected;
+    conversation.awaitingField = field;
+    conversation.markModified('collected');
+    await conversation.save();
+  }
+  return askField(field);
 }
 
 async function continueEntry({ conversation, understanding, rawText, mode }) {
   if (/^(bekor|otmen|cancel|to'xtat|toxtat)/i.test((rawText || '').trim())) {
     await conversation.reset();
     return { text: 'Bekor qilindi.' };
+  }
+
+  // Material yumshoq (ixtiyoriy) so'rovi — kilo narxi — javobini ALOHIDA hal qilamiz:
+  // SUXBAT pivoti yoki niyat korreksiyasiga BERMAYMIZ. Raqam bo'lsa kilo narxini yozamiz;
+  // bo'lmasa (foydalanuvchi rad etsa) mavjud ma'lumot bilan darhol yakunlaymiz — qistab
+  // so'ramaymiz (spec talabi).
+  if (conversation.awaitingField === 'pricePerKg' && conversation.collected?._softAsked) {
+    const intent = conversation.pendingIntent;
+    const collected = applyEntryDefaults(intent, applyRawValue('pricePerKg', rawText, conversation.collected || {}));
+    return finalizeEntry({ conversation, intent, collected, rawText, mode });
   }
 
   // SUXBAT pivoti: maydon to'ldirish o'rtasida foydalanuvchi savol/qidiruv bersa —
@@ -441,6 +492,9 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
     return askField(missing);
   }
 
+  const soft = await maybeAskSoft({ conversation, intent, collected, mode });
+  if (soft) return soft;
+
   return finalizeEntry({ conversation, intent, collected, rawText, mode });
 }
 
@@ -470,6 +524,7 @@ async function finalizeEntry({ conversation, intent, collected, rawText, mode })
 const ENTRY_FIELD_KEYS = [
   'clientName', 'clientPhone', 'location', 'serviceDateTime', 'price', 'paymentMethod',
   'notes', 'isHistorical', 'amount', 'category', 'description', 'date', 'incomeSource',
+  'materialName', 'quantityKg', 'pricePerKg',
 ];
 const EDIT_FIELD_TO_ENTRY = {
   narx: 'price', narxi: 'price', price: 'price',
@@ -480,6 +535,8 @@ const EDIT_FIELD_TO_ENTRY = {
   summa: 'amount', summasi: 'amount', amount: 'amount',
   izoh: 'description', description: 'description', notes: 'description',
   toifa: 'category', category: 'category',
+  material: 'materialName', materialname: 'materialName',
+  miqdor: 'quantityKg', miqdori: 'quantityKg', kg: 'quantityKg', kilo: 'quantityKg',
 };
 
 function pickEntryFields(fields = {}) {
@@ -956,11 +1013,21 @@ async function findServiceByIdentifier(identifier) {
 
 async function createAgentTransaction(args) {
   const type = args.type === 'income' ? TX_TYPES.INCOME : TX_TYPES.EXPENSE;
+  const isMaterial = type === TX_TYPES.INCOME && args.category === 'material';
+  const category = isMaterial
+    ? 'material'
+    : type === TX_TYPES.EXPENSE
+    ? normalizeCategoryForDb(args.category || args.description)
+    : null;
   const tx = await createTransaction({
     type,
     amount: args.amount,
-    category: type === TX_TYPES.EXPENSE ? normalizeCategoryForDb(args.category || args.description) : null,
+    category,
     description: args.description || args.note || '',
+    // Material sotuvi maydonlari (createTransaction kanonik nom + izohni quradi).
+    materialName: isMaterial ? args.materialName : null,
+    quantityKg: isMaterial ? args.quantityKg : null,
+    pricePerKg: isMaterial ? args.pricePerKg : null,
     date: args.date || null,
     serviceId: args.serviceId || null,
     originalAmount: args.originalAmount ?? null,
@@ -1049,14 +1116,19 @@ function fallbackToolCall(intent, fields, rawText) {
           status: fields.newStatus || SERVICE_STATUS.DONE,
         },
       };
-    case 'create_transaction':
+    case 'create_transaction': {
+      const isMaterial = intent === 'MATERIAL_SALE';
       return {
         name,
         args: {
-          type: intent === 'INCOME_ENTRY' ? 'income' : 'expense',
+          type: intent === 'INCOME_ENTRY' || isMaterial ? 'income' : 'expense',
           amount: fields.amount, // allaqachon so'mda
-          category: fields.category,
-          description: fields.description || fields.notes || fields.incomeSource || rawText,
+          category: isMaterial ? 'material' : fields.category,
+          // Material izohi createTransaction'da toza qilib quriladi (nom · kg) — bu yerda bo'sh.
+          description: isMaterial ? '' : (fields.description || fields.notes || fields.incomeSource || rawText),
+          materialName: isMaterial ? fields.materialName || null : null,
+          quantityKg: isMaterial ? fields.quantityKg ?? null : null,
+          pricePerKg: isMaterial ? fields.pricePerKg ?? null : null,
           date: fields.date || null,
           serviceId: fields.serviceId || null,
           originalAmount: fields.originalAmount ?? null,
@@ -1064,6 +1136,7 @@ function fallbackToolCall(intent, fields, rawText) {
           exchangeRateUsed: fields.exchangeRateUsed ?? null,
         },
       };
+    }
     case 'record_payment':
       return {
         name,
@@ -1121,6 +1194,18 @@ function applyEntryDefaults(intent, fields) {
   if (intent === 'EXPENSE_ENTRY') {
     if (!out.date) out.date = new Date().toISOString();
     if (out.category) out.category = normalizeCategoryForDb(out.category);
+  }
+  if (intent === 'MATERIAL_SALE') {
+    if (!out.date) out.date = new Date().toISOString();
+    // Foydalanuvchi aytgan UMUMIY summa ustun. Aytilmagan bo'lsa — miqdor*kilo narxidan
+    // hisoblab qo'yamiz, shunda majburiy 'amount' to'ladi (qistab so'ramaymiz).
+    if (
+      !(typeof out.amount === 'number' && out.amount > 0) &&
+      typeof out.quantityKg === 'number' && out.quantityKg > 0 &&
+      typeof out.pricePerKg === 'number' && out.pricePerKg > 0
+    ) {
+      out.amount = Math.round(out.quantityKg * out.pricePerKg);
+    }
   }
   return out;
 }
@@ -1194,6 +1279,10 @@ function fallbackResponse(toolName, result) {
     case 'get_services_by_identifier':
       return searchSummary(result);
     case 'create_transaction':
+      if (result.category === 'material') {
+        const qty = result.quantityKg > 0 ? `${formatKg(result.quantityKg)} kg ` : '';
+        return `Bo'ldi oka, ${qty}${result.materialName || 'material'} — ${formatMoney(result.amount)}ga sotilgani yozildi ✅`;
+      }
       if (result.type === 'income') {
         return `Boldi oka, ${formatMoney(result.amount)} kirim qo'shdim ✅`;
       }

@@ -9,6 +9,9 @@ export const ENTRY_REQUIRED = {
   SERVICE_ENTRY: ['clientName', 'clientPhone', 'location', 'serviceDateTime', 'price', 'paymentMethod'],
   EXPENSE_ENTRY: ['amount'],
   INCOME_ENTRY: ['amount'],
+  // Material sotuvi: material nomi + umumiy summa shart. Summa to'g'ridan aytilmasa,
+  // miqdor*kilo narxidan hisoblanadi (applyEntryDefaults), shunda 'amount' to'ladi.
+  MATERIAL_SALE: ['materialName', 'amount'],
 };
 
 export const QUESTIONS = {
@@ -20,6 +23,8 @@ export const QUESTIONS = {
   paymentMethod: "💳 To'lovni qanday oladi, oka? (naqd/karta/o'tkazma)",
   amount: "💰 Qancha bo'ldi, oka? (masalan: 50 ming)",
   category: '🗂 Qaysi turdagi xarajat? (yoqilgi / tamirlash / oziq-ovqat / boshqa)',
+  materialName: '♻️ Qaysi materialni sotdingiz, oka? (masalan: paxta, temir, plastik)',
+  pricePerKg: "📊 1 kg ni necha pulga sotdingiz, oka?",
 };
 
 export function isEntryIntent(intent) {
@@ -56,6 +61,8 @@ export function hasValue(field, collected) {
     case 'price':
     case 'amount':
     case 'paymentAmount':
+    case 'quantityKg':
+    case 'pricePerKg':
       return typeof v === 'number' && v > 0;
     case 'serviceDateTime':
       return !!v && !Number.isNaN(new Date(v).getTime());
@@ -74,9 +81,10 @@ export function mergeFields(collected, incoming = {}, { overwrite = false } = {}
     if (raw === null || raw === undefined || raw === '' || raw === false) continue;
     let value = raw;
     if (key === 'clientPhone' || key === 'targetPhone') value = normalizePhone(raw) || raw;
-    else if (key === 'price' || key === 'amount' || key === 'paymentAmount') value = parseMoney(raw);
+    else if (key === 'price' || key === 'amount' || key === 'paymentAmount' || key === 'quantityKg' || key === 'pricePerKg') value = parseMoney(raw);
     else if (key === 'paymentMethod') value = normalizePaymentMethod(raw) || raw;
     else if (key === 'category') value = normalizeExpenseCategory(raw) || raw;
+    else if (key === 'materialName') value = String(raw).replace(/\s+/g, ' ').trim();
     if (value === null || value === undefined || value === '') continue;
 
     if (overwrite || out[key] === undefined || out[key] === '' || out[key] === null) {
@@ -100,7 +108,9 @@ export function applyRawValue(field, rawText, collected) {
     }
     case 'price':
     case 'amount':
-    case 'paymentAmount': {
+    case 'paymentAmount':
+    case 'quantityKg':
+    case 'pricePerKg': {
       const num = parseMoney(text);
       if (num) out[field] = num;
       break;
@@ -124,6 +134,21 @@ export function nextMissing(intent, collected) {
   const required = ENTRY_REQUIRED[intent] || [];
   for (const field of required) {
     if (!hasValue(field, collected)) return field;
+  }
+  return null;
+}
+
+// IXTIYORIY (yumshoq) so'rov — bir marta beriladi, javob shart emas. Material sotuvida:
+// miqdor va umumiy summa bor, lekin kilo narxi yo'q bo'lsa — "1 kg necha pul?" deb so'raymiz.
+// Foydalanuvchi javob bersa yoziladi; bermasa (rad etsa) mavjud ma'lumot bilan saqlanadi.
+export function nextSoftAsk(intent, collected) {
+  if (intent !== 'MATERIAL_SALE') return null;
+  if (
+    hasValue('quantityKg', collected) &&
+    hasValue('amount', collected) &&
+    !hasValue('pricePerKg', collected)
+  ) {
+    return 'pricePerKg';
   }
   return null;
 }
