@@ -1,5 +1,11 @@
 # AI_CONTEXT.md
 
+## 2026-06-26 Oddiy suhbat (salom/rahmat/xayr) endi qidiruv emas
+- **Muammo:** egasi "rahmat ukam" / "salom" / "xayr" yozsa, dastur uni SEARCH_QUERY deb olib "qidiruv amalga oshirildi, hech narsa topilmadi" javobini berardi.
+- **Tuzatish:** `ai/queries.js` ga `smallTalkReply(rawText)` qo'shildi va `answerReadQuery` ichida data-shablonlardan KEYIN, qidiruvga o'tishdan OLDIN chaqiriladi. Tasniflar: thanks/greeting/bye/howareyou/ack → iliq "oka" javob (`tool:'small_talk'`). DB'ga tegmaydi.
+- **Ehtiyotkor:** raqam yoki data so'zi (qancha/mijoz/balans/manzil/bor…) bo'lsa — suhbat EMAS, qidiruvga o'tadi; 6 so'zdan uzun gap ham o'tadi. Stem regexlar trailing \b SIZ ("qalaysiz", "yaxshimisiz" ushlanadi); "xayr" (\bxayr\b) "xayrli kun" (salom) dan ajratilgan; "rahmat" \b bilan "Rahmatga" (mijoz ismi) dan himoyalangan.
+- Bot va Mini App ikkalasiga ham tegishli (umumiy `answerReadQuery`). Tekshiruv: `node --check` OK; detection 19 talk + 9 non-talk PASS; "ee rhamat ukam"→"Arzimaydi oka 😊", "salom"→salomlashish, "xayr oka"→xayrlashuv; import-graf resolve.
+
 ## 2026-06-26 So'rov shablonlari yakuni: XIZMATLAR (yangi format) + get_next_client + umumiy modul + Mini App xarita tugmalari
 - **Umumiy modul:** barcha AI o'qish-shablonlari yangi `backend/src/ai/queries.js` ga ko'chirildi. Yagona kirish: `answerReadQuery({rawText, fields, isAnalytics})` → `{text, tool}` yoki `null` (mos kelmasa umumiy qidiruvga). `agent.runAgent` SEARCH/ANALYTICS shu funksiyani chaqiradi — Telegram bot (matn/ovoz) HAM, Mini App AI chat HAM bir xil modul/mantiq (kod takrorlanmaydi). agent.js'dagi eski inline shablonlar olib tashlandi.
 - **Routing tartibi** (queries.js): BALANS (isAnalytics) → KEYINGI MIJOZ (`looksLikeNextClient`) → MIJOZLAR (`looksLikeTodayClients`) → XIZMATLAR (`looksLikeTodayServices`) → null. "kim/qayer borish" endi MIJOZLAR'dan KEYINGI MIJOZ'ga ko'chdi.
