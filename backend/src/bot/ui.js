@@ -157,6 +157,31 @@ export function entrySummaryText(intent, fields = {}) {
     lines.push("To'g'rimi?");
     return lines.join('\n');
   }
+  if (intent === 'ITEM_ENTRY') {
+    const lines = ['Tekshirib chiqing oka:', `Buyum: ${fields.itemName || '-'}`];
+    if (typeof fields.estimatedPrice === 'number' && fields.estimatedPrice > 0) {
+      lines.push(`Taxminiy narx: ${formatMoney(fields.estimatedPrice)}`);
+    }
+    if (fields.sourceType === 'voice') lines.push('Manba: ovozli xabar matni biriktiriladi');
+    if (fields.notes) lines.push(`Izoh: ${fields.notes}`);
+    if (conv) lines.push(conv);
+    lines.push("Kerakli buyumlar ro'yxatiga qo'shamizmi?");
+    return lines.join('\n');
+  }
+  if (intent === 'ITEM_SALE') {
+    const lines = ['Tekshirib chiqing oka:', `${fields.itemName || 'Buyum'} sotildi - ${formatMoney(fields.amount)}`];
+    if (fields.recipient) lines.push(`Oluvchi: ${fields.recipient}`);
+    if (conv) lines.push(conv);
+    lines.push("Balansga kirim qilib yozamizmi?");
+    return lines.join('\n');
+  }
+  if (intent === 'ITEM_GIVEAWAY') {
+    const lines = ['Tekshirib chiqing oka:', `${fields.itemName || 'Buyum'} tekinga berildi`];
+    if (fields.recipient) lines.push(`Oluvchi: ${fields.recipient}`);
+    if (fields.notes) lines.push(`Izoh: ${fields.notes}`);
+    lines.push("Ro'yxatdan chiqaramizmi?");
+    return lines.join('\n');
+  }
   if (intent === 'INCOME_ENTRY') {
     const desc = fields.description || fields.notes || fields.incomeSource || '-';
     const lines = ['Tekshirib chiqing:', `💰 ${formatMoney(fields.amount)} | Kirim`, `📝 ${desc}`];

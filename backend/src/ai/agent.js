@@ -29,6 +29,12 @@ import {
 import { createTransaction, getSummary, listTransactions } from '../services/financeService.js';
 import { listClients, updateClient } from '../services/clientService.js';
 import { formatKg } from '../services/materialService.js';
+import {
+  createUsefulItem,
+  sellUsefulItem,
+  giveAwayUsefulItem,
+  confirmUsefulItemAction,
+} from '../services/usefulItemService.js';
 import { searchServices, findServiceForUpdate, findClient, findClientsByName } from '../services/searchService.js';
 import { getUsdToUzsRate } from '../services/exchangeRateService.js';
 import { answerReadQuery } from './queries.js';
@@ -59,7 +65,7 @@ const PIVOT_SUBS = new Set(['SEARCH_QUERY', 'ANALYTICS_QUERY']);
 const FREE_TEXT_FIELDS = new Set(['clientName', 'location', 'notes', 'description']);
 // Slot-filling o'rtasida niyat korreksiyasi faqat shu aniq yozuv amallari uchun.
 const WRITE_ACTIONS = new Set([
-  'SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'MATERIAL_SALE', 'STATUS_UPDATE',
+  'SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'MATERIAL_SALE', 'ITEM_ENTRY', 'ITEM_SALE', 'ITEM_GIVEAWAY', 'STATUS_UPDATE',
   'SERVICE_EDIT', 'CLIENT_EDIT', 'PAYMENT_UPDATE',
 ]);
 
@@ -122,6 +128,12 @@ function hasConcreteSignal(action, f = {}) {
             (typeof f.quantityKg === 'number' && f.quantityKg > 0 &&
               typeof f.pricePerKg === 'number' && f.pricePerKg > 0))
       );
+    case 'ITEM_ENTRY':
+      return Boolean(f.itemName);
+    case 'ITEM_SALE':
+      return Boolean(f.itemName && typeof f.amount === 'number' && f.amount > 0);
+    case 'ITEM_GIVEAWAY':
+      return Boolean(f.itemName);
     case 'SERVICE_ENTRY':
       // Shunchaki ism emas — to'liqroq yangi ish (sana/narx/tel ham bor).
       return Boolean(f.clientName && (f.serviceDateTime || f.price || f.clientPhone));
@@ -159,6 +171,9 @@ const TOOL_BY_INTENT = {
   EXPENSE_ENTRY: 'create_transaction',
   INCOME_ENTRY: 'create_transaction',
   MATERIAL_SALE: 'create_transaction',
+  ITEM_ENTRY: 'create_useful_item',
+  ITEM_SALE: 'sell_useful_item',
+  ITEM_GIVEAWAY: 'give_useful_item',
   STATUS_UPDATE: 'update_service_status',
   SERVICE_EDIT: 'edit_service',
   CLIENT_EDIT: 'edit_client',
@@ -188,7 +203,7 @@ const CLIENT_EDIT_FIELD = {
   raqam: 'phone',
 };
 
-export async function runAgent({ understanding, rawText = '', conversation = null, mode = 'bot' }) {
+export async function runAgent({ understanding, rawText = '', conversation = null, mode = 'bot', sourceMeta = null }) {
   // 1) Davom etayotgan slot-filling ustuvor — SUXBAT pivoti shu ichida hal bo'ladi.
   if (conversation?.pendingIntent && isEntryIntent(conversation.pendingIntent)) {
     return continueEntry({ conversation, understanding, rawText, mode });
@@ -208,8 +223,11 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
     case 'EXPENSE_ENTRY':
     case 'INCOME_ENTRY':
     case 'MATERIAL_SALE':
+    case 'ITEM_ENTRY':
+    case 'ITEM_SALE':
+    case 'ITEM_GIVEAWAY':
       if (mode === 'query') return { text: "Buni bot orqali bajaramiz oka. Bu yer faqat qidiruv va tahlil uchun." };
-      return startEntry({ conversation, intent: action, fields: understanding.fields || {}, rawText, mode });
+      return startEntry({ conversation, intent: action, fields: understanding.fields || {}, rawText, mode, sourceMeta });
 
     case 'STATUS_UPDATE':
       return handleStatusUpdate({ fields: understanding.fields || {}, rawText, conversation, mode });
@@ -304,6 +322,7 @@ function defaultClarifyOptions(understanding) {
     { label: 'Xarajat', subIntent: 'EXPENSE_ENTRY' },
     { label: 'Daromad', subIntent: 'INCOME_ENTRY' },
     { label: 'Material sotish', subIntent: 'MATERIAL_SALE' },
+    { label: 'Buyum', subIntent: 'ITEM_ENTRY' },
     { label: "Mijoz to'lovi", subIntent: 'PAYMENT_UPDATE' },
     { label: 'Qidiruv / savol', subIntent: 'SEARCH_QUERY' },
   ];
@@ -329,7 +348,7 @@ async function startClarify({ clarify, understanding, rawText, conversation }) {
 
 // ── Valyuta (dollar/so'm) aniqlash va avtomatik konvertatsiya ────────────────
 // Qaysi maydon pul summasi (intent bo'yicha).
-const AMOUNT_KEY = { SERVICE_ENTRY: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount', MATERIAL_SALE: 'amount' };
+const AMOUNT_KEY = { SERVICE_ENTRY: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount', MATERIAL_SALE: 'amount', ITEM_ENTRY: 'estimatedPrice', ITEM_SALE: 'amount' };
 const USD_RE = /(\$|dollar|dollor|\bdoll?ar\b|\busd\b)/i;
 
 function detectUsd(text) {
@@ -405,8 +424,24 @@ async function currencyFallback({ conversation, intent, collected, usdAmount }) 
   };
 }
 
-async function startEntry({ conversation, intent, fields, rawText, mode }) {
-  const collected = applyEntryDefaults(intent, mergeFields({}, fields));
+function attachEntrySource(intent, fields, rawText, sourceMeta) {
+  if (intent !== 'ITEM_ENTRY') return fields;
+  const out = { ...fields };
+  out.sourceText = out.sourceText || rawText || '';
+  if (sourceMeta?.type === 'voice') {
+    out.sourceType = 'voice';
+    out.voiceTelegramFileId = sourceMeta.telegramFileId || null;
+    out.voiceMimeType = sourceMeta.mimeType || null;
+    out.voiceDuration = sourceMeta.duration || null;
+    out.voiceMessageId = sourceMeta.messageId || null;
+  } else if (!out.sourceType) {
+    out.sourceType = 'text';
+  }
+  return out;
+}
+
+async function startEntry({ conversation, intent, fields, rawText, mode, sourceMeta = null }) {
+  const collected = applyEntryDefaults(intent, attachEntrySource(intent, mergeFields({}, fields), rawText, sourceMeta));
   trackEntryCurrency(intent, collected, undefined, fields, rawText);
   const missing = nextMissing(intent, collected);
 
@@ -503,7 +538,15 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
 async function finalizeEntry({ conversation, intent, collected, rawText, mode }) {
   // Dollar bo'lsa — so'mga aylantiramiz (yoki kurs yo'q bo'lsa so'mda qayta so'raymiz).
   const conv = await applyCurrencyConversion(intent, collected);
-  if (conv.needSom) return currencyFallback({ conversation, intent, collected, usdAmount: conv.usdAmount });
+  if (conv.needSom) {
+    if (intent === 'ITEM_ENTRY') {
+      delete collected.estimatedPrice;
+      delete collected.currency;
+      conv.collected = collected;
+    } else {
+      return currencyFallback({ conversation, intent, collected, usdAmount: conv.usdAmount });
+    }
+  }
   collected = conv.collected;
 
   if (conversation && mode === 'bot') {
@@ -515,8 +558,8 @@ async function finalizeEntry({ conversation, intent, collected, rawText, mode })
     return { text: entrySummaryText(intent, collected), keyboard: entryConfirmKeyboard() };
   }
 
-  const result = await executeToolFlow({ intent, fields: collected, rawText, mode });
-  if (conversation) await conversation.reset();
+  const result = await executeToolFlow({ intent, fields: collected, rawText, mode, conversation });
+  if (conversation && conversation.pendingIntent !== 'ITEM_MATCH_CONFIRM') await conversation.reset();
   return result;
 }
 
@@ -524,7 +567,7 @@ async function finalizeEntry({ conversation, intent, collected, rawText, mode })
 const ENTRY_FIELD_KEYS = [
   'clientName', 'clientPhone', 'location', 'serviceDateTime', 'price', 'paymentMethod',
   'notes', 'isHistorical', 'amount', 'category', 'description', 'date', 'incomeSource',
-  'materialName', 'quantityKg', 'pricePerKg',
+  'materialName', 'quantityKg', 'pricePerKg', 'itemName', 'estimatedPrice', 'recipient',
 ];
 const EDIT_FIELD_TO_ENTRY = {
   narx: 'price', narxi: 'price', price: 'price',
@@ -537,6 +580,9 @@ const EDIT_FIELD_TO_ENTRY = {
   toifa: 'category', category: 'category',
   material: 'materialName', materialname: 'materialName',
   miqdor: 'quantityKg', miqdori: 'quantityKg', kg: 'quantityKg', kilo: 'quantityKg',
+  buyum: 'itemName', item: 'itemName', itemname: 'itemName',
+  oluvchi: 'recipient', xaridor: 'recipient', recipient: 'recipient',
+  taxminiy: 'estimatedPrice', baho: 'estimatedPrice',
 };
 
 function pickEntryFields(fields = {}) {
@@ -802,8 +848,8 @@ export async function confirmPendingEntry({ conversation, mode = 'bot' }) {
     throw new Error("Tasdiqlanadigan ma'lumot topilmadi");
   }
 
-  const result = await executeToolFlow({ intent, fields, rawText: pending.rawText || '', mode });
-  await conversation.reset();
+  const result = await executeToolFlow({ intent, fields, rawText: pending.rawText || '', mode, conversation });
+  if (conversation.pendingIntent !== 'ITEM_MATCH_CONFIRM') await conversation.reset();
   return result;
 }
 
@@ -816,7 +862,7 @@ const LLM_RESPONSE_TOOLS = new Set([
   'get_services_by_identifier',
 ]);
 
-async function executeToolFlow({ intent, fields, rawText, mode }) {
+async function executeToolFlow({ intent, fields, rawText, mode, conversation = null }) {
   // Niyat allaqachon tasniflangan, maydonlar normallashtirilgan — qaysi tool va qanday
   // argument kerakligini DETERMINISTIK aniqlaymiz. Avval qo'shimcha `chooseAgentTool`
   // Gemini chaqiruvi bor edi, lekin uning natijasi baribir faqat shu deterministik
@@ -831,6 +877,18 @@ async function executeToolFlow({ intent, fields, rawText, mode }) {
     // Biznes xatosi (mas. "xizmat topilmadi") — bu AI/ulanish xatosi emas. Egaga aniq,
     // samimiy xabar qaytaramiz (umumiy "AI xato" o'rniga).
     return { text: err?.message || "Voy oka, bir narsa chappa ketdi. Qaytadan urinib ko'ring.", tool: toolCall.name, error: true };
+  }
+
+  if (toolResult?.needsConfirmation && conversation && mode === 'bot') {
+    conversation.pendingIntent = 'ITEM_MATCH_CONFIRM';
+    conversation.collected = {
+      action: toolResult.action,
+      payload: toolResult.payload,
+      candidates: toolResult.candidates,
+    };
+    conversation.awaitingField = 'itemMatch';
+    conversation.markModified('collected');
+    await conversation.save();
   }
 
   const fallbackText = fallbackResponse(toolCall.name, toolResult);
@@ -880,6 +938,15 @@ async function executeAgentTool(name, args) {
 
     case 'create_transaction':
       return createAgentTransaction(args);
+
+    case 'create_useful_item':
+      return serializeDoc(await createUsefulItem(args));
+
+    case 'sell_useful_item':
+      return sellUsefulItem(args);
+
+    case 'give_useful_item':
+      return giveAwayUsefulItem(args);
 
     case 'record_payment':
       return recordAgentPayment(args);
@@ -1060,6 +1127,37 @@ async function recordAgentPayment(args) {
 
 // Service funksiyalari sahifa bilan {items} obyekti yoki massiv qaytarishi mumkin —
 // doim massivga keltirib, .filter/.slice xatosining oldini olamiz.
+export async function confirmPendingUsefulItemMatch({ conversation, choiceText = '' }) {
+  const state = conversation?.collected || {};
+  const candidates = Array.isArray(state.candidates) ? state.candidates : [];
+  if (!candidates.length || !state.action || !state.payload) throw new Error('Tasdiqlanadigan buyum topilmadi.');
+
+  const normalized = String(choiceText || '').trim().toLowerCase();
+  if (/^(yo'q|yoq|no|n|bekor|cancel)/i.test(normalized)) {
+    await conversation.reset();
+    return { text: 'Mayli oka, buyumga tegmadim.' };
+  }
+
+  let selected = null;
+  const numberMatch = normalized.match(/\d+/);
+  if (numberMatch) selected = candidates[Number(numberMatch[0]) - 1] || null;
+  if (!selected && candidates.length === 1 && /^(ha|xa|yes|y|ok|mayli|shu)/i.test(normalized)) {
+    selected = candidates[0];
+  }
+  if (!selected) {
+    selected = candidates.find((item) => normalized && String(item.name || '').toLowerCase().includes(normalized));
+  }
+  if (!selected) return { text: itemMatchQuestion(candidates), keepPending: true };
+
+  const result = await confirmUsefulItemAction({
+    action: state.action,
+    payload: state.payload,
+    itemId: selected.id,
+  });
+  await conversation.reset();
+  return { text: fallbackResponse(state.action === 'sell' ? 'sell_useful_item' : 'give_useful_item', result), result };
+}
+
 function asArray(value) {
   if (Array.isArray(value)) return value;
   return Array.isArray(value?.items) ? value.items : [];
@@ -1114,6 +1212,48 @@ function fallbackToolCall(intent, fields, rawText) {
           serviceIdentifier:
             fields.targetPhone || fields.clientPhone || fields.targetClientName || fields.clientName || fields.searchText || rawText,
           status: fields.newStatus || SERVICE_STATUS.DONE,
+        },
+      };
+    case 'create_useful_item':
+      return {
+        name,
+        args: {
+          itemName: fields.itemName,
+          estimatedPrice: fields.estimatedPrice ?? null,
+          acquiredAt: fields.date || null,
+          notes: fields.notes || '',
+          sourceType: fields.sourceType || 'text',
+          sourceText: fields.sourceText || rawText || '',
+          voiceTelegramFileId: fields.voiceTelegramFileId || null,
+          voiceMimeType: fields.voiceMimeType || null,
+          voiceDuration: fields.voiceDuration || null,
+          voiceMessageId: fields.voiceMessageId || null,
+          originalAmount: fields.originalAmount ?? null,
+          originalCurrency: fields.originalCurrency ?? null,
+          exchangeRateUsed: fields.exchangeRateUsed ?? null,
+        },
+      };
+    case 'sell_useful_item':
+      return {
+        name,
+        args: {
+          itemName: fields.itemName,
+          amount: fields.amount,
+          recipient: fields.recipient || null,
+          date: fields.date || null,
+          originalAmount: fields.originalAmount ?? null,
+          originalCurrency: fields.originalCurrency ?? null,
+          exchangeRateUsed: fields.exchangeRateUsed ?? null,
+        },
+      };
+    case 'give_useful_item':
+      return {
+        name,
+        args: {
+          itemName: fields.itemName,
+          recipient: fields.recipient || null,
+          date: fields.date || null,
+          notes: fields.notes || '',
         },
       };
     case 'create_transaction': {
@@ -1207,6 +1347,13 @@ function applyEntryDefaults(intent, fields) {
       out.amount = Math.round(out.quantityKg * out.pricePerKg);
     }
   }
+  if (intent === 'ITEM_ENTRY') {
+    if (!out.date) out.date = new Date().toISOString();
+    if (!out.sourceType) out.sourceType = 'text';
+  }
+  if (intent === 'ITEM_SALE' || intent === 'ITEM_GIVEAWAY') {
+    if (!out.date) out.date = new Date().toISOString();
+  }
   return out;
 }
 
@@ -1258,6 +1405,15 @@ const CATEGORY_LABEL = {
   boshqa_chiqim: 'Boshqa',
 };
 
+function itemMatchQuestion(candidates = []) {
+  const lines = ["Oka, qaysi buyum nazarda tutilganini aniqlashtiring:"];
+  candidates.slice(0, 3).forEach((item, index) => {
+    lines.push(`${index + 1}. ${item.name}`);
+  });
+  lines.push("Raqamini yozing yoki 'yo'q' deb bekor qiling.");
+  return lines.join('\n');
+}
+
 function fallbackResponse(toolName, result) {
   switch (toolName) {
     case 'create_service':
@@ -1278,6 +1434,19 @@ function fallbackResponse(toolName, result) {
       return analyticsSummary(result);
     case 'get_services_by_identifier':
       return searchSummary(result);
+    case 'create_useful_item':
+      return `${result.name || 'Buyum'}ni kerakli buyumlar kategoriyasiga kiritib qo'ydim oka ✅`;
+    case 'sell_useful_item': {
+      if (result.needsConfirmation) return itemMatchQuestion(result.candidates);
+      const name = result.item?.name || result.transaction?.itemName || 'Buyum';
+      const lines = [`Bo'ldi oka, ${name} sotildi - ${formatMoney(result.transaction?.amount || 0)} balansga qo'shildi ✅`];
+      if (result.warning) lines.push(`⚠️ ${result.warning}`);
+      return lines.join('\n');
+    }
+    case 'give_useful_item':
+      if (result.needsConfirmation) return itemMatchQuestion(result.candidates);
+      if (result.item) return `Bo'ldi oka, ${result.item.name || 'buyum'} ro'yxatdan chiqarildi. Balansga pul qo'shilmadi.`;
+      return result.warning || "Buyumni ro'yxatda topolmadim oka.";
     case 'create_transaction':
       if (result.category === 'material') {
         const qty = result.quantityKg > 0 ? `${formatKg(result.quantityKg)} kg ` : '';

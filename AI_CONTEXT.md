@@ -1,5 +1,14 @@
 # AI_CONTEXT.md
 
+## 2026-06-27 Kerakli buyumlar inventari
+- **Maqsad:** musordan chiqqan, lekin tashlanmaydigan dona buyumlar (`muzlatgich`, `televizor`, `divan`...) materiallardan alohida yuritiladi. Bular kg emas, har biri alohida `UsefulItem`.
+- **Model/API:** yangi `models/UsefulItem.js` tenant-scoped + soft-delete. Maydonlar: `name/normalizedName/estimatedPrice/acquiredAt/notes/sourceType/sourceText/voice/status/closedAt/recipient/soldAmount/saleTransactionId`. Yangi `routes/items.js`: `GET/POST /api/items`, `PATCH /:id/sold`, `PATCH /:id/give-away`, `DELETE /:id`, `GET /audio/:fileId`.
+- **AI/bot:** yangi subIntentlar: `ITEM_ENTRY`, `ITEM_SALE`, `ITEM_GIVEAWAY`. Slot-filling: qo'shishda faqat `itemName` shart (narx so'ralmaydi), sotishda `itemName+amount`, tekinga berishda `itemName`. Voice orqali qo'shilsa `sourceText` + Telegram `voice` metadata biriktiriladi.
+- **Aqlli match:** `usefulItemService` alias/fuzzy matching qiladi: `haladelnik/xolodilnik/holodilnik` -> `Muzlatgich`, `tv/telik` -> `Televizor`, `stiralka` -> `Kir yuvish mashinasi`. Noaniq yaqin match bo'lsa bot `ITEM_MATCH_CONFIRM` holatida nomzodlarni raqam bilan so'raydi. Ro'yxatda yo'q buyum sotilsa, transaction baribir yoziladi va ogohlantirish qaytadi.
+- **Moliya:** `Transaction.category='buyum'`, `itemName/usefulItemId`; sotuv darhol income transaction. Tekinga berish balansga tegmaydi. PDF finance kategoriya ustunida buyum nomi ko'rinadi.
+- **Mini App:** yangi `Items.jsx` + nav tab `Buyumlar`: ro'yxat/qidiruv, qo'lda qo'shish, detal, source transcript/audio, qo'lda `Sotildi` + summa, `Tekinga berildi`, soft-delete.
+- **Self-check:** backend `node --check` OK; Mini App `npm run build` OK; item logic smoke OK; import graph OK; `git diff --check` OK (faqat CRLF warninglar).
+
 ## 2026-06-27 Railway log audit - npm warning + log encoding
 - **Log tahlili:** Railway logidagi `[err] npm warn config production Use --omit=dev instead` fatal backend xatosi emas; npm `production` config ogohlantirishini stderr'ga yozgani uchun Railway uni `err` sifatida ko'rsatgan. Backend o'zi MongoDB, webhook, cron va kurs keshini muvaffaqiyatli start qilgan.
 - **Tuzatish:** repo ildiziga `railway.json` qo'shildi: build `npm run build`, deploy start bevosita `node backend/src/index.js`. Runtime endi nested `npm run start --workspace ...` wrapper'iga kirmaydi, shuning uchun production-config npm warning runtime logida chiqmasligi kerak.

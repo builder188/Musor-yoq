@@ -14,6 +14,7 @@ import dataRouter from './data.js';
 import transactionsRouter from './transactions.js';
 import analyticsRouter from './analytics.js';
 import exchangeRateRouter from './exchangeRate.js';
+import itemsRouter from './items.js';
 
 const router = Router();
 
@@ -39,6 +40,7 @@ router.use('/finance', financeRouter);
 router.use('/transactions', transactionsRouter);
 router.use('/analytics', analyticsRouter);
 router.use('/exchange-rate', exchangeRateRouter);
+router.use('/items', itemsRouter);
 router.use('/settings', settingsRouter);
 router.use('/ai', aiRouter);
 router.use('/reports', reportsRouter);

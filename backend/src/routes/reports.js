@@ -448,7 +448,7 @@ function mergeFinanceRows(transactions) {
       row: [
         formatDateTime(tx.date),
         tx.type === TX_TYPES.EXPENSE ? 'Chiqim' : 'Kirim',
-        tx.category === 'material' ? (tx.materialName || 'Material') : (tx.category || ''),
+        tx.category === 'material' ? (tx.materialName || 'Material') : tx.category === 'buyum' ? (tx.itemName || 'Buyum') : (tx.category || ''),
         `${tx.type === TX_TYPES.EXPENSE ? '-' : '+'}${formatMoney(tx.amount || 0)}`,
         tx.description || tx.note || '',
       ],

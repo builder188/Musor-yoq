@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Client from '../models/Client.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import Transaction from '../models/Transaction.js';
+import UsefulItem from '../models/UsefulItem.js';
 import env from '../config/env.js';
 import Settings from '../models/Settings.js';
 import { applyServiceSchedule } from './reminderService.js';
@@ -16,13 +17,17 @@ const MODELS = {
   transaction: Transaction,
   transactions: Transaction,
   Transaction,
+  item: UsefulItem,
+  items: UsefulItem,
+  UsefulItem,
 };
 
 const BULK_TARGETS = {
-  all: [Client, Service, Transaction],
+  all: [Client, Service, Transaction, UsefulItem],
   clients: [Client, Service],
   services: [Service, Transaction],
   finance: [Transaction],
+  items: [UsefulItem],
 };
 
 export function checkCode(code) {
@@ -81,6 +86,7 @@ export async function bulkDelete(target, code = env.CONFIRM_DELETE_CODE) {
     clients: 0,
     services: 0,
     transactions: 0,
+    items: 0,
   };
 
   for (const Model of models) {
@@ -88,6 +94,7 @@ export async function bulkDelete(target, code = env.CONFIRM_DELETE_CODE) {
     if (Model === Client) result.clients = update.modifiedCount;
     if (Model === Service) result.services = update.modifiedCount;
     if (Model === Transaction) result.transactions = update.modifiedCount;
+    if (Model === UsefulItem) result.items = update.modifiedCount;
   }
 
   return {
@@ -119,6 +126,7 @@ async function bulkDeleteClients() {
     services: pending.modifiedCount,
     historyServicesKept: history.modifiedCount,
     transactions: 0,
+    items: 0,
     warning: 'PDF yuklab olishni xohlaysizmi?',
   };
 }
@@ -126,10 +134,11 @@ async function bulkDeleteClients() {
 export async function listDeleted() {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const filter = { isDeleted: true, deletedAt: { $gte: thirtyDaysAgo } };
-  const [clients, services, transactions] = await Promise.all([
+  const [clients, services, transactions, items] = await Promise.all([
     Client.find(filter).sort({ deletedAt: -1 }).lean(),
     Service.find(filter).sort({ deletedAt: -1 }).lean(),
     Transaction.find(filter).sort({ deletedAt: -1 }).lean(),
+    UsefulItem.find(filter).sort({ deletedAt: -1 }).lean(),
   ]);
   const clientIds = clients.map((client) => client._id);
   const restoreServices = clientIds.length
@@ -140,7 +149,7 @@ export async function listDeleted() {
         .sort({ serviceDateTime: -1 })
         .lean()
     : [];
-  return { clients, services, transactions, clientRestoreServices: restoreServices };
+  return { clients, services, transactions, items, clientRestoreServices: restoreServices };
 }
 
 export async function restore(typeOrIds, maybeId = null) {
@@ -215,6 +224,7 @@ export async function restoreByIds(ids = []) {
     clients: [],
     services: [],
     transactions: [],
+    items: [],
   };
 
   for (const id of ids.filter(Boolean)) {
@@ -244,11 +254,13 @@ export async function purgeOld(days = 30) {
   const t = await Transaction.deleteMany(filter);
   const s = await Service.deleteMany(filter);
   const c = await Client.deleteMany(filter);
+  const i = await UsefulItem.deleteMany(filter);
 
   return {
     clients: c.deletedCount,
     services: s.deletedCount,
     transactions: t.deletedCount,
+    items: i.deletedCount,
   };
 }
 
@@ -257,6 +269,7 @@ async function findDeletedById(id) {
     ['clients', Client],
     ['services', Service],
     ['transactions', Transaction],
+    ['items', UsefulItem],
   ];
 
   for (const [modelName, Model] of queries) {

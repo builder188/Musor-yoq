@@ -7,6 +7,7 @@ import Spinner from './components/Spinner.jsx';
 import Home from './pages/Home.jsx';
 import Clients from './pages/Clients.jsx';
 import Services from './pages/Services.jsx';
+import Items from './pages/Items.jsx';
 import Finance from './pages/Finance.jsx';
 import Reports from './pages/Reports.jsx';
 import Settings from './pages/Settings.jsx';
@@ -124,6 +125,7 @@ export default function App() {
             />
           )}
           {tab === 'services' && <Services />}
+          {tab === 'items' && <Items />}
           {tab === 'finance' && <Finance />}
           {tab === 'reports' && <Reports />}
           {tab === 'settings' && <Settings />}

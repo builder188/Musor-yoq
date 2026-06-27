@@ -12,6 +12,9 @@ export const ENTRY_REQUIRED = {
   // Material sotuvi: material nomi + umumiy summa shart. Summa to'g'ridan aytilmasa,
   // miqdor*kilo narxidan hisoblanadi (applyEntryDefaults), shunda 'amount' to'ladi.
   MATERIAL_SALE: ['materialName', 'amount'],
+  ITEM_ENTRY: ['itemName'],
+  ITEM_SALE: ['itemName', 'amount'],
+  ITEM_GIVEAWAY: ['itemName'],
 };
 
 export const QUESTIONS = {
@@ -25,6 +28,8 @@ export const QUESTIONS = {
   category: '🗂 Qaysi turdagi xarajat? (yoqilgi / tamirlash / oziq-ovqat / boshqa)',
   materialName: '♻️ Qaysi materialni sotdingiz, oka? (masalan: paxta, temir, plastik)',
   pricePerKg: "📊 1 kg ni necha pulga sotdingiz, oka?",
+  itemName: 'Qaysi buyum, oka? (masalan: muzlatgich, televizor, divan)',
+  recipient: 'Kimga berdingiz yoki sotdingiz, oka?',
 };
 
 export function isEntryIntent(intent) {
@@ -63,6 +68,7 @@ export function hasValue(field, collected) {
     case 'paymentAmount':
     case 'quantityKg':
     case 'pricePerKg':
+    case 'estimatedPrice':
       return typeof v === 'number' && v > 0;
     case 'serviceDateTime':
       return !!v && !Number.isNaN(new Date(v).getTime());
@@ -81,10 +87,10 @@ export function mergeFields(collected, incoming = {}, { overwrite = false } = {}
     if (raw === null || raw === undefined || raw === '' || raw === false) continue;
     let value = raw;
     if (key === 'clientPhone' || key === 'targetPhone') value = normalizePhone(raw) || raw;
-    else if (key === 'price' || key === 'amount' || key === 'paymentAmount' || key === 'quantityKg' || key === 'pricePerKg') value = parseMoney(raw);
+    else if (key === 'price' || key === 'amount' || key === 'paymentAmount' || key === 'quantityKg' || key === 'pricePerKg' || key === 'estimatedPrice') value = parseMoney(raw);
     else if (key === 'paymentMethod') value = normalizePaymentMethod(raw) || raw;
     else if (key === 'category') value = normalizeExpenseCategory(raw) || raw;
-    else if (key === 'materialName') value = String(raw).replace(/\s+/g, ' ').trim();
+    else if (key === 'materialName' || key === 'itemName' || key === 'recipient') value = String(raw).replace(/\s+/g, ' ').trim();
     if (value === null || value === undefined || value === '') continue;
 
     if (overwrite || out[key] === undefined || out[key] === '' || out[key] === null) {
@@ -110,7 +116,8 @@ export function applyRawValue(field, rawText, collected) {
     case 'amount':
     case 'paymentAmount':
     case 'quantityKg':
-    case 'pricePerKg': {
+    case 'pricePerKg':
+    case 'estimatedPrice': {
       const num = parseMoney(text);
       if (num) out[field] = num;
       break;

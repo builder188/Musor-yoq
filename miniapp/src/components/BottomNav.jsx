@@ -1,11 +1,11 @@
 import { useApp } from '../store/AppContext.jsx';
 import { haptic } from '../telegram.js';
 
-// Dizayndagidek 5 tab. Hisobot eksporti Sozlamalar ichida (alohida tab kerak emas).
 export const NAV_TABS = [
   { id: 'home', icon: '🏠' },
   { id: 'clients', icon: '👥' },
   { id: 'services', icon: '🗑️' },
+  { id: 'items', icon: '📦' },
   { id: 'finance', icon: '💰' },
   { id: 'settings', icon: '⚙️' },
 ];

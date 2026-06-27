@@ -41,7 +41,7 @@ STEP 1 — pick exactly ONE high-level intent:
 
 STEP 2 — pick the precise subIntent inside that high-level intent:
 - MIJOZ  => SERVICE_ENTRY | SERVICE_EDIT | CLIENT_EDIT | STATUS_UPDATE
-- MOLIYA => EXPENSE_ENTRY | INCOME_ENTRY | MATERIAL_SALE | PAYMENT_UPDATE
+- MOLIYA => EXPENSE_ENTRY | INCOME_ENTRY | MATERIAL_SALE | ITEM_ENTRY | ITEM_SALE | ITEM_GIVEAWAY | PAYMENT_UPDATE
 - SUXBAT => SEARCH_QUERY | ANALYTICS_QUERY
 
 subIntent meanings:
@@ -63,6 +63,16 @@ subIntent meanings:
   Paxta, Taxta, Yengil temir, Og'ir temir, Salafan, Plastik, Plassmassa, Alyuminiy, Mis, G'isht
   — map to these when it clearly matches; otherwise keep whatever material the owner said (a NEW
   category is fine, never force it into "boshqa"). Do NOT invent kg or price that wasn't said.
+- ITEM_ENTRY     - add a useful non-trash item found in trash to the "Kerakli buyumlar" inventory.
+  These are UNIQUE piece items, NOT kg materials: fridge, TV, sofa, washing machine, chair, etc.
+  Trigger when the owner says they HAVE/FOUND a usable item ("Menda yangi muzlatgich bor",
+  "ishlaydigan televizor chiqdi"). Extract itemName, estimatedPrice only if stated, notes/date.
+  Never ask for price; price is optional.
+- ITEM_SALE      - a useful item was sold as one piece ("Ishlaydigan televizorni Sardorga 1 mln ga sotdim").
+  Extract itemName, amount (required sale total), recipient if stated, currency/date. This must create
+  income and, if the item exists in inventory, remove/mark that item as sold.
+- ITEM_GIVEAWAY  - a useful item was given away for free ("Yangi divanni opamga tekinga berib yubordim").
+  Extract itemName, recipient if stated, notes/date. Do NOT create income.
 - INCOME_ENTRY   - extra non-service, non-material income ("boshqa ishdan pul tushdi", "qarz qaytdi").
 - PAYMENT_UPDATE - a client paid for an existing service; updates only that service's
   payment state, never a new balance income.
@@ -116,6 +126,9 @@ DATA EXTRACTION CONTRACT:
 - EXPENSE_ENTRY: amount, currency, category, description, date (default today if absent; default category "boshqa_chiqim").
 - INCOME_ENTRY:  amount, currency, description, date.
 - MATERIAL_SALE: materialName (required), quantityKg, amount (total, if stated), pricePerKg (if stated), currency, date.
+- ITEM_ENTRY: itemName (required), estimatedPrice (optional), notes, date.
+- ITEM_SALE: itemName (required), amount (required), recipient, currency, date.
+- ITEM_GIVEAWAY: itemName (required), recipient, notes, date.
 - SERVICE_EDIT:  targetIdentifier, editField ("narx"|"sana"|"manzil"), newValue (normalized).
 - CLIENT_EDIT:   targetIdentifier, editField ("ism"|"telefon"), newValue (phone -> +998...).
 - STATUS_UPDATE: targetClientName/targetPhone, newStatus ("bajarildi"|"bekor_qilindi").
@@ -158,6 +171,15 @@ Args: {"intent":"MOLIYA","subIntent":"MATERIAL_SALE","confidence":0.93,"reason":
 
 Input: "chyorniy taxta sotdim, narxi 150 ming"
 Args: {"intent":"MOLIYA","subIntent":"MATERIAL_SALE","confidence":0.9,"reason":"sold a material not in the known list; keep it as a new category","fields":{"materialName":"chyorniy taxta","amount":150000}}
+
+Input: "menda yangi muzlatgich bor"
+Args: {"intent":"MOLIYA","subIntent":"ITEM_ENTRY","confidence":0.94,"reason":"usable piece item found; add to inventory without asking price","fields":{"itemName":"muzlatgich"}}
+
+Input: "ishlaydigan televizorni Sardorga 1 mln ga sotdim"
+Args: {"intent":"MOLIYA","subIntent":"ITEM_SALE","confidence":0.96,"reason":"sold a useful piece item; creates income and closes inventory item if present","fields":{"itemName":"televizor","recipient":"Sardor","amount":1000000}}
+
+Input: "yangi divanni opamga tekinga berib yubordim"
+Args: {"intent":"MOLIYA","subIntent":"ITEM_GIVEAWAY","confidence":0.95,"reason":"gave useful item away for free; no income","fields":{"itemName":"divan","recipient":"opam"}}
 
 Input: "Akmalning ishini bajardim deb belgila"
 Args: {"intent":"MIJOZ","subIntent":"STATUS_UPDATE","confidence":0.9,"reason":"mark existing service done","fields":{"targetClientName":"Akmal","newStatus":"bajarildi"}}

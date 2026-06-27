@@ -1,5 +1,14 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-27 YANGI FUNKSIYA: Kerakli buyumlar
+- Prompt talabi bajarildi: materiallardan alohida dona inventar. Yangi model `UsefulItem` (tenant-scoped, soft-delete) + `services/usefulItemService.js` + `routes/items.js`.
+- AI subIntentlar: `ITEM_ENTRY` ("menda yangi muzlatgich bor"), `ITEM_SALE` ("televizorni Sardorga 1 mln ga sotdim"), `ITEM_GIVEAWAY` ("divanni opamga tekinga berdim"). `flow.js` qo'shishda narx so'ramaydi; faqat nom majburiy. `ui.entrySummaryText` yakuniy tasdiq matnlari qo'shildi.
+- Voice support: `message.js` voice/audio transkripsiyani `sourceMeta` bilan `runAgent`ga uzatadi; `ITEM_ENTRY` `sourceText` va `voice.telegramFileId/mime/duration/messageId`ni buyumga biriktiradi. Mini App detail audio URL `initData` query bilan ochiladi; kamida transcript har doim ko'rinadi.
+- Smart matching: alias/fuzzy normalizer (`haladelnik/xolodilnik/holodilnik` -> `Muzlatgich`, `tv/telik` -> `Televizor`, `stiralka` -> `Kir yuvish mashinasi`). Ambiguous match bo'lsa `ITEM_MATCH_CONFIRM` conversation state: bot nomzodlarni raqam bilan so'raydi; foydalanuvchi raqam/nom/ha/yo'q bilan javob beradi.
+- Finance: `Transaction` `category='buyum'`, `itemName/usefulItemId`. Sotuv income yaratadi va mavjud buyumni `sold` qiladi; ro'yxatda yo'q bo'lsa ham income yoziladi + ogohlantirish. Tekinga berish `given_away`, balansga pul yozmaydi.
+- Mini App: `pages/Items.jsx`, `App.jsx`, `BottomNav.jsx`, `i18n/uz.js`. Bo'lim: list/search, add, detail, manual sold+amount, give away, delete (confirm code).
+- Self-check: `Get-ChildItem backend/src/**/*.js | node --check` OK; `npm run build` OK; item logic smoke OK; import graph OK; `git diff --check` OK.
+
 ## 2026-06-27 Railway log audit - npm warning + clean deploy start
 - Railway pasted log tahlili: container crash yo'q. `[err] npm warn config production Use --omit=dev instead` npm'ning deprecated config warning'i; Railway stderr sabab `err` deb belgilagan. App keyin `Server ishlayapti`, `MongoDB ulandi`, webhook/cron va `Backend tayyor`gacha yetgan.
 - Fix: `railway.json` qo'shildi (`buildCommand=npm run build`, `deploy.startCommand=node backend/src/index.js`, `/health` healthcheck, ON_FAILURE restart). Bu runtime'da npm wrapper'ini chetlab o'tadi.

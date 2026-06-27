@@ -94,6 +94,9 @@ const classifyTool = {
               materialName: { type: SchemaType.STRING, description: 'MATERIAL_SALE: the sold material, base form (e.g. "Paxta", "Mis", "chyorniy taxta").' },
               quantityKg: { type: SchemaType.NUMBER, description: 'MATERIAL_SALE: quantity in kilograms, if stated.' },
               pricePerKg: { type: SchemaType.NUMBER, description: 'MATERIAL_SALE: price per kilogram, if stated.' },
+              itemName: { type: SchemaType.STRING, description: 'ITEM_*: useful piece item name, base form (e.g. "muzlatgich", "televizor", "divan").' },
+              estimatedPrice: { type: SchemaType.NUMBER, description: 'ITEM_ENTRY: optional estimated value if explicitly stated.' },
+              recipient: { type: SchemaType.STRING, description: 'ITEM_SALE/ITEM_GIVEAWAY: who received or bought the item, if stated.' },
               targetClientName: { type: SchemaType.STRING },
               targetPhone: { type: SchemaType.STRING },
               newStatus: { type: SchemaType.STRING, enum: ['bajarildi', 'bekor_qilindi'] },
@@ -596,6 +599,35 @@ export function normalizeExtractedFields(intent, fields = {}) {
       amount: numberOrNull(clean.amount),
       date: isoOrNull(clean.date) || new Date().toISOString(),
       currency: resolveCurrency(clean),
+    };
+  }
+
+  if (intent === 'ITEM_ENTRY') {
+    return {
+      itemName: textOrNull(clean.itemName || clean.incomeSource || clean.description),
+      estimatedPrice: numberOrNull(clean.estimatedPrice || clean.amount || clean.price),
+      notes: textOrNull(clean.notes || clean.description),
+      date: isoOrNull(clean.date) || new Date().toISOString(),
+      currency: resolveCurrency(clean),
+    };
+  }
+
+  if (intent === 'ITEM_SALE') {
+    return {
+      itemName: textOrNull(clean.itemName || clean.incomeSource || clean.description),
+      amount: numberOrNull(clean.amount || clean.price),
+      recipient: textOrNull(clean.recipient || clean.targetClientName || clean.clientName),
+      date: isoOrNull(clean.date) || new Date().toISOString(),
+      currency: resolveCurrency(clean),
+    };
+  }
+
+  if (intent === 'ITEM_GIVEAWAY') {
+    return {
+      itemName: textOrNull(clean.itemName || clean.incomeSource || clean.description),
+      recipient: textOrNull(clean.recipient || clean.targetClientName || clean.clientName),
+      notes: textOrNull(clean.notes || clean.description),
+      date: isoOrNull(clean.date) || new Date().toISOString(),
     };
   }
 

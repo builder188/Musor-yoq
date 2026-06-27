@@ -9,11 +9,12 @@ export const TX_TYPES = {
 
 // Kirim toifalari: xizmat (mijoz ishi), material (musordan chiqqan xom-ashyo sotuvi),
 // boshqa_kirim (qolgan har qanday daromad).
-export const TX_CATEGORIES = ['xizmat', 'material', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'];
-export const INCOME_CATEGORIES = ['xizmat', 'material', 'boshqa_kirim'];
+export const TX_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'];
+export const INCOME_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim'];
 export const EXPENSE_CATEGORIES = ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'];
 // Material sotuvi toifasi — daromad, lekin alohida kategoriya statistikasi bor.
 export const MATERIAL_CATEGORY = 'material';
+export const USEFUL_ITEM_CATEGORY = 'buyum';
 
 const transactionSchema = new mongoose.Schema(
   {
@@ -33,6 +34,10 @@ const transactionSchema = new mongoose.Schema(
     materialName: { type: String, default: null },
     quantityKg: { type: Number, default: null, min: 0 },
     pricePerKg: { type: Number, default: null, min: 0 },
+
+    // Kerakli buyum sotuvi (category='buyum') uchun.
+    itemName: { type: String, default: null },
+    usefulItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'UsefulItem', default: null },
 
     // Daromad xizmatdan kelgan bo'lsa - bog'langan xizmat.
     serviceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', default: null },

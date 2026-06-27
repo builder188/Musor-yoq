@@ -3,7 +3,7 @@ import Conversation from '../../models/Conversation.js';
 import Client from '../../models/Client.js';
 import Service, { SERVICE_STATUS } from '../../models/Service.js';
 import { extractNotebookRecords, transcribeAudio, understandText } from '../../ai/gemini.js';
-import { confirmPendingEntry, runAgent, applyConfirmedEdit, editPendingEntry } from '../../ai/agent.js';
+import { confirmPendingEntry, runAgent, applyConfirmedEdit, editPendingEntry, confirmPendingUsefulItemMatch } from '../../ai/agent.js';
 import { editService, completeService, cancelService } from '../../services/serviceService.js';
 import { mergeFields, nextMissing, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
@@ -185,7 +185,13 @@ async function handleVoiceLikeMessage(ctx, fileId, mime) {
   }
 
   try {
-    await handleTextInput(ctx, transcription);
+    await handleTextInput(ctx, transcription, {
+      type: 'voice',
+      telegramFileId: fileId,
+      mimeType: mime,
+      duration: ctx.message.voice?.duration || ctx.message.audio?.duration || null,
+      messageId: ctx.message.message_id || null,
+    });
   } catch (err) {
     console.error('Ovozdan keyingi NLU xatosi:', err.message);
     await replyAiError(ctx, err, "Voy oka, hozir bir narsa chappa ketdi. Birozdan keyin yana urinib ko'ramiz.");
@@ -255,7 +261,7 @@ async function processSinglePhoto(ctx) {
 // Matn (yoki ovoz/audio transkripsiyasi) uchun yagona oqim: avval yarim qolgan
 // holatlarni (reschedule, OCR tasdiq, lokatsiya nomi) tekshiradi, keyin NLU.
 // Ovoz/audio ham shu yerga keladi — shuning uchun "vaqt surildi" ovoz bilan ham ishlaydi.
-async function handleTextInput(ctx, text) {
+async function handleTextInput(ctx, text, sourceMeta = null) {
   const conv = await getConversation(ctx.from.id);
   // Joriy xabardan OLDINGI tarixni olamiz (Gemini'ga kontekst); keyin xabarni yozamiz.
   const priorHistory = Array.isArray(conv.history) ? conv.history.slice(-HISTORY_LIMIT) : [];
@@ -278,6 +284,9 @@ async function handleTextInput(ctx, text) {
   }
   if (conv.pendingIntent === 'ENTRY_CONFIRM') {
     return routeEntryConfirmation(ctx, conv, text, priorHistory);
+  }
+  if (conv.pendingIntent === 'ITEM_MATCH_CONFIRM') {
+    return routeItemMatchConfirmation(ctx, conv, text);
   }
   if (conv.pendingIntent === 'IMAGE_RECORD_CONFIRM') {
     return routeImageConfirmation(ctx, conv, text);
@@ -310,7 +319,7 @@ async function handleTextInput(ctx, text) {
   }
 
   const understanding = await understandText(text, priorHistory);
-  await routeUnderstanding(ctx, understanding, text);
+  await routeUnderstanding(ctx, understanding, text, sourceMeta);
 }
 
 async function routeServiceReschedule(ctx, conv, text) {
@@ -339,7 +348,7 @@ async function routeServiceReschedule(ctx, conv, text) {
   await ctx.reply(`Boldi oka, xizmat vaqtini ${formatBotDateTime(date)} ga ko'chirdim ✅`);
 }
 
-async function routeUnderstanding(ctx, understanding, rawText) {
+async function routeUnderstanding(ctx, understanding, rawText, sourceMeta = null) {
   const conv = await getConversation(ctx.from.id);
   // Yangi NLU xabari (matn/ovoz/rasm) keldi — boshqa mini-oqimlarning eskirgan
   // session bayroqlarini tozalaymiz. Aks holda ovoz/rasm orqali kelgan xabar
@@ -355,7 +364,7 @@ async function routeUnderstanding(ctx, understanding, rawText) {
   if (conv.pendingIntent && !isEntryIntent(conv.pendingIntent)) {
     await conv.reset();
   }
-  const res = await runAgent({ understanding, rawText, conversation: conv });
+  const res = await runAgent({ understanding, rawText, conversation: conv, sourceMeta });
   await syncSessionFromConversation(ctx, conv);
   await sendAgentResult(ctx, res);
 }
@@ -442,6 +451,18 @@ async function routeEntryConfirmation(ctx, conv, text, priorHistory) {
   // Aniq tugma so'zi emas — buni to'g'ridan-to'g'ri maydon tuzatish deb qabul qilamiz
   // ("narxi 200 ming", "telefon 90 123 45 67"); yangilangan xulosa qayta ko'rsatiladi.
   return routeEntryEdit(ctx, conv, text, priorHistory);
+}
+
+async function routeItemMatchConfirmation(ctx, conv, text) {
+  try {
+    const res = await confirmPendingUsefulItemMatch({ conversation: conv, choiceText: text });
+    if (!res.keepPending) clearAllSessionState(ctx);
+    await ctx.reply(res.text);
+  } catch (err) {
+    await conv.reset();
+    clearAllSessionState(ctx);
+    await ctx.reply('Xatolik: ' + err.message);
+  }
 }
 
 // Tahrir loop'i: AI tuzatilgan maydonni collected.fields ichida yangilaydi, keyin

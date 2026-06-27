@@ -8,6 +8,7 @@ import Client from '../models/Client.js';
 import Service from '../models/Service.js';
 import Transaction from '../models/Transaction.js';
 import DebtPayment from '../models/DebtPayment.js';
+import UsefulItem from '../models/UsefulItem.js';
 import { runGlobal } from './tenantScope.js';
 import { legacyOwnerId } from '../config/env.js';
 
@@ -16,6 +17,7 @@ const TARGETS = [
   ['services', Service],
   ['transactions', Transaction],
   ['debt_payments', DebtPayment],
+  ['useful_items', UsefulItem],
 ];
 
 export async function migrateTenancy() {

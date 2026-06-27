@@ -1,4 +1,4 @@
-import Transaction, { TX_TYPES, EXPENSE_CATEGORIES, MATERIAL_CATEGORY } from '../models/Transaction.js';
+import Transaction, { TX_TYPES, EXPENSE_CATEGORIES, MATERIAL_CATEGORY, USEFUL_ITEM_CATEGORY } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { periodRange } from '../utils/dates.js';
 import { resolveMaterialName, buildMaterialDescription } from './materialService.js';
@@ -41,6 +41,7 @@ function normalizeCategory(type, category) {
   if (type === TX_TYPES.INCOME) {
     const value = String(category || '').trim().toLowerCase();
     if (value === MATERIAL_CATEGORY) return MATERIAL_CATEGORY;
+    if (value === USEFUL_ITEM_CATEGORY) return USEFUL_ITEM_CATEGORY;
     return category === 'xizmat' ? 'xizmat' : 'boshqa_kirim';
   }
   const value = String(category || '').trim().toLowerCase();
@@ -190,6 +191,10 @@ export async function createTransaction(data) {
     tx.quantityKg = optionalPositiveNumber(data.quantityKg);
     tx.pricePerKg = optionalPositiveNumber(data.pricePerKg);
     tx.description = buildMaterialDescription(resolved, tx.quantityKg);
+  }
+  if (category === USEFUL_ITEM_CATEGORY) {
+    tx.itemName = data.itemName || data.description || 'Buyum';
+    tx.usefulItemId = data.usefulItemId || null;
   }
   // Faqat O'Z xizmatiga bog'lashga ruxsat: boshqa egaga tegishli (yoki noto'g'ri) serviceId
   // e'tiborsiz qoldiriladi. Aks holda analitika $lookup'i orqali boshqa foydalanuvchi
