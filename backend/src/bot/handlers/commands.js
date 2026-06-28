@@ -8,11 +8,14 @@ const START_TEXT = 'Assalomu aleykum, oka! 👋 Nima gap? Ovoz, matn, rasm yoki 
 
 const HELP_TEXT = `Assalomu aleykum, oka! 🤝
 
-Men "Musir Yo'q" yordamchingizman. Mijoz, xizmat, xarajat, to'lov va qidiruvni shu yerda hal qilamiz — siz shunchaki gapiring, qolganini o'zim yozib boraman.
+Men "Musir Yo'q" yordamchingizman. Mijoz, xizmat, xarajat, to'lov, material va buyum sotuvi, hamda qidiruvni shu yerda hal qilamiz — siz shunchaki gapiring, qolganini o'zim yozib boraman.
 
 Mana shunaqa yozsangiz bo'ladi:
 • "Sardor aka 998901234567 Chilonzor ertaga 10:00 400 ming naqd"
 • "Kecha benzinga 80 ming ketdi"
+• "30 kg paxtani 300 mingga sotdim"
+• "Menda yangi muzlatgich bor"
+• "Televizorni Sardorga 1 mln ga sotdim"
 • "Akmalning xizmati bajarildi"
 • "Dilshod 150 ming to'lab ketdi"
 • "Bu oy qancha topdim?"

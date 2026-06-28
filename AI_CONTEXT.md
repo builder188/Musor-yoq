@@ -1,5 +1,11 @@
 # AI_CONTEXT.md
 
+## 2026-06-27 Material/buyum AI tizimiga to'liq integratsiyasi (audit)
+- Tasdiqlandi: material sotish + kerakli buyumlar mavjud AI oqimiga to'liq mos — hammasi MOLIYA subIntent, bir xil ENTRY_CONFIRM (Ha/Yo'q tahrirlash/Bekor), matn/ovoz javob tugmasiz ishlaydi (routeEntryConfirmation/continueEntry/ITEM_MATCH_CONFIRM intent-agnostik), "oka" ohang izchil, kontekst (oxirgi 10 xabar) hammasiga taalluqli.
+- Qotirish: prompts.js STEP 1 MOLIYA ta'rifi material/buyum sotuvini aniq qamraydi; commands.js HELP_TEXT + agent.js fallback hint material/buyumni eslatadi (discoverability).
+- Mid-entry pivot ishlaydi: boshqa yozuv o'rtasida "paxta sotdim"/"televizor sotdim"/"menda divan bor" desa — maybeCorrectIntent yangi niyatga o'tadi. Material soft-ask (kilo narxi) pivotdan keyin ham to'g'ri.
+- Tekshiruv: import graph OK; integratsiya testlari (4 subIntent confirm, tahrir loop, 3 pivot, soft-ask continuation, ovoz) PASS.
+
 ## 2026-06-27 Hisobot — chuqur tahlil (Insights)
 - Hisobotga "Qiziqarli ko'rsatkichlar" bo'limi: eng daromadli material/buyum, eng ko'p to'lagan mijoz, eng band oy (buyurtma), eng daromadli oy, o'rtacha xizmat narxi, eng faol kun. Davr ichida, uz/ru, Excel'da emoji bilan.
 - `services/reportInsightsService.js getReportInsights({from,to})` — xom agg (top material/item/client, best/busiest month, avg service price, active weekday). `reports.js formatInsights(insights,language)` → `[{emoji,label,value}]` (PDF emoji'siz, Excel emoji bilan; bir manba). PDF `pdf.js drawInsights` (rangli marker + label + qiymat). Excel "Tahlil" varag'i.

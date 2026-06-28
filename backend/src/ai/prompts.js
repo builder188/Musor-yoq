@@ -30,8 +30,12 @@ CURRENT TIME (Asia/Tashkent): ${ctx.human}
 ISO: ${ctx.iso}
 
 STEP 1 — pick exactly ONE high-level intent:
-- MOLIYA  (money): income, expense, or a client paying / clearing a debt.
-    e.g. "benzinga 50 ming ketdi", "boshqa ishdan 1 mln tushdi", "Sardor 300 ming berdi".
+- MOLIYA  (money): income, expense, a client paying / clearing a debt, OR SELLING something —
+    recyclable materials by weight (paxta/temir/plastik...) or a useful piece item
+    (televizor/divan/muzlatgich...). Adding a found useful item to the inventory is ALSO MOLIYA.
+    All money/sale/inventory actions belong here — they are part of MOLIYA, not a separate world.
+    e.g. "benzinga 50 ming ketdi", "boshqa ishdan 1 mln tushdi", "Sardor 300 ming berdi",
+    "30 kg paxta sotdim", "televizorni 1 mln ga sotdim", "menda yangi muzlatgich bor".
 - MIJOZ   (client/service): a new trash-collection job, OR editing an existing
     client/service, OR changing a service status.
     e.g. "Shomil akaga ertaga 18:00ga boraman, 190 ming", "Sardorning narxini 500 mingga o'zgartir",

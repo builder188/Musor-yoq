@@ -260,7 +260,7 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
         text:
           understanding.clarifyingQuestion ||
           understanding.reply ||
-          "Tushunmadim oka, birozroq ochiqroq aytib bersangiz? Mijoz, xizmat, xarajat, to'lov yoki hisobot bo'lishi mumkin.",
+          "Tushunmadim oka, birozroq ochiqroq aytib bersangiz? Mijoz, xizmat, xarajat, to'lov, material yoki buyum sotuvi, yoki hisobot bo'lishi mumkin.",
       };
   }
 }
