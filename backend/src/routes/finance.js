@@ -11,8 +11,18 @@ import {
 import { softDeleteOne } from '../services/deleteService.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
 import { getMaterialStats, listKnownMaterials } from '../services/materialService.js';
+import { getIncomeBySource } from '../services/incomeSourceService.js';
 
 const router = Router();
+
+// GET /api/finance/income-sources?period= — kirimni manba bo'yicha ajratilgan breakdown
+// (xizmat / material / buyum / boshqa). Hisobot funksiyalarining asosi.
+router.get(
+  '/income-sources',
+  asyncHandler(async (req, res) => {
+    res.json(await getIncomeBySource(req.query.period || 'all'));
+  })
+);
 
 // GET /api/finance/materials?period= — material sotuvi bo'yicha kategoriya statistikasi.
 router.get(

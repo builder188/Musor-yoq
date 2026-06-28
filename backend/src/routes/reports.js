@@ -8,12 +8,136 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { createReportDoc } from '../utils/pdf.js';
 import { formatDate, formatDateTime } from '../utils/dates.js';
 import { formatMoney } from '../utils/money.js';
+import { getMonthlyIncomeBreakdown } from '../services/incomeSourceService.js';
+import { getReportInsights } from '../services/reportInsightsService.js';
 
 const router = express.Router();
 const notDeleted = { isDeleted: { $ne: true } };
 const REPORT_TYPES = new Set(['clients', 'services', 'finance', 'full']);
 const REPORT_FORMATS = new Set(['pdf', 'excel']);
 const UZ_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
+
+// Oy nomlari — manba tahlili qatorlari uchun (bosh harf katta).
+const MONTH_NAMES = {
+  uz: ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'],
+  ru: ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+};
+// "1-maydan ... gacha" / "с 1 мая ..." uchun qaratqich (genitive) shakli.
+const MONTH_GENITIVE = {
+  uz: UZ_MONTHS,
+  ru: ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'],
+};
+
+function monthLabel(year, month, language) {
+  const names = MONTH_NAMES[language === 'ru' ? 'ru' : 'uz'];
+  return `${names[month - 1] || ''} ${year}`;
+}
+
+// Hisobot sarlavhasi uchun tanlangan davrning aniq, tildagi ifodasi.
+// uz: "1-maydan 30-maygacha bo'lgan hisobot (2026)" · ru: "Отчёт с 1 мая по 30 мая 2026".
+function buildPeriodTitle(range, language) {
+  const ru = language === 'ru';
+  if (!range.from || !range.to) {
+    return ru ? 'Полный отчёт (за всё время)' : 'Umumiy hisobot (butun davr)';
+  }
+  const from = new Date(range.from);
+  const to = new Date(range.to);
+  const g = MONTH_GENITIVE[ru ? 'ru' : 'uz'];
+  const fd = from.getDate();
+  const td = to.getDate();
+  const fm = g[from.getMonth()];
+  const tm = g[to.getMonth()];
+  const fy = from.getFullYear();
+  const ty = to.getFullYear();
+
+  if (ru) {
+    if (fy === ty) return `Отчёт с ${fd} ${fm} по ${td} ${tm} ${ty}`;
+    return `Отчёт с ${fd} ${fm} ${fy} по ${td} ${tm} ${ty}`;
+  }
+  if (fy === ty) return `${fd}-${fm}dan ${td}-${tm}gacha bo'lgan hisobot (${fy})`;
+  return `${fd}-${fm} ${fy}dan ${td}-${tm} ${ty}gacha bo'lgan hisobot`;
+}
+
+// Oylik manba qatorlarini tilga moslab (oy nomi) tayyorlaydi.
+async function buildMonthlyIncomeRows(range, language) {
+  const rows = await getMonthlyIncomeBreakdown({ from: range.from, to: range.to });
+  return rows.map((row) => ({ ...row, label: monthLabel(row.year, row.month, language) }));
+}
+
+// Insights (qiziqarli ko'rsatkichlar) tarjimalari.
+const INSIGHT_LABELS = {
+  uz: {
+    title: 'Qiziqarli ko\'rsatkichlar',
+    topMaterial: 'Eng ko\'p daromadli material',
+    topItem: 'Eng ko\'p daromadli buyum',
+    topClient: 'Eng ko\'p to\'lagan mijoz',
+    busiestMonth: 'Eng ko\'p buyurtmali oy',
+    bestMonth: 'Eng daromadli oy',
+    avgService: 'O\'rtacha xizmat narxi',
+    activeDay: 'Eng faol kun',
+    orders: 'ta buyurtma',
+    metric: 'Ko\'rsatkich',
+    value: 'Qiymat',
+  },
+  ru: {
+    title: 'Полезные показатели',
+    topMaterial: 'Самый доходный материал',
+    topItem: 'Самый доходный предмет',
+    topClient: 'Клиент с наибольшей оплатой',
+    busiestMonth: 'Месяц с наибольшим числом заказов',
+    bestMonth: 'Самый доходный месяц',
+    avgService: 'Средняя цена услуги',
+    activeDay: 'Самый активный день',
+    orders: 'заказов',
+    metric: 'Показатель',
+    value: 'Значение',
+  },
+};
+
+// Hafta kunlari ($dayOfWeek: 1=yakshanba .. 7=shanba -> index dow-1).
+const WEEKDAYS = {
+  uz: ['Yakshanba', 'Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba'],
+  ru: ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'],
+};
+
+// Xom insightlarni tildagi ko'rsatish qatorlariga aylantiradi: { emoji, label, value }.
+// PDF emoji'siz (label+value) ishlatadi, Excel emoji bilan — bir manba, ikkala format.
+function formatInsights(insights, language) {
+  if (!insights) return [];
+  const lang = language === 'ru' ? 'ru' : 'uz';
+  const L = INSIGHT_LABELS[lang];
+  const wd = WEEKDAYS[lang];
+  const lines = [];
+  const add = (emoji, label, value) => lines.push({ emoji, label, value });
+
+  if (insights.topMaterial) add('💎', L.topMaterial, `${insights.topMaterial.name} — ${formatMoney(insights.topMaterial.total)}`);
+  if (insights.topItem) add('📦', L.topItem, `${insights.topItem.name} — ${formatMoney(insights.topItem.total)}`);
+  if (insights.topClient) add('👤', L.topClient, `${insights.topClient.name} — ${formatMoney(insights.topClient.total)}`);
+  if (insights.busiestMonth) {
+    add('📅', L.busiestMonth, `${monthLabel(insights.busiestMonth.year, insights.busiestMonth.month, language)} (${insights.busiestMonth.count} ${L.orders})`);
+  }
+  if (insights.bestIncomeMonth) {
+    add('📈', L.bestMonth, `${monthLabel(insights.bestIncomeMonth.year, insights.bestIncomeMonth.month, language)} — ${formatMoney(insights.bestIncomeMonth.total)}`);
+  }
+  if (insights.avgServicePrice > 0) add('💰', L.avgService, formatMoney(insights.avgServicePrice));
+  if (insights.mostActiveWeekday) {
+    add('📆', L.activeDay, `${wd[insights.mostActiveWeekday.dow - 1] || ''} (${insights.mostActiveWeekday.count} ${L.orders})`);
+  }
+  return lines;
+}
+
+// Insights Excel varag'i qatorlari: [Ko'rsatkich | Qiymat], emoji bilan.
+function makeInsightsRows(lines, language) {
+  const L = INSIGHT_LABELS[language === 'ru' ? 'ru' : 'uz'];
+  return [[L.metric, L.value], ...lines.map((line) => [`${line.emoji} ${line.label}`, line.value])];
+}
+
+// Hisobot uchun insightlarni hisoblab, tilga moslab qaytaradi.
+async function buildInsightLines(range, language) {
+  const insights = await getReportInsights({ from: range.from, to: range.to });
+  return formatInsights(insights, language);
+}
+
 let reportBot = null;
 
 // Excel hisobot tarjimalari (sheet nomlari va sarlavhalar). Raw enum/kategoriya
@@ -22,20 +146,22 @@ const EXCEL_LABELS = {
   uz: {
     yes: 'ha',
     no: "yo'q",
-    sheets: { clients: 'Mijozlar', services: 'Xizmatlar', transactions: 'Tranzaksiyalar', summary: 'Xulosa' },
+    sheets: { clients: 'Mijozlar', services: 'Xizmatlar', transactions: 'Tranzaksiyalar', summary: 'Xulosa', sourceAnalysis: 'Manba tahlili', insights: 'Tahlil' },
     clientHeaders: ['ID', 'Ism', 'Telefon', 'Manzillar', 'Yaratilgan sana', 'Yangilangan sana'],
     serviceHeaders: ['ID', 'Client ID', 'Mijoz', 'Telefon', 'Manzil', 'Sana', 'Tarixiy', 'Narx', "To'langan", "To'lov usuli", "To'lov holati", 'Status', 'Bekor sababi', 'Bajarilgan sana', 'Izoh', 'Rasm fileIdlari', 'Income transaction ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana', 'Yangilangan sana'],
     txHeaders: ['ID', 'Sana', 'Turi', 'Kategoriya', 'Summa', 'Izoh', 'Service ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana'],
     summaryHeaders: ['Oy', 'Jami kirim', 'Jami chiqim', 'Balans', 'Xizmatlar soni', "To'langan", "To'lanmagan"],
+    sourceHeaders: ['Oy', 'Bajarilgan xizmat', 'Jami kirim', 'Xizmat', 'Xizmat %', 'Material', 'Material %', 'Buyum', 'Buyum %', 'Boshqa', 'Boshqa %', 'Xizmat ulushi'],
   },
   ru: {
     yes: 'да',
     no: 'нет',
-    sheets: { clients: 'Клиенты', services: 'Услуги', transactions: 'Транзакции', summary: 'Сводка' },
+    sheets: { clients: 'Клиенты', services: 'Услуги', transactions: 'Транзакции', summary: 'Сводка', sourceAnalysis: 'Источники', insights: 'Анализ' },
     clientHeaders: ['ID', 'Имя', 'Телефон', 'Адреса', 'Дата создания', 'Дата обновления'],
     serviceHeaders: ['ID', 'Client ID', 'Клиент', 'Телефон', 'Адрес', 'Дата', 'Исторический', 'Цена', 'Оплачено', 'Способ оплаты', 'Статус оплаты', 'Статус', 'Причина отмены', 'Дата выполнения', 'Заметка', 'ID файлов фото', 'Income transaction ID', 'Удалён', 'Дата удаления', 'Дата создания', 'Дата обновления'],
     txHeaders: ['ID', 'Дата', 'Тип', 'Категория', 'Сумма', 'Заметка', 'Service ID', 'Удалён', 'Дата удаления', 'Дата создания'],
     summaryHeaders: ['Месяц', 'Всего доход', 'Всего расход', 'Баланс', 'Кол-во услуг', 'Оплачено', 'Не оплачено'],
+    sourceHeaders: ['Месяц', 'Выполнено услуг', 'Всего доход', 'Услуга', 'Услуга %', 'Материал', 'Материал %', 'Предмет', 'Предмет %', 'Прочее', 'Прочее %', 'Доля услуг'],
   },
 };
 
@@ -123,6 +249,9 @@ export async function generateReportPdf({ reportType = 'full', limit = 200, rang
 }
 
 export { resolveReportRange };
+// Hisobot manba-tahlili yordamchilari — kelajakdagi hisobot funksiyalari ham ishlatishi uchun.
+export { buildPeriodTitle, monthLabel, buildMonthlyIncomeRows, makeSourceAnalysisRows, unicodeBar };
+export { formatInsights, makeInsightsRows, buildInsightLines };
 
 async function buildPdfPayload(body = {}) {
   const reportType = normalizeReportType(body.reportType);
@@ -214,10 +343,47 @@ async function buildExcelPayload(body = {}) {
 
   addSheet(workbook, L.sheets.summary, makeMonthlyBreakdownRows(transactions, services, L.summaryHeaders));
 
+  // Daromad manbasi tahlili (oylik): son + foiz + ixcham ulush diagrammasi (unicode bar).
+  const sourceRows = await buildMonthlyIncomeRows(range, body.language);
+  addSheet(workbook, L.sheets.sourceAnalysis, makeSourceAnalysisRows(sourceRows, L.sourceHeaders));
+
+  // Qiziqarli ko'rsatkichlar (insights) varag'i.
+  const insightLines = await buildInsightLines(range, body.language);
+  if (insightLines.length) addSheet(workbook, L.sheets.insights, makeInsightsRows(insightLines, body.language));
+
   return {
     buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
     filename: 'musir_yoq_eksport.xlsx',
   };
+}
+
+// Manba tahlili varag'i qatorlari: oy bo'yicha son + summa + foiz + "Xizmat ulushi" bari.
+function makeSourceAnalysisRows(rows, headers) {
+  const sourceTotal = (row, key) => row.sources.find((source) => source.key === key)?.total || 0;
+  const sourcePct = (row, key) => `${Math.round(row.sources.find((source) => source.key === key)?.pct || 0)}%`;
+  return [
+    headers,
+    ...rows.map((row) => [
+      row.label,
+      row.servicesCount,
+      row.totalIncome,
+      sourceTotal(row, 'service'),
+      sourcePct(row, 'service'),
+      sourceTotal(row, 'material'),
+      sourcePct(row, 'material'),
+      sourceTotal(row, 'item'),
+      sourcePct(row, 'item'),
+      row.otherTotal,
+      `${Math.round(row.otherPct || 0)}%`,
+      unicodeBar(row.servicePct),
+    ]),
+  ];
+}
+
+// Foizdan ixcham matn-diagramma: "██████░░░░ 60%" (Excel'da chart yo'q — bu engil muqobil).
+function unicodeBar(pct, length = 10) {
+  const filled = Math.max(0, Math.min(length, Math.round((Number(pct) || 0) / 100 * length)));
+  return `${'█'.repeat(filled)}${'░'.repeat(length - filled)} ${Math.round(Number(pct) || 0)}%`;
 }
 
 function normalizeReportType(reportType) {
@@ -364,14 +530,20 @@ async function buildReportData({ reportType, limit, range, language }) {
   const totalExpense = financeRows.find((row) => row._id === TX_TYPES.EXPENSE)?.total || 0;
   const summary = makeSummary(servicesForSummary, totalIncome, totalExpense, unpaidTotal);
 
+  // Daromad manbasi tahlili + insights faqat moliya bo'lgan hisobotlarda (finance/full).
+  const monthlyIncomeBySource = includesFinance ? await buildMonthlyIncomeRows(range, language) : [];
+  const insights = includesFinance ? await buildInsightLines(range, language) : [];
+
   return {
-    periodLabel: range.label,
+    periodLabel: buildPeriodTitle(range, language),
     language,
     summary,
     clients: includesClients ? await mapClientRows(clients) : [],
     services: services.map(mapServiceRow),
     transactions: mergeFinanceRows(transactions).slice(0, limit),
     monthlyChart,
+    monthlyIncomeBySource,
+    insights,
   };
 }
 

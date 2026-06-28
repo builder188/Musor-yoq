@@ -17,6 +17,8 @@ export default function Finance() {
   const [chart, setChart] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [incomeSources, setIncomeSources] = useState(null);
+  const [stockItems, setStockItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(null);
   const [editingTx, setEditingTx] = useState(null);
@@ -26,21 +28,27 @@ export default function Finance() {
   const load = async () => {
     setLoading(true);
     try {
-      const [s, c, tx, mat] = await Promise.all([
+      const [s, c, tx, mat, src, items] = await Promise.all([
         api.get(`/finance/summary?period=${period}`),
         api.get('/finance/chart'),
         api.get(`/finance/transactions?period=${period}`),
         api.get(`/finance/materials?period=${period}`),
+        api.get(`/finance/income-sources?period=${period}`),
+        api.get('/items?status=available'),
       ]);
       setSummary(s);
       setChart(c);
       setTransactions(normalizeTransactions(tx));
       setMaterials(Array.isArray(mat) ? mat : []);
+      setIncomeSources(src && Array.isArray(src.sources) ? src : null);
+      setStockItems(Array.isArray(items) ? items : []);
     } catch {
       setSummary(null);
       setChart(null);
       setTransactions([]);
       setMaterials([]);
+      setIncomeSources(null);
+      setStockItems([]);
     } finally {
       setLoading(false);
     }
@@ -104,7 +112,11 @@ export default function Finance() {
             </div>
           )}
 
+          {incomeSources && <IncomeSourcesCard data={incomeSources} t={t} />}
+
           {materials.length > 0 && <MaterialsCard materials={materials} t={t} />}
+
+          {stockItems.length > 0 && <StockItemsCard items={stockItems} t={t} />}
 
           <div className="section-title">{t('finance.recentActions')}</div>
           {transactions.length === 0 ? (
@@ -304,6 +316,48 @@ function IncomeExpenseRow({ summary }) {
         </div>
         <div className="io-value out">−{formatNumber(expense)}</div>
       </div>
+    </div>
+  );
+}
+
+// Daromad MANBALARI bo'yicha ajratish (davr summasi): xizmat / material / buyum / boshqa.
+// Har manba — emoji + nomi + yozuvlar soni + jami summa. Faqat summasi bor manbalar.
+function IncomeSourcesCard({ data, t }) {
+  const sources = (data.sources || []).filter((s) => s.total > 0);
+  if (!sources.length) return null;
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>📊 {t('finance.incomeSources')}</div>
+      {sources.map((s) => (
+        <div key={s.key} className="row-between" style={{ padding: '6px 0' }}>
+          <div style={{ fontSize: '14px' }}>
+            {s.emoji} {t(`finance.sources.${s.key}`)}
+            <span className="muted"> · {s.count} {t('home.countSuffix')}</span>
+          </div>
+          <span className="text-income">+{formatNumber(s.total)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Kerakli buyumlar inventari qisqacha ko'rinishi: nechta buyum saqlanmoqda + qaysilari.
+// To'liq boshqaruv "Buyumlar" tabida; bu yerda faqat moliyaviy umumiy ko'rinish.
+function StockItemsCard({ items, t }) {
+  const names = items.map((it) => it.name).filter(Boolean);
+  const shown = names.slice(0, 15);
+  const extra = names.length - shown.length;
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="row-between" style={{ marginBottom: shown.length ? 8 : 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>📦 {t('finance.itemsInStock')}</div>
+        <span className="text-income">{items.length} {t('home.countSuffix')}</span>
+      </div>
+      {shown.length > 0 && (
+        <div className="muted" style={{ fontSize: 13, lineHeight: 1.7 }}>
+          {shown.join(' · ')}{extra > 0 ? ` +${extra}` : ''}
+        </div>
+      )}
     </div>
   );
 }

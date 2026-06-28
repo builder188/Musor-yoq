@@ -1,5 +1,24 @@
 # AI_CONTEXT.md
 
+## 2026-06-27 Hisobot — chuqur tahlil (Insights)
+- Hisobotga "Qiziqarli ko'rsatkichlar" bo'limi: eng daromadli material/buyum, eng ko'p to'lagan mijoz, eng band oy (buyurtma), eng daromadli oy, o'rtacha xizmat narxi, eng faol kun. Davr ichida, uz/ru, Excel'da emoji bilan.
+- `services/reportInsightsService.js getReportInsights({from,to})` — xom agg (top material/item/client, best/busiest month, avg service price, active weekday). `reports.js formatInsights(insights,language)` → `[{emoji,label,value}]` (PDF emoji'siz, Excel emoji bilan; bir manba). PDF `pdf.js drawInsights` (rangli marker + label + qiymat). Excel "Tahlil" varag'i.
+- DIQQAT: PDF Helvetica emoji'ni chizolmaydi — PDF'da emoji ISHLATILMAYDI (rangli marker), Excel'da ishlatiladi.
+- Tekshiruv: node --check OK; insights 7/7 + formatInsights uz/ru + real PDF render PASS.
+
+## 2026-06-27 Hisobot (PDF/Excel) — daromad manbasi bo'yicha oylik foiz tahlili
+- Mavjud PDF/Excel hisobotga YANGI bo'lim: har oy uchun nechta xizmat + jami kirim + xizmat vs material/buyum sotuvi (son+foiz). Grafik (stacked-bar) VA matn/son/foiz birga.
+- `incomeSourceService.getMonthlyIncomeBreakdown({from,to})` — oylik agg (servicesCount, totalIncome, sources+pct, servicePct, salesTotal/salesPct, otherTotal/otherPct; noma'lum kategoriya→other).
+- `reports.js`: `buildPeriodTitle` (tildagi aniq davr: "1-maydan 30-maygacha bo'lgan hisobot (2026)" / "Отчёт с 1 мая по 30 мая 2026") → PDF header "Davr:". `buildMonthlyIncomeRows` oy nomini localize qiladi. Excel "Manba tahlili" varag'i (`unicodeBar` "██████░░░░ 60%"). Yordamchilar export (keyingi hisobot promptlari uchun).
+- `pdf.js`: `drawSourceAnalysis` (oylik stacked-bar + son/foiz) + `drawSourceLegend` + `SOURCE_COLORS`. Til Mini App tanlovidan (`/reports/send language`). Mini App o'zgartirilmadi.
+- Tekshiruv: node --check OK; agg + title + bar testlari PASS; HAQIQIY createReportDoc PDF render (valid %PDF).
+
+## 2026-06-27 Daromad manbalari taksonomiyasi (4 manba) + Moliya sahifasi breakdown
+- Kirim 4 manbadan: **xizmat** (service income, category='xizmat') · **material** (category='material') · **buyum** (kerakli buyum sotuvi, category='buyum') · **boshqa_kirim** (qo'lda kirim). Manba income tranzaksiyaning `category` maydonida saqlanadi (qo'shimcha maydon shart emas — 1:1).
+- YAGONA modul `services/incomeSourceService.js`: `INCOME_SOURCES` ro'yxati + `incomeSourceKey(category)`→key ('other' fallback) + `getIncomeBySource(period)` (manba bo'yicha total+count, noma'lum kategoriya 'other'ga). Bu — keyingi hisobot funksiyalarining ASOSI. Yangi manba qo'shish = income kategoriya + 1 qator.
+- `GET /api/finance/income-sources?period=`. Moliya sahifasida 3 kartochka: 📊 Daromad manbalari, ♻️ Material sotuvi (nom+kg), 📦 Kerakli buyumlar (nechta+qaysilari). i18n uz+ru (`finance.incomeSources/itemsInStock/sources.*`).
+- Tekshiruv: node --check OK; taksonomiya + agg-mapping testlari PASS; Mini App build OK (56 modul).
+
 ## 2026-06-27 Kerakli buyumlar inventari
 - **Maqsad:** musordan chiqqan, lekin tashlanmaydigan dona buyumlar (`muzlatgich`, `televizor`, `divan`...) materiallardan alohida yuritiladi. Bular kg emas, har biri alohida `UsefulItem`.
 - **Model/API:** yangi `models/UsefulItem.js` tenant-scoped + soft-delete. Maydonlar: `name/normalizedName/estimatedPrice/acquiredAt/notes/sourceType/sourceText/voice/status/closedAt/recipient/soldAmount/saleTransactionId`. Yangi `routes/items.js`: `GET/POST /api/items`, `PATCH /:id/sold`, `PATCH /:id/give-away`, `DELETE /:id`, `GET /audio/:fileId`.

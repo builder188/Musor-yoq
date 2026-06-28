@@ -11,6 +11,14 @@ const COLORS = {
   rowAlt: '#F5F5F5',
 };
 
+// Daromad manbasi ranglari (oylik tahlil diagrammasi va legendasi).
+const SOURCE_COLORS = {
+  service: '#2E7D32', // xizmat — yashil
+  material: '#1565C0', // material — ko'k
+  item: '#EF6C00', // buyum — to'q sariq
+  other: '#9E9E9E', // boshqa — kulrang
+};
+
 const LABELS = {
   uz: {
     title: "Musir Yo'q - Hisobot",
@@ -32,6 +40,16 @@ const LABELS = {
     financeHeaders: ['Sana', 'Turi', 'Toifa', 'Summa', 'Izoh'],
     income: 'Kirim',
     expense: 'Chiqim',
+    sourceAnalysis: 'Daromad manbasi tahlili (oylik)',
+    srcService: 'Xizmat',
+    srcMaterial: 'Material',
+    srcItem: 'Buyum',
+    srcOther: 'Boshqa',
+    srcSales: 'Material/Buyum sotuvi',
+    monthServices: 'xizmat',
+    monthTotal: 'Jami',
+    noIncome: 'Bu davrda kirim yo\'q',
+    insights: 'Qiziqarli ko\'rsatkichlar',
   },
   ru: {
     title: "Musir Yo'q - Otchet",
@@ -53,6 +71,16 @@ const LABELS = {
     financeHeaders: ['Data', 'Tip', 'Kategoriya', 'Summa', 'Zametka'],
     income: 'Dohod',
     expense: 'Rashod',
+    sourceAnalysis: 'Analiz istochnikov dohoda (po mesyatsam)',
+    srcService: 'Usluga',
+    srcMaterial: 'Material',
+    srcItem: 'Predmet',
+    srcOther: 'Prochee',
+    srcSales: 'Prodazha materiala/predmeta',
+    monthServices: 'uslug',
+    monthTotal: 'Vsego',
+    noIncome: 'Net dohoda za etot period',
+    insights: 'Poleznye pokazateli',
   },
 };
 
@@ -67,6 +95,17 @@ export function createReportDoc(data) {
 
   doc.font('Helvetica');
   drawSummary(doc, data.summary, labels);
+
+  // Daromad manbasi tahlili — yangi bo'lim (grafik + son + foiz). Summarydan keyin,
+  // jadvallardan oldin (eng muhim tahlil yuqorida bo'lsin).
+  if (data.monthlyIncomeBySource?.length) {
+    drawSourceAnalysis(doc, data.monthlyIncomeBySource, labels);
+  }
+
+  // Qiziqarli ko'rsatkichlar (insights) — biznesni tushunishga yordam beruvchi tahlil.
+  if (data.insights?.length) {
+    drawInsights(doc, data.insights, labels);
+  }
 
   if (data.clients?.length) {
     drawSectionTitle(doc, labels.clients);
@@ -213,6 +252,100 @@ function drawMonthlyChart(doc, chartRows, labels) {
   doc.fillColor(COLORS.income).fontSize(8).text(labels.income, x, y + height + 8);
   doc.fillColor(COLORS.expense).text(labels.expense, x + 55, y + height + 8);
   doc.y = y + height + 28;
+}
+
+// Daromad manbasi tahlili: har oy uchun stacked-bar diagramma (manba bo'yicha foiz) +
+// matn (nechta xizmat, jami summa, xizmat/sotuv/boshqa son va foizi). Grafik va son birga.
+function drawSourceAnalysis(doc, rows, labels) {
+  drawSectionTitle(doc, labels.sourceAnalysis);
+  drawSourceLegend(doc, labels);
+
+  const startX = doc.page.margins.left;
+  const barWidth = 515;
+  const barHeight = 12;
+  const segments = ['service', 'material', 'item', 'other'];
+
+  for (const row of rows) {
+    ensureSpace(doc, 56);
+    const top = doc.y;
+
+    // 1-qator: oy nomi + nechta xizmat + jami kirim.
+    doc.font('Helvetica-Bold').fontSize(9.5).fillColor(COLORS.text).text(row.label, startX, top);
+    doc.font('Helvetica').fontSize(8).fillColor(COLORS.muted).text(
+      `${row.servicesCount} ${labels.monthServices}   ${labels.monthTotal}: ${formatMoney(row.totalIncome)}`,
+      startX + 150,
+      top + 1,
+      { width: barWidth - 150, align: 'right' }
+    );
+
+    // 2-qator: stacked bar (manba foizlari bo'yicha).
+    const barY = top + 15;
+    let left = startX;
+    for (const key of segments) {
+      const source = row.sources.find((item) => item.key === key);
+      const segWidth = (Math.max(0, source?.pct || 0) / 100) * barWidth;
+      if (segWidth > 0.4) {
+        doc.path(svgRectPath(left, barY, segWidth, barHeight)).fill(SOURCE_COLORS[key]);
+        left += segWidth;
+      }
+    }
+    doc.path(svgRectPath(startX, barY, barWidth, barHeight)).strokeColor(COLORS.border).stroke();
+
+    // 3-qator: aniq son va foiz (xizmat / material+buyum sotuvi / boshqa).
+    const service = row.sources.find((item) => item.key === 'service');
+    const parts = [
+      `${labels.srcService}: ${formatMoney(service.total)} (${pctText(service.pct)})`,
+      `${labels.srcSales}: ${formatMoney(row.salesTotal)} (${pctText(row.salesPct)})`,
+    ];
+    if (row.otherTotal > 0) parts.push(`${labels.srcOther}: ${formatMoney(row.otherTotal)} (${pctText(row.otherPct)})`);
+    doc.font('Helvetica').fontSize(7.5).fillColor(COLORS.text).text(parts.join('    '), startX, barY + barHeight + 4, {
+      width: barWidth,
+    });
+
+    doc.y = barY + barHeight + 18;
+  }
+  doc.moveDown(0.3);
+}
+
+function drawSourceLegend(doc, labels) {
+  ensureSpace(doc, 20);
+  const y = doc.y;
+  let x = doc.page.margins.left;
+  const entries = [
+    ['service', labels.srcService],
+    ['material', labels.srcMaterial],
+    ['item', labels.srcItem],
+    ['other', labels.srcOther],
+  ];
+  doc.font('Helvetica').fontSize(8);
+  for (const [key, label] of entries) {
+    doc.path(svgRectPath(x, y + 1, 9, 9)).fill(SOURCE_COLORS[key]);
+    doc.fillColor(COLORS.muted).text(label, x + 13, y);
+    x += 13 + doc.widthOfString(label) + 18;
+  }
+  doc.y = y + 16;
+}
+
+function pctText(value) {
+  return `${Math.round(value || 0)}%`;
+}
+
+// Qiziqarli ko'rsatkichlar: har bir ko'rsatkich rangli marker + qalin label + qiymat.
+// Emoji ishlatilmaydi (PDF Helvetica emoji'ni chizolmaydi) — o'rniga toza tipografik ko'rinish.
+function drawInsights(doc, lines, labels) {
+  if (!lines?.length) return;
+  drawSectionTitle(doc, labels.insights);
+  const startX = doc.page.margins.left;
+  for (const line of lines) {
+    ensureSpace(doc, 18);
+    const y = doc.y;
+    doc.path(svgRectPath(startX, y + 2.5, 6, 6)).fill(COLORS.income);
+    doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted)
+      .text(`${line.label}:  `, startX + 13, y, { continued: true, width: 515 - 13 });
+    doc.font('Helvetica-Bold').fillColor(COLORS.text).text(line.value);
+    doc.moveDown(0.45);
+  }
+  doc.moveDown(0.3);
 }
 
 function ensureSpace(doc, requiredHeight) {
