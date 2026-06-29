@@ -57,7 +57,13 @@ subIntent meanings:
 - CLIENT_EDIT    - change a client's OWN name or phone (not a service). targetIdentifier,
   editField ("ism"|"telefon"), newValue.
 - STATUS_UPDATE  - mark an existing service "bajarildi" or "bekor_qilindi" with no new job details.
-- EXPENSE_ENTRY  - business spending ("benzin oldim", "mashina tamiri").
+- EXPENSE_ENTRY  - business SPENDING / money going OUT ("benzin oldim", "mashina tamiri",
+  "sotib oldim"). CRITICAL: SELLING something is the OPPOSITE — it is income, NEVER an expense.
+  If the message says the owner SOLD something ("sotdim", "sotdik", "sotildi", "sotib yubordim",
+  "pulladim"), it is a SALE (MATERIAL_SALE or ITEM_SALE), not EXPENSE_ENTRY. An appliance or
+  furniture name (muzlatgich/sovutgich/haladelnik/televizor/divan...) is an ITEM, NEVER food
+  ("oziq-ovqat"). Do not let a long story ("eski ... bor edi, keyin sotdim") fool you — the verb
+  decides: bought=expense, sold=income.
 - MATERIAL_SALE  - selling recyclable materials pulled from trash, by weight: cotton, wood,
   iron, plastic, aluminium, copper, brick, etc. Trigger when a MATERIAL is sold, usually with
   kg and/or a price ("30 kg paxtani 300 mingga sotdim", "temir sotdim 200 ming", "5 kg mis,
@@ -72,9 +78,12 @@ subIntent meanings:
   Trigger when the owner says they HAVE/FOUND a usable item ("Menda yangi muzlatgich bor",
   "ishlaydigan televizor chiqdi"). Extract itemName, estimatedPrice only if stated, notes/date.
   Never ask for price; price is optional.
-- ITEM_SALE      - a useful item was sold as one piece ("Ishlaydigan televizorni Sardorga 1 mln ga sotdim").
-  Extract itemName, amount (required sale total), recipient if stated, currency/date. This must create
-  income and, if the item exists in inventory, remove/mark that item as sold.
+- ITEM_SALE      - a useful PIECE item (appliance/furniture/electronics) was sold, even after a
+  long backstory ("eski ishlaydigan muzlatgich bor edi, uni kecha Sardorga 1 800 mingga sotdim").
+  Items: muzlatgich/sovutgich/haladelnik/holodilnik (fridge), televizor/telik (TV), divan/sofa,
+  kir mashina, konditsioner, gaz plita, kompyuter, noutbuk, shkaf, stol, stul, gilam, etc.
+  Extract itemName (base form), amount (required sale total), recipient if stated, currency/date.
+  Creates income and marks the inventory item sold if it exists.
 - ITEM_GIVEAWAY  - a useful item was given away for free ("Yangi divanni opamga tekinga berib yubordim").
   Extract itemName, recipient if stated, notes/date. Do NOT create income.
 - INCOME_ENTRY   - extra non-service, non-material income ("boshqa ishdan pul tushdi", "qarz qaytdi").
@@ -118,10 +127,19 @@ NORMALIZATION:
   at today's rate. If the amount is in som, set currency="UZS" (or omit). NEVER null the
   amount for dollars and NEVER refuse a dollar amount.
 - Date/time: ISO 8601 from the current time above. "ertaga"=+1 day, "indinga"=+2 days,
-  "kecha"=-1 day. Future weekday => next occurrence; past-tense weekday => previous one.
-  If a service has no time, use 09:00.
+  "kecha"=-1 day, "o'tgan hafta"=about 7 days ago. Future weekday => next occurrence;
+  past-tense weekday => previous one. Explicit dates ("20 iyunda", "5-mayda") => that date of
+  the current year (or last year if that date is still in the future). If a service has no time, use 09:00.
 - Payment method: only "naqd" | "karta" | "otkazma". "plastik" => karta; "perevod"/"o'tkazma" => otkazma.
-- Past tense ("bordim", "oldim", "kecha", "olib keldim") => isHistorical=true.
+- EVENT DATE (applies to ALL types — service, material sale, item sale/giveaway, item entry,
+  income, expense): if the owner speaks in PAST tense ("sotdim","oldim","berdim","sotildi","tushdi",
+  "topdim") or names a PAST date/day ("kecha","o'tgan hafta","20 iyunda","dushanba kuni"), the event
+  ALREADY happened — record it on THAT date, NEVER today. For SERVICE_ENTRY put it in serviceDateTime
+  AND set isHistorical=true. For EXPENSE_ENTRY / INCOME_ENTRY / MATERIAL_SALE / ITEM_SALE /
+  ITEM_GIVEAWAY / ITEM_ENTRY put the ISO event date into the "date" field. If it is clearly already
+  done but no date is mentioned, use today. The money belongs to the EVENT date (monthly reports
+  count it in the month it happened, not the day it was typed).
+- Past tense for a SERVICE ("bordim", "oldim", "kecha", "olib keldim", "olib chiqdim") => isHistorical=true.
 - Balance is only Transaction income minus expense; a client's post-service payment only
   changes service paymentStatus/paidAmount (no separate debt ledger).
 
@@ -181,6 +199,18 @@ Args: {"intent":"MOLIYA","subIntent":"ITEM_ENTRY","confidence":0.94,"reason":"us
 
 Input: "ishlaydigan televizorni Sardorga 1 mln ga sotdim"
 Args: {"intent":"MOLIYA","subIntent":"ITEM_SALE","confidence":0.96,"reason":"sold a useful piece item; creates income and closes inventory item if present","fields":{"itemName":"televizor","recipient":"Sardor","amount":1000000}}
+
+Input: "eski ishlaydigan haladelnik yani muzlatgich bor edi, uni kecha Sardorga 1 800 mingga sotdim"
+Args: {"intent":"MOLIYA","subIntent":"ITEM_SALE","confidence":0.95,"reason":"old appliance (fridge) was SOLD yesterday = income on that date","fields":{"itemName":"muzlatgich","recipient":"Sardor","amount":1800000,"date":"<yesterday ISO>"}}
+
+Input: "20 iyunda televizorni 3 mln ga sotdim"
+Args: {"intent":"MOLIYA","subIntent":"ITEM_SALE","confidence":0.95,"reason":"item sold on an explicit past date","fields":{"itemName":"televizor","amount":3000000,"date":"<June 20 of current year, ISO>"}}
+
+Input: "kecha 30 kg paxtani 300 mingga sotdim"
+Args: {"intent":"MOLIYA","subIntent":"MATERIAL_SALE","confidence":0.95,"reason":"material sold yesterday; date = yesterday","fields":{"materialName":"Paxta","quantityKg":30,"amount":300000,"date":"<yesterday ISO>"}}
+
+Input: "o'tgan hafta Sardorga musor olib chiqib berdim, 200 ming oldim"
+Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.9,"reason":"trash service done last week = historical service dated to that day","fields":{"clientName":"Sardor","serviceDateTime":"<about 7 days ago ISO>","price":200000,"isHistorical":true}}
 
 Input: "yangi divanni opamga tekinga berib yubordim"
 Args: {"intent":"MOLIYA","subIntent":"ITEM_GIVEAWAY","confidence":0.95,"reason":"gave useful item away for free; no income","fields":{"itemName":"divan","recipient":"opam"}}

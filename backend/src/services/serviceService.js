@@ -173,6 +173,18 @@ async function ensureServiceIncome(service) {
   return { transaction, created: true };
 }
 
+// Bajarish (va daromad) sanasi: TARIXIY (o'tgan zamonda aytilgan) xizmat — voqea
+// allaqachon yuz bergan, shuning uchun u AYTILGAN sanaga (serviceDateTime) tegishli;
+// oddiy (kelajak) xizmat hozir bajarilsa — hozirgi sana. Shu sabab oylik/davriy hisobotlar
+// daromadni voqea YUZ BERGAN oyga to'g'ri hisoblaydi (kiritilgan oyga emas).
+function completionDateFor(service) {
+  if (service?.isHistorical && service?.serviceDateTime) {
+    const date = new Date(service.serviceDateTime);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return new Date();
+}
+
 // Xizmatni bajarilgan deb belgilash -> daromad yozish.
 export async function completeService(serviceId, { newPrice = null, markPaid = false, includeTransaction = false } = {}) {
   const service = await Service.findOne({ _id: serviceId, ...notDeleted });
@@ -201,7 +213,7 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
   }
 
   service.status = SERVICE_STATUS.DONE;
-  service.completedAt = new Date();
+  service.completedAt = completionDateFor(service);
   if (markPaid) service.paidAmount = service.price;
   service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
   const completed = await Service.findOneAndUpdate(
@@ -239,7 +251,8 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
     category: 'xizmat',
     description: `Xizmat: ${completed.clientName}`,
     serviceId: completed._id,
-    date: new Date(),
+    // Tarixiy xizmatda voqea sanasi (serviceDateTime), aks holda hozir — completedAt shu sanaga teng.
+    date: completed.completedAt || new Date(),
   });
   completed.incomeTransactionId = transaction._id;
   await completed.save();

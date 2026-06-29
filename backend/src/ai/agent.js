@@ -425,7 +425,9 @@ async function currencyFallback({ conversation, intent, collected, usdAmount }) 
 }
 
 function attachEntrySource(intent, fields, rawText, sourceMeta) {
-  if (intent !== 'ITEM_ENTRY') return fields;
+  // Ovoz/manba ITEM_ENTRY (buyum qo'shish) va MATERIAL_SALE (material sotuvi) ga biriktiriladi —
+  // Mini App'da o'sha kategoriyada asl ovozni qayta eshitish/matnini o'qish uchun.
+  if (intent !== 'ITEM_ENTRY' && intent !== 'MATERIAL_SALE') return fields;
   const out = { ...fields };
   out.sourceText = out.sourceText || rawText || '';
   if (sourceMeta?.type === 'voice') {
@@ -1095,6 +1097,11 @@ async function createAgentTransaction(args) {
     materialName: isMaterial ? args.materialName : null,
     quantityKg: isMaterial ? args.quantityKg : null,
     pricePerKg: isMaterial ? args.pricePerKg : null,
+    voiceTelegramFileId: isMaterial ? args.voiceTelegramFileId : null,
+    voiceMimeType: isMaterial ? args.voiceMimeType : null,
+    voiceDuration: isMaterial ? args.voiceDuration : null,
+    voiceMessageId: isMaterial ? args.voiceMessageId : null,
+    sourceText: isMaterial ? args.sourceText : null,
     date: args.date || null,
     serviceId: args.serviceId || null,
     originalAmount: args.originalAmount ?? null,
@@ -1269,6 +1276,12 @@ function fallbackToolCall(intent, fields, rawText) {
           materialName: isMaterial ? fields.materialName || null : null,
           quantityKg: isMaterial ? fields.quantityKg ?? null : null,
           pricePerKg: isMaterial ? fields.pricePerKg ?? null : null,
+          // Material sotuvi ovozli aytilgan bo'lsa — asl ovozni kategoriyaga biriktiramiz.
+          voiceTelegramFileId: isMaterial ? fields.voiceTelegramFileId || null : null,
+          voiceMimeType: isMaterial ? fields.voiceMimeType || null : null,
+          voiceDuration: isMaterial ? fields.voiceDuration || null : null,
+          voiceMessageId: isMaterial ? fields.voiceMessageId || null : null,
+          sourceText: isMaterial ? fields.sourceText || rawText || '' : null,
           date: fields.date || null,
           serviceId: fields.serviceId || null,
           originalAmount: fields.originalAmount ?? null,

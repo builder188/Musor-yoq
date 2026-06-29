@@ -2,6 +2,7 @@ import Transaction, { TX_TYPES, EXPENSE_CATEGORIES, MATERIAL_CATEGORY, USEFUL_IT
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { periodRange } from '../utils/dates.js';
 import { resolveMaterialName, buildMaterialDescription } from './materialService.js';
+import { ensureMaterialCategory } from './categoryService.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 const CATEGORY_KEYWORDS = {
@@ -184,13 +185,25 @@ export async function createTransaction(data) {
   };
 
   // Material sotuvi: nomni kanonik shaklga keltiramiz (dublikat kategoriyaning oldini olish),
-  // miqdor/kilo narxini saqlaymiz va izohni toza quramiz ("Paxta · 30 kg").
+  // kategoriyani kafolatlaymiz (yangi bo'lsa bot xabar beradi), miqdor/kilo narxi/ovozni
+  // saqlaymiz va izohni toza quramiz ("Paxta · 30 kg").
   if (category === MATERIAL_CATEGORY) {
     const resolved = (await resolveMaterialName(data.materialName)) || 'Boshqa';
-    tx.materialName = resolved;
+    const ensured = await ensureMaterialCategory(resolved, { source: 'bot', notify: true });
+    const finalName = ensured.name || resolved;
+    tx.materialName = finalName;
     tx.quantityKg = optionalPositiveNumber(data.quantityKg);
     tx.pricePerKg = optionalPositiveNumber(data.pricePerKg);
-    tx.description = buildMaterialDescription(resolved, tx.quantityKg);
+    tx.description = buildMaterialDescription(finalName, tx.quantityKg);
+    if (data.voiceTelegramFileId) {
+      tx.voice = {
+        telegramFileId: data.voiceTelegramFileId,
+        mimeType: data.voiceMimeType || null,
+        duration: data.voiceDuration || null,
+        messageId: data.voiceMessageId || null,
+      };
+    }
+    if (data.sourceText) tx.sourceText = String(data.sourceText).slice(0, 1000);
   }
   if (category === USEFUL_ITEM_CATEGORY) {
     tx.itemName = data.itemName || data.description || 'Buyum';

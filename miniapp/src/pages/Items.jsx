@@ -7,7 +7,7 @@ import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 
-export default function Items() {
+export default function Items({ onBack = null }) {
   const { t } = useApp();
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState('available');
@@ -42,7 +42,12 @@ export default function Items() {
   return (
     <div>
       <div className="row-between" style={{ marginBottom: 4 }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>{t('items.title')}</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {onBack && (
+            <button className="btn btn-sm" onClick={onBack} aria-label={t('common.back')}>← {t('common.back')}</button>
+          )}
+          <h1 className="page-title" style={{ marginBottom: 0 }}>{t('items.title')}</h1>
+        </div>
         <button
           className="icon-btn"
           style={{ background: 'var(--text)', color: 'var(--card)', border: 'none', fontSize: 21, boxShadow: 'var(--shadow-btn)' }}
@@ -275,12 +280,18 @@ function SellModal({ item, onClose, onDone }) {
   const { t } = useApp();
   const [amount, setAmount] = useState('');
   const [recipient, setRecipient] = useState('');
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
     setBusy(true);
     try {
-      await api.patch(`/items/${item._id}/sold`, { amount, recipient });
+      await api.patch(`/items/${item._id}/sold`, {
+        amount,
+        recipient,
+        // O'tgan sanada sotilgan bo'lsa — kirim o'sha sanaga (oylik hisobot to'g'ri bo'lsin).
+        date: date ? new Date(date).toISOString() : undefined,
+      });
       onDone();
     } catch (e) {
       alert(e.message);
@@ -295,6 +306,8 @@ function SellModal({ item, onClose, onDone }) {
       <input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
       <label className="label">{t('items.recipient')}</label>
       <input className="input" value={recipient} onChange={(e) => setRecipient(e.target.value)} />
+      <label className="label">{t('common.date')}</label>
+      <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !(Number(amount) > 0)}>
         {busy ? '...' : t('common.save')}
       </button>

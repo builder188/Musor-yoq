@@ -7,6 +7,7 @@ export default {
     home: 'Главная',
     clients: 'Клиенты',
     services: 'Услуги',
+    categories: 'Категории',
     items: 'Предметы',
     finance: 'Финансы',
     reports: 'Отчёты',
@@ -167,6 +168,22 @@ export default {
       given_away: 'Отдано',
       discarded: 'Удалено',
     },
+  },
+
+  categories: {
+    title: 'Категории',
+    materials: 'Материалы',
+    usefulItems: 'Полезные вещи',
+    create: 'Новая категория',
+    name: 'Название категории',
+    namePlaceholder: 'например: Хлопок, Медь...',
+    salesCount: 'продаж',
+    noSales: 'Продаж пока нет',
+    addSale: 'Добавить продажу',
+    kg: 'Количество (кг)',
+    perKg: 'Цена за 1 кг',
+    inBalance: 'В балансе',
+    notInBalance: 'Не в балансе',
   },
 
   settings: {

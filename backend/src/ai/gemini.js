@@ -699,6 +699,58 @@ export async function extractNotebookRecords(imageBuffer, mime = 'image/jpeg', c
   return normalizeRecords(safeParseJson(res.response.text()));
 }
 
+// ── Deterministik xavfsizlik to'ri: SOTUV hech qachon xarajat emas ─────────────
+// Gemini ba'zan uzun/erkin gapni ("eski muzlatgich bor edi, kecha Sardorga sotdim")
+// xato EXPENSE/INCOME deb tasniflaydi. Agar matnda aniq SOTISH/BERIB YUBORISH fe'li +
+// tanilgan tovar (buyum yoki material) bo'lsa — niyatni to'g'rilaymiz. Bu LLM xatosidan
+// qat'i nazar to'g'ri natija beradi (foydalanuvchi shikoyat qilgan asosiy bug).
+// "sotib oldim" (sotib olish=xarajat) sotuvga ALMASHTIRILMAYDI.
+const SOLD_RE = /(\bsot(d|t)\w*|\bsotil\w*|\bsotvor\w*|\bsotib\s+yubor\w*|\bpullad\w*|\bsotdik\b)/i;
+const GIVEN_FREE_RE = /(tekin\w*|bepul|sovg'a\w*|sovga\w*|hadya|berib\s+yubor\w*)/i;
+const BOUGHT_RE = /(sotib\s*ol\w*|xarid\s*qil\w*)/i; // sotib oldim = xarid (sale emas)
+const ITEM_NOUN_RE = /(muzlatgich\w*|sovutgich\w*|xolodil\w*|holodil\w*|halodel\w*|haladel\w*|televizor\w*|televizr\w*|\btelik\b|\btv\b|divan\w*|kreslo\w*|\bstul\w*|\bstol\w*|shkaf\w*|javon\w*|kir\s*(yuvish\s*)?mashina\w*|stiral\w*|kondi\w*|konder\w*|gaz\s*plita\w*|\bplita\w*|pech\w*|kompyuter\w*|noutbuk\w*|laptop\w*|gilam\w*|kovyor\w*|\bkover\b|velosiped\w*|mebel\w*)/i;
+const MATERIAL_NOUN_RE = /(paxta\w*|taxta\w*|temir\w*|metall\w*|plastik\w*|plassmas\w*|salafan\w*|alyumin\w*|\bmis\b|g'isht\w*|gisht\w*|qog'oz\w*|qogoz\w*|karton\w*|rezina\w*)/i;
+
+function firstMatch(text, re) {
+  const m = String(text || '').match(re);
+  return m ? m[0].trim() : null;
+}
+
+// Niyatni matn asosida to'g'rilaydi (faqat sotuv/berib-yuborish aniq bo'lsa).
+export function correctSaleClassification(understanding, rawText) {
+  const text = String(rawText || '');
+  const u = understanding || {};
+  const sub = u.subIntent;
+
+  // Allaqachon sotuv/sovg'a niyati — tegmaymiz. Mijoz xizmati (SERVICE/STATUS/PAYMENT) —
+  // bu tovar sotuvi emas, tegmaymiz. Faqat noto'g'ri MOLIYA (EXPENSE/INCOME) yoki ITEM_ENTRY ni tuzatamiz.
+  if (['MATERIAL_SALE', 'ITEM_SALE', 'ITEM_GIVEAWAY'].includes(sub)) return u;
+  const correctable = ['EXPENSE_ENTRY', 'INCOME_ENTRY', 'ITEM_ENTRY'];
+  if (!correctable.includes(sub)) return u;
+
+  const sold = SOLD_RE.test(text) && !BOUGHT_RE.test(text);
+  const givenFree = GIVEN_FREE_RE.test(text);
+  if (!sold && !givenFree) return u;
+
+  const itemNoun = firstMatch(text, ITEM_NOUN_RE);
+  const materialNoun = firstMatch(text, MATERIAL_NOUN_RE);
+  if (!itemNoun && !materialNoun) return u; // tanilgan tovar yo'q — tegmaymiz
+
+  const fields = { ...(u.fields || {}) };
+  const base = { ...u, intent: 'MOLIYA', confidence: Math.max(u.confidence || 0, 0.9), clarifyOptions: [] };
+
+  // Tekinga berilgan buyum — kirim yo'q.
+  if (givenFree && !sold && itemNoun) {
+    return { ...base, subIntent: 'ITEM_GIVEAWAY', fields: { ...fields, itemName: fields.itemName || itemNoun } };
+  }
+  // Sotilgan buyum (televizor/muzlatgich/divan...) — ITEM_SALE (kirim).
+  if (itemNoun) {
+    return { ...base, subIntent: 'ITEM_SALE', fields: { ...fields, itemName: fields.itemName || itemNoun } };
+  }
+  // Sotilgan material (paxta/temir...) — MATERIAL_SALE (kirim).
+  return { ...base, subIntent: 'MATERIAL_SALE', fields: { ...fields, materialName: fields.materialName || materialNoun } };
+}
+
 // STEP 2: intent classification with Gemini function calling enabled.
 // `history` — oxirgi ~10 xabar ([{role, text}]); qisqa javoblarni botning oldingi
 // savoli kontekstida talqin qilish uchun prompt'ga qo'shiladi (ixtiyoriy).
@@ -706,10 +758,13 @@ export async function classifyIntent(text, history = []) {
   const prompt = buildClassificationPrompt(text, history);
   const res = await generate(functionCallingModel, prompt);
   const args = functionArgs(res.response);
-  if (args) return normalizeUnderstanding(args);
+  const understanding = args
+    ? normalizeUnderstanding(args)
+    // Fallback for SDK/runtime modes that return JSON text instead of a tool call.
+    : normalizeUnderstanding(safeParseJson(res.response.text()));
 
-  // Fallback for SDK/runtime modes that return JSON text instead of a tool call.
-  return normalizeUnderstanding(safeParseJson(res.response.text()));
+  // Determinstik xavfsizlik to'ri — sotuvni xarajat deb tasniflashni tuzatadi.
+  return correctSaleClassification(understanding, text);
 }
 
 export async function chooseAgentTool({ intent, fields = {}, rawText = '', mode = 'bot' }) {

@@ -35,6 +35,22 @@ const transactionSchema = new mongoose.Schema(
     quantityKg: { type: Number, default: null, min: 0 },
     pricePerKg: { type: Number, default: null, min: 0 },
 
+    // Ovozli xabar orqali kiritilgan bo'lsa — asl ovoz (Mini App'da qayta eshitish uchun)
+    // va uning matni. Material sotuvi ovozli aytilsa, o'sha ovoz kategoriyaga biriktiriladi.
+    voice: {
+      type: new mongoose.Schema(
+        {
+          telegramFileId: { type: String, default: null },
+          mimeType: { type: String, default: null },
+          duration: { type: Number, default: null },
+          messageId: { type: Number, default: null },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
+    sourceText: { type: String, default: '' },
+
     // Kerakli buyum sotuvi (category='buyum') uchun.
     itemName: { type: String, default: null },
     usefulItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'UsefulItem', default: null },

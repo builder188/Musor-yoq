@@ -6,6 +6,7 @@ export default {
     home: 'Bosh sahifa',
     clients: 'Mijozlar',
     services: 'Xizmatlar',
+    categories: 'Kategoriyalar',
     items: 'Buyumlar',
     finance: 'Moliya',
     reports: 'Hisobotlar',
@@ -130,6 +131,22 @@ export default {
       given_away: 'Berildi',
       discarded: 'O\'chirildi',
     },
+  },
+
+  categories: {
+    title: 'Kategoriyalar',
+    materials: 'Materiallar',
+    usefulItems: 'Kerakli buyumlar',
+    create: 'Yangi kategoriya',
+    name: 'Kategoriya nomi',
+    namePlaceholder: 'masalan: Paxta, Mis...',
+    salesCount: 'ta sotuv',
+    noSales: 'Hali sotuv yo\'q',
+    addSale: 'Sotuv qo\'shish',
+    kg: 'Miqdori (kg)',
+    perKg: '1 kg narxi',
+    inBalance: 'Balansda',
+    notInBalance: 'Balansda emas',
   },
 
   finance: {

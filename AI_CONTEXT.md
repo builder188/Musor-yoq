@@ -1,5 +1,12 @@
 # AI_CONTEXT.md
 
+## 2026-06-28 Tarixiy sana — barcha daromad turlarida + kategoriyalar restrukturizatsiya
+- **O'tgan sana:** o'tgan zamon/sana bilan aytilgan voqea (xizmat/material/buyum/qo'lda kirim) — voqea YUZ BERGAN sanaga yoziladi. Prompt'da global EVENT DATE qoidasi. KOD: `serviceService.completionDateFor` — tarixiy xizmat income tx `serviceDateTime`ga (avval bugun edi → hisobot xato oyga tushardi). Material/item/income Gemini `date`ini saqlaydi (applyEntryDefaults faqat yo'q bo'lsa bugun). Mini App qo'lda sotuvga sana maydoni.
+- **Sotuv≠xarajat (kritik):** ovozli "muzlatgich sotdim" Oziq-ovqat xarajat deb tushunilardi → `gemini.correctSaleClassification` deterministik to'g'rilash (sotish fe'li + tanilgan tovar → ITEM_SALE/MATERIAL_SALE) + prompt qotirildi.
+- **Material ovozi:** Transaction.voice/sourceText; material sotuvi ovozli aytilsa kategoriyaga biriktiriladi (Mini App'da qayta eshitiladi).
+- **Kategoriyalar:** `MaterialCategory` model + `categoryService` (+notifyOwner yangi kategoriyada) + `routes/categories.js`. Mini App "Buyumlar"→"Kategoriyalar" (material kategoriyalari + Kerakli buyumlar; yozuvlar: sana/kg/narx/balans/ovoz; yaratish; qo'lda qo'shish).
+- Tekshiruv: node --check + route graph OK; classify 9/9, date 8/8, categoryService PASS; Mini App build OK.
+
 ## 2026-06-27 Material/buyum AI tizimiga to'liq integratsiyasi (audit)
 - Tasdiqlandi: material sotish + kerakli buyumlar mavjud AI oqimiga to'liq mos — hammasi MOLIYA subIntent, bir xil ENTRY_CONFIRM (Ha/Yo'q tahrirlash/Bekor), matn/ovoz javob tugmasiz ishlaydi (routeEntryConfirmation/continueEntry/ITEM_MATCH_CONFIRM intent-agnostik), "oka" ohang izchil, kontekst (oxirgi 10 xabar) hammasiga taalluqli.
 - Qotirish: prompts.js STEP 1 MOLIYA ta'rifi material/buyum sotuvini aniq qamraydi; commands.js HELP_TEXT + agent.js fallback hint material/buyumni eslatadi (discoverability).

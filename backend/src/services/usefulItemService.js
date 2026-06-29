@@ -227,7 +227,8 @@ export async function sellUsefulItem(data = {}, options = {}) {
 
   if (item) {
     item.status = USEFUL_ITEM_STATUS.SOLD;
-    item.closedAt = new Date();
+    // Tarixiy sotuv (o'tgan sanada) — voqea aytilgan sanaga tegishli; income tx ham shu sana.
+    item.closedAt = data.date ? new Date(data.date) : new Date();
     item.closedReason = 'sold';
     item.recipient = data.recipient || null;
     item.soldAmount = amount;
