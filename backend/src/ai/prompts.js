@@ -135,6 +135,10 @@ NORMALIZATION:
   "kecha"=-1 day, "o'tgan hafta"=about 7 days ago. Future weekday => next occurrence;
   past-tense weekday => previous one. Explicit dates ("20 iyunda", "5-mayda") => that date of
   the current year (or last year if that date is still in the future). If a service has no time, use 09:00.
+- TIMEZONE: ALL times are Asia/Tashkent local time (+05:00, no daylight saving). When you output
+  serviceDateTime/date, keep the clock hour the owner said and append the +05:00 offset
+  (e.g. "bugun soat 11" => "<today>T11:00:00+05:00"). NEVER output a UTC "Z" time and NEVER shift
+  the hour by 5 — "soat 11" must stay 11:00, not 06:00 and not 16:00.
 - Payment method: only "naqd" | "karta" | "otkazma". "plastik" => karta; "perevod"/"o'tkazma" => otkazma.
 - EVENT DATE (applies to ALL types — service, material sale, item sale/giveaway, item entry,
   income, expense): if the owner speaks in PAST tense ("sotdim","oldim","berdim","sotildi","tushdi",

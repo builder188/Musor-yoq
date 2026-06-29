@@ -41,7 +41,7 @@ import { answerReadQuery } from './queries.js';
 import { TX_TYPES } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { formatMoney, parseMoney, convertUsdToUzs } from '../utils/money.js';
-import { formatDateTime, formatDate, parseHumanDateTime } from '../utils/dates.js';
+import { formatDateTime, formatDate, parseHumanDateTime, correctServiceDateTime } from '../utils/dates.js';
 import { formatPhone, normalizePhone } from '../utils/phone.js';
 import {
   editConfirmKeyboard,
@@ -442,7 +442,19 @@ function attachEntrySource(intent, fields, rawText, sourceMeta) {
   return out;
 }
 
+// SERVICE_ENTRY vaqtini to'g'rilaydi: model serviceDateTime ni UTC sifatida (xato mintaqada)
+// bergan bo'lsa, foydalanuvchi aytgan aniq soatga qaytaramiz ("soat 11" -> 16:00 emas, 11:00).
+function applyDateTimeCorrection(intent, fields, rawText) {
+  if (intent !== 'SERVICE_ENTRY' || !fields?.serviceDateTime) return fields;
+  const corrected = correctServiceDateTime(fields.serviceDateTime, rawText);
+  if (corrected && corrected !== fields.serviceDateTime) {
+    return { ...fields, serviceDateTime: corrected };
+  }
+  return fields;
+}
+
 async function startEntry({ conversation, intent, fields, rawText, mode, sourceMeta = null }) {
+  fields = applyDateTimeCorrection(intent, fields, rawText);
   const collected = applyEntryDefaults(intent, attachEntrySource(intent, mergeFields({}, fields), rawText, sourceMeta));
   trackEntryCurrency(intent, collected, undefined, fields, rawText);
   const missing = nextMissing(intent, collected);
@@ -511,7 +523,9 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
   const intent = conversation.pendingIntent;
   const amountKey = AMOUNT_KEY[intent];
   const prevAmount = amountKey ? conversation.collected?.[amountKey] : undefined;
-  let collected = mergeFields(conversation.collected || {}, understanding.fields || {});
+  // Model bu xabarda serviceDateTime bergan bo'lsa, mintaqa xatosini birlashtirishdan oldin tuzatamiz.
+  const incoming = applyDateTimeCorrection(intent, understanding.fields || {}, rawText);
+  let collected = mergeFields(conversation.collected || {}, incoming);
 
   if (conversation.awaitingField && !hasValue(conversation.awaitingField, collected)) {
     collected = applyRawValue(conversation.awaitingField, rawText, collected);
@@ -622,7 +636,7 @@ export async function editPendingEntry({ conversation, understanding, rawText = 
   if (!conversation || conversation.pendingIntent !== 'ENTRY_CONFIRM' || !intent) {
     throw new Error("Tahrirlanadigan ma'lumot topilmadi");
   }
-  let updated = buildEditedFields(intent, pending.fields || {}, understanding);
+  let updated = applyDateTimeCorrection(intent, buildEditedFields(intent, pending.fields || {}, understanding), rawText);
 
   // Summa tahrirlangan bo'lsa — valyutani shu tahrirdan qayta baholaymiz va eski
   // konvertatsiya izlarini tozalaymiz (dollar→so'm yoki so'm→so'm to'g'ri ko'rinsin).

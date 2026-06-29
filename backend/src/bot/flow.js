@@ -1,6 +1,7 @@
 // Slot-filling helpers for missing fields.
 import { normalizePhone } from '../utils/phone.js';
 import { parseMoney } from '../utils/money.js';
+import { parseHumanDateTime } from '../utils/dates.js';
 import { PAYMENT_METHODS } from '../models/Service.js';
 
 // MIJOZ (SERVICE_ENTRY) majburiy maydonlar tartibi:
@@ -129,6 +130,13 @@ export function applyRawValue(field, rawText, collected) {
     }
     case 'category': {
       out[field] = normalizeExpenseCategory(text);
+      break;
+    }
+    case 'serviceDateTime': {
+      // Foydalanuvchi sana/vaqtni alohida javob bersa ("ertaga soat 9") — mahalliy
+      // (Asia/Tashkent) vaqtda deterministik parse qilamiz; bo'lmasa xom matnni qoldiramiz.
+      const d = parseHumanDateTime(text);
+      out[field] = d ? d.toISOString() : text;
       break;
     }
     default:

@@ -139,10 +139,16 @@ export function entrySummaryText(intent, fields = {}) {
     const location = fields.location?.address || fields.location || '-';
     const lines = [
       'Tekshirib chiqing oka:',
-      `👤 ${fields.clientName || '-'}  📱 ${formatPhone(fields.clientPhone) || fields.clientPhone || '-'}  📍 ${location}`,
-      `📅 ${fields.serviceDateTime ? formatBotDateTime(fields.serviceDateTime) : '-'}  💰 ${formatMoney(fields.price)}  💳 ${fields.paymentMethod || '-'}`,
+      EMOJI_DIVIDER,
+      `👤 ${fields.clientName || '-'}`,
+      `☎️ ${formatPhone(fields.clientPhone) || fields.clientPhone || '-'}`,
+      `📍 ${location}`,
+      `💰 ${formatMoney(fields.price)}`,
+      `💳 ${fields.paymentMethod || '-'}`,
+      `📅 ${fields.serviceDateTime ? formatBotDateTime(fields.serviceDateTime) : '-'}`,
     ];
     if (conv) lines.push(conv);
+    lines.push(EMOJI_DIVIDER);
     lines.push("Hammasi to'g'rimi?");
     return lines.join('\n');
   }

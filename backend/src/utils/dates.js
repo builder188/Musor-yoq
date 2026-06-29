@@ -187,10 +187,75 @@ export function parseHumanDateTime(input, base = new Date()) {
   return result;
 }
 
+// Berilgan sanani mahalliy (TZ) vaqt sifatida ofset bilan ISO ko'rinishida beradi —
+// "2026-06-29T16:00:00+05:00". UTC 'Z' o'rniga shu ishlatiladi, shunda AI vaqtni
+// mahalliy (Asia/Tashkent) deb tushunadi va soatni xato (UTC) chiqarmaydi.
+export function localIsoWithOffset(date = new Date(), timeZone = TZ) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const p = Object.fromEntries(dtf.formatToParts(date).map((x) => [x.type, x.value]));
+  const hour = p.hour === '24' ? '00' : p.hour; // ba'zi muhitlar 24:00 beradi
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +hour, +p.minute, +p.second);
+  const offMin = Math.round((asUTC - date.getTime()) / 60000);
+  const sign = offMin >= 0 ? '+' : '-';
+  const abs = Math.abs(offMin);
+  const oh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const om = String(abs % 60).padStart(2, '0');
+  return `${p.year}-${p.month}-${p.day}T${hour}:${p.minute}:${p.second}${sign}${oh}:${om}`;
+}
+
+// Foydalanuvchi matnidan ANIQ soat (va daqiqa) ni ajratadi: "soat 11", "soat 11:30",
+// "11:00", "11.30". Topilmasa null. Sana raqamlari (29.06.2026) bilan adashmaslik uchun
+// HH.MM dan keyin yana nuqta/raqam kelmasligini tekshiramiz.
+export function extractClockTime(input) {
+  const text = String(input || '').toLowerCase();
+  // HH:MM yoki HH.MM (sana emas — keyin yana .DD kelmasligi shart).
+  const hm = text.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b(?![.\d])/);
+  if (hm) return { hour: Number(hm[1]), minute: Number(hm[2]) };
+  // "soat 11", "соат 9" (daqiqasiz) — keyin raqam/nuqta/ikki nuqta kelmasligi shart.
+  const soat = text.match(/(?:soat|соат)\s*([01]?\d|2[0-3])(?![\d:.])/);
+  if (soat) return { hour: Number(soat[1]), minute: 0 };
+  return null;
+}
+
+// AI bergan serviceDateTime ni — vaqt mintaqasini xato (UTC) bergan bo'lsa, ya'ni
+// "soat 11" -> 16:00 (Asia/Tashkent) ko'rinib qolsa — foydalanuvchi AYTGAN aniq soatga
+// to'g'rilaydi. Faqat matnda aniq soat bo'lganda ishlaydi; aks holda model qiymati
+// o'zgarmaydi. Jarayon TZ = Asia/Tashkent, shu sabab getHours()/setHours() mahalliy soat.
+export function correctServiceDateTime(serviceDateTime, rawText) {
+  const clock = extractClockTime(rawText);
+  if (!clock) return serviceDateTime; // aniq soat aytilmagan — modelga ishonamiz
+
+  // Kun so'zi (bugun/ertaga/indin) + aniq soat bo'lsa — to'liq deterministik hisob.
+  const parsed = parseHumanDateTime(rawText);
+  if (parsed && parsed.getHours() === clock.hour && parsed.getMinutes() === clock.minute) {
+    return parsed.toISOString();
+  }
+
+  // Aks holda model bergan SANAga aniq soatni mahalliy vaqtda o'rnatamiz.
+  const base = serviceDateTime ? new Date(serviceDateTime) : parsed || new Date();
+  if (Number.isNaN(base.getTime())) return serviceDateTime;
+  if (base.getHours() === clock.hour && base.getMinutes() === clock.minute) {
+    return serviceDateTime || base.toISOString(); // allaqachon to'g'ri
+  }
+  base.setHours(clock.hour, clock.minute, 0, 0);
+  return base.toISOString();
+}
+
 // AI uchun joriy kontekst (nisbiy sanalarni hal qilishda yordam beradi).
 export function nowContext() {
   const d = new Date();
-  const iso = d.toISOString();
+  // ISO ni UTC (Z) emas, mahalliy (Asia/Tashkent, +05:00) ofset bilan beramiz —
+  // shunda model vaqtni mahalliy deb chiqaradi, "soat 11" -> 16:00 xatosi bo'lmaydi.
+  const iso = localIsoWithOffset(d, TZ);
   const human = new Intl.DateTimeFormat('uz-UZ', {
     timeZone: TZ,
     weekday: 'long',
