@@ -1,5 +1,11 @@
 # SESSION_HANDOFF.md
 
+## 2026-06-28 Sotuv-klassifikatsiya tuzatuvchisi mustahkamlandi (lotin/kirill/rus + chegaralar)
+- **Sabab:** foydalanuvchi yana o'sha skrinshotni yubordi (muzlatgich sotdim → Oziq-ovqat). Tuzatish allaqachon `correctSaleClassification`da bor (commit 0994eb2) — skrinshot deploy'dan oldingi. Lekin "yanada xatosiz" uchun tuzatuvchi kengaytirildi.
+- **gemini.correctSaleClassification (qayta yozildi, mustahkamroq):** (1) buyum/material noun ro'yxati LOTIN + KIRILL-o'zbek (музлатгич, телевизор, пахта, темир...) + RUS (холодильник, телевизор) + imlo variantlari (x/h, l/r: xaladelnik/halodelnik); (2) sotuv fe'llari lotin+kirill (сотдим/сотилди) + rus (продал); xarid (сотиб олдим/купил) ALMASHTIRILMAYDI; (3) noto'g'ri sotuv TURINI ham tuzatadi (Gemini ITEM_SALE deganini "tekinga" bo'lsa ITEM_GIVEAWAY ga, aksincha); (4) SAVOL (`?`/qachon/qancha...) va SERVICE/PAYMENT/SEARCH/ANALYTICS niyatlariga TEGMAYDI (savol-sotuvni yozuvga aylantirmaydi); (5) eski xato `category` (oziq-ovqat) tozalanadi.
+- **TRANSCRIBE_PROMPT:** transkripsiyaga domen maslahati — material/buyum nomlari va sotuv fe'llarini aynan yozsin, maishiy texnikani oziq-ovqat so'ziga "to'g'rilamasin".
+- **Tekshiruv:** correctSaleClassification 23/23 (lotin/kirill/rus sotuv→to'g'ri; sotib oldim/yoqilg'i/savol/xizmat/to'lov tegilmaydi); import graph OK; Mini App build OK. Push qilindi. (Kategoriyalar restrukturizatsiyasi 0994eb2'da allaqachon — Railway deploy'dan keyin ko'rinadi.)
+
 ## 2026-06-28 BARCHA daromad turlari — o'tgan sana bo'yicha kiritish (tarixiy yozuv)
 - **Maqsad:** "20 iyunda televizorni 3 mln sotdim" / "kecha 30 kg paxta sotdim" / "o'tgan hafta musor olib chiqdim 200 ming oldim" kabi O'TGAN voqealar — voqea YUZ BERGAN sanaga yozilsin (bugungi sana emas), pul darhol balansga, eslatma yo'q, va oylik hisobot voqea oyiga hisoblasin. Xizmat, material, buyum, qo'lda kirim — hammasida izchil.
 - **Prompt (gemini):** NORMALIZATION'ga global "EVENT DATE" qoidasi — o'tgan zamon yoki o'tgan sana bo'lsa, SERVICE_ENTRY → serviceDateTime + isHistorical; MATERIAL_SALE/ITEM_*/INCOME/EXPENSE → `date` (ISO). "o'tgan hafta"≈7 kun oldin, "20 iyunda"→shu yil o'sha sana qo'shildi. 4 yangi misol (kecha/20 iyun/o'tgan hafta).

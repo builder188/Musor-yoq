@@ -12,6 +12,11 @@ export const TRANSCRIBE_PROMPT = `Transcribe this Uzbek voice message. Return on
 The speaker is a trash collection business owner in Uzbekistan. Expect Uzbek
 (Latin/Cyrillic), occasional Russian words, client names, phone numbers,
 addresses, money amounts ("400 ming", "1 mln"), dates and times.
+He also talks about SELLING recyclable materials by weight (paxta, taxta, temir,
+plastik, mis, alyuminiy...) and selling/giving away used appliances and furniture
+(muzlatgich/sovutgich/haladelnik, televizor, divan, kir mashina, gaz plita...).
+Transcribe these item/material words and the sale verbs ("sotdim", "sotildi",
+"berdim", "oldim") EXACTLY as spoken — do not "correct" an appliance into a food word.
 Write spoken numbers as digits when clear. Do not translate, summarize, explain,
 add punctuation guesses that change meaning, or wrap the text in quotes.`;
 

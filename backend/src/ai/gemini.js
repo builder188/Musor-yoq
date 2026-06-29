@@ -705,28 +705,40 @@ export async function extractNotebookRecords(imageBuffer, mime = 'image/jpeg', c
 // tanilgan tovar (buyum yoki material) bo'lsa — niyatni to'g'rilaymiz. Bu LLM xatosidan
 // qat'i nazar to'g'ri natija beradi (foydalanuvchi shikoyat qilgan asosiy bug).
 // "sotib oldim" (sotib olish=xarajat) sotuvga ALMASHTIRILMAYDI.
-const SOLD_RE = /(\bsot(d|t)\w*|\bsotil\w*|\bsotvor\w*|\bsotib\s+yubor\w*|\bpullad\w*|\bsotdik\b)/i;
-const GIVEN_FREE_RE = /(tekin\w*|bepul|sovg'a\w*|sovga\w*|hadya|berib\s+yubor\w*)/i;
-const BOUGHT_RE = /(sotib\s*ol\w*|xarid\s*qil\w*)/i; // sotib oldim = xarid (sale emas)
-const ITEM_NOUN_RE = /(muzlatgich\w*|sovutgich\w*|xolodil\w*|holodil\w*|halodel\w*|haladel\w*|televizor\w*|televizr\w*|\btelik\b|\btv\b|divan\w*|kreslo\w*|\bstul\w*|\bstol\w*|shkaf\w*|javon\w*|kir\s*(yuvish\s*)?mashina\w*|stiral\w*|kondi\w*|konder\w*|gaz\s*plita\w*|\bplita\w*|pech\w*|kompyuter\w*|noutbuk\w*|laptop\w*|gilam\w*|kovyor\w*|\bkover\b|velosiped\w*|mebel\w*)/i;
-const MATERIAL_NOUN_RE = /(paxta\w*|taxta\w*|temir\w*|metall\w*|plastik\w*|plassmas\w*|salafan\w*|alyumin\w*|\bmis\b|g'isht\w*|gisht\w*|qog'oz\w*|qogoz\w*|karton\w*|rezina\w*)/i;
+// SOTISH fe'llari (o'zbek + rus). "sotdim/sotildi/sotib yubordim/pulladim/продал". "sotib
+// oldim/xarid/купил" — bu XARID (xarajat), sotuv emas — alohida ushlanadi.
+const SOLD_RE = /(\bsot(d|t)\w*|\bsotil\w*|\bsotvor\w*|\bsotib\s+(yubor|ber)\w*|\bpullad\w*|\bsotdik\b|\bprodal\w*|\bprodan\w*|продал\w*|продан\w*|сот(д|т|и)\w*|пуллад\w*)/i;
+const GIVEN_FREE_RE = /(tekin\w*|bepul|sovg'a\w*|sovga\w*|hadya|hediya|berib\s+yubor\w*|podaril\w*|otdal\w*|подарил\w*|отдал\w*|бесплатно|даром|текин\w*|бепул|бериб\s+юбор\w*)/i;
+const BOUGHT_RE = /(sotib\s*ol\w*|xarid\s*qil\w*|\bkupil\w*|купил\w*|сотиб\s*ол\w*|харид\w*)/i; // sotib oldim = xarid (sale emas)
+// Buyum (dona texnika/mebel) — o'zbek imlo variantlari (x/h, l/r) + rus/kirill.
+const ITEM_NOUN_RE = /(muzlatgich\w*|sovutgich\w*|sovitgich\w*|музлатгич\w*|совутгич\w*|совитгич\w*|xolodil\w*|holodil\w*|halodel\w*|haladel\w*|xalodel\w*|xaladel\w*|холодильник\w*|халадел\w*|televizor\w*|televizr\w*|telivizor\w*|\btelik\b|\btv\b|телевизор\w*|телик\w*|divan\w*|диван\w*|kreslo\w*|кресло\w*|\bstul\w*|стул\w*|\bstol\w*|стол\w*|shkaf\w*|шкаф\w*|javon\w*|жавон\w*|krovat\w*|karavot\w*|кроват\w*|каравот\w*|kir\s*(yuvish\s*)?mashina\w*|кир\s*мошина\w*|стиральн\w*|stiral\w*|стирал\w*|kondi\w*|konder\w*|кондиционер\w*|кондиц\w*|gaz\s*plita\w*|\bplita\w*|плита\w*|pech(ka)?\w*|печ\w*|kompyuter\w*|компьютер\w*|компютер\w*|noutbuk\w*|ноутбук\w*|laptop\w*|gilam\w*|гилам\w*|kovyor\w*|\bkover\b|ковер\w*|ковёр\w*|changyutgich\w*|чангютгич\w*|pilesos\w*|пылесос\w*|dazmol\w*|дазмол\w*|ventilyator\w*|вентилятор\w*|mikroto'lqin\w*|mikrovolnov\w*|velosiped\w*|велосипед\w*|mebel\w*|мебель\w*|мебел\w*)/i;
+// Material (kg bilan o'lchanadigan xom-ashyo) — o'zbek (lotin/kirill) + rus.
+const MATERIAL_NOUN_RE = /(paxta\w*|пахта\w*|хлопок\w*|taxta\w*|тахта\w*|доск\w*|temir\w*|темир\w*|железо\w*|metall\w*|metal\w*|металл\w*|plastik\w*|пластик\w*|plassmas\w*|пластмасс\w*|salafan\w*|салафан\w*|целлофан\w*|alyumin\w*|алюмин\w*|\bmis\b|\bмис\b|медь\w*|g'isht\w*|gisht\w*|гишт\w*|кирпич\w*|qog'oz\w*|qogoz\w*|қоғоз\w*|бумаг\w*|karton\w*|картон\w*|rezina\w*|резин\w*|latun\w*|латун\w*|bronza\w*|бронз\w*|choyan\w*|чуян\w*|чугун\w*)/i;
 
 function firstMatch(text, re) {
   const m = String(text || '').match(re);
   return m ? m[0].trim() : null;
 }
 
-// Niyatni matn asosida to'g'rilaydi (faqat sotuv/berib-yuborish aniq bo'lsa).
+// SUXBAT/savol belgisi — "muzlatgichni qachon sotdim?" kabi savolni sotuvga aylantirib
+// yubormaslik uchun (savol bo'lsa to'g'rilamaymiz).
+const QUESTION_RE = /(\?|\bqachon\b|\bqaysi\b|\bnecha\b|\bnechta\b|\bqancha\b|\bqayer|\bkim\b|\bnima(ni|ga)?\b|\bbormi\b)/i;
+// Sotuv emas — bu niyatlarga TEGMAYMIZ.
+const PROTECTED_SUBS = new Set(['SERVICE_ENTRY', 'SERVICE_EDIT', 'CLIENT_EDIT', 'STATUS_UPDATE', 'PAYMENT_UPDATE', 'SEARCH_QUERY', 'ANALYTICS_QUERY']);
+// Faqat shu YOZUV niyatlari noto'g'ri bo'lsa to'g'rilanadi (xarajat/kirim/buyum yoki noto'g'ri sotuv turi).
+const CORRECTABLE_SUBS = new Set(['EXPENSE_ENTRY', 'INCOME_ENTRY', 'ITEM_ENTRY', 'MATERIAL_SALE', 'ITEM_SALE', 'ITEM_GIVEAWAY']);
+
+// Niyatni matn asosida to'g'rilaydi: aniq SOTISH/BERIB-YUBORISH fe'li + tanilgan tovar bo'lsa,
+// to'g'ri sotuv niyatini (ITEM_SALE / MATERIAL_SALE / ITEM_GIVEAWAY) qo'yamiz. Gemini xato
+// EXPENSE deb tasniflagan holatni ham, noto'g'ri sotuv TURINI (sotilgan vs tekinga) ham tuzatadi.
 export function correctSaleClassification(understanding, rawText) {
   const text = String(rawText || '');
   const u = understanding || {};
   const sub = u.subIntent;
 
-  // Allaqachon sotuv/sovg'a niyati — tegmaymiz. Mijoz xizmati (SERVICE/STATUS/PAYMENT) —
-  // bu tovar sotuvi emas, tegmaymiz. Faqat noto'g'ri MOLIYA (EXPENSE/INCOME) yoki ITEM_ENTRY ni tuzatamiz.
-  if (['MATERIAL_SALE', 'ITEM_SALE', 'ITEM_GIVEAWAY'].includes(sub)) return u;
-  const correctable = ['EXPENSE_ENTRY', 'INCOME_ENTRY', 'ITEM_ENTRY'];
-  if (!correctable.includes(sub)) return u;
+  // Mijoz xizmati/to'lovi yoki SAVOL — tegmaymiz.
+  if (PROTECTED_SUBS.has(sub)) return u;
+  if (QUESTION_RE.test(text)) return u;
 
   const sold = SOLD_RE.test(text) && !BOUGHT_RE.test(text);
   const givenFree = GIVEN_FREE_RE.test(text);
@@ -736,19 +748,25 @@ export function correctSaleClassification(understanding, rawText) {
   const materialNoun = firstMatch(text, MATERIAL_NOUN_RE);
   if (!itemNoun && !materialNoun) return u; // tanilgan tovar yo'q — tegmaymiz
 
-  const fields = { ...(u.fields || {}) };
-  const base = { ...u, intent: 'MOLIYA', confidence: Math.max(u.confidence || 0, 0.9), clarifyOptions: [] };
+  // To'g'ri niyatni aniqlaymiz (buyum sotish/tekinga berish materialdan ustun).
+  let target = null;
+  if (givenFree && !sold && itemNoun) target = 'ITEM_GIVEAWAY';
+  else if (sold && itemNoun) target = 'ITEM_SALE';
+  else if (sold && materialNoun) target = 'MATERIAL_SALE';
+  if (!target) return u;
 
-  // Tekinga berilgan buyum — kirim yo'q.
-  if (givenFree && !sold && itemNoun) {
-    return { ...base, subIntent: 'ITEM_GIVEAWAY', fields: { ...fields, itemName: fields.itemName || itemNoun } };
+  if (!CORRECTABLE_SUBS.has(sub)) return u; // null/CLARIFY-bo'sh/boshqa — taxmin qilmaymiz
+  if (sub === target) return u; // allaqachon to'g'ri
+
+  const fields = { ...(u.fields || {}) };
+  delete fields.category; // eski xato xarajat toifasi (mas. 'oziq-ovqat') qolmasin
+  const out = { ...u, intent: 'MOLIYA', subIntent: target, confidence: Math.max(u.confidence || 0, 0.9), clarifyOptions: [], clarifyingQuestion: '' };
+  if (target === 'MATERIAL_SALE') {
+    out.fields = { ...fields, materialName: fields.materialName || materialNoun };
+  } else {
+    out.fields = { ...fields, itemName: fields.itemName || itemNoun };
   }
-  // Sotilgan buyum (televizor/muzlatgich/divan...) — ITEM_SALE (kirim).
-  if (itemNoun) {
-    return { ...base, subIntent: 'ITEM_SALE', fields: { ...fields, itemName: fields.itemName || itemNoun } };
-  }
-  // Sotilgan material (paxta/temir...) — MATERIAL_SALE (kirim).
-  return { ...base, subIntent: 'MATERIAL_SALE', fields: { ...fields, materialName: fields.materialName || materialNoun } };
+  return out;
 }
 
 // STEP 2: intent classification with Gemini function calling enabled.
