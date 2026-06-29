@@ -389,13 +389,37 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Bitta Gemini chaqiruvi uchun qattiq vaqt chegarasi (ms). Gemini ba'zan javob
 // qaytarmay osilib qoladi — chegarasiz chaqiruv webhook timeout'iga, u esa eski kodda
-// process crash'iga olib kelardi. Bu yerda uzib, xatoni handler ushlaydi va egaga
-// aniq javob beramiz (jimgina osilib qolish o'rniga).
-const GEMINI_REQUEST_TIMEOUT_MS = 20_000;
+// process crash'iga olib kelardi. Bu yerda uzib, zaxira modelga o'tamiz (yoki xatoni
+// handler ushlaydi). 15s tanlandi: asosiy model osilsa ham webhook oynasida (25s)
+// zaxira modelni sinashga vaqt qoladi.
+const GEMINI_REQUEST_TIMEOUT_MS = 15_000;
 
-// Gemini ba'zan vaqtinchalik 503/429/500 qaytaradi. Har bir modelda qisqa backoff bilan
-// qayta uriniladi; baribir o'tkinchi xato bo'lsa — keyingi zaxira modelga o'tadi. Kalit/model
-// xatolari (4xx) darhol uzatiladi (qayta urinish foydasiz). buildModel(modelName) -> instance.
+// Gemini xato turini aniqlaydi:
+//  'fatal'       — 4xx (429'dan tashqari): kalit/ruxsat/noto'g'ri so'rov — qayta urinish behuda.
+//  'retry'       — 429/5xx: o'tkinchi server xatosi — qisqa backoff bilan SHU modelda qayta.
+//  'fallthrough' — timeout/abort/tarmoq (HTTP status yo'q): SHU model osilgan, keyingi zaxira modelga o't.
+// MUHIM: "This operation was aborted" (bizning timeout) status'siz keladi — eski kodda u
+// darhol throw bo'lib egaga xato chiqarar edi; endi zaxira modelni sinab ko'ramiz.
+function classifyGeminiError(err) {
+  const msg = String(err?.message || '').toLowerCase();
+  if (
+    err?.name === 'AbortError' ||
+    /abort|timed?\s*out|fetch failed|network|socket|econn|etimedout|terminated/.test(msg)
+  ) {
+    return 'fallthrough';
+  }
+  const status = Number(err?.status);
+  if (Number.isFinite(status) && status > 0) {
+    if (status === 429 || status >= 500) return 'retry';
+    if (status >= 400) return 'fatal';
+  }
+  // Status yo'q va abort/tarmoq belgisi ham aniq emas — ehtiyot shart zaxira modelni sinaymiz.
+  return 'fallthrough';
+}
+
+// Har bir modelda qisqa backoff bilan qayta uriniladi; o'tkinchi xato/osilish bo'lsa —
+// keyingi zaxira modelga o'tadi. Kalit/so'rov xatolari (4xx) darhol uzatiladi (qayta urinish
+// foydasiz, egaga aniq sabab ko'rsatiladi). buildModel(modelName) -> instance.
 async function generate(buildModel, request, { retriesPerModel = 1, baseDelayMs = 600 } = {}) {
   let lastErr;
   for (const modelName of CANDIDATE_MODELS) {
@@ -406,9 +430,14 @@ async function generate(buildModel, request, { retriesPerModel = 1, baseDelayMs 
         });
       } catch (err) {
         lastErr = err;
-        const status = err?.status;
-        const retriable = status === 503 || status === 429 || status === 500;
-        if (!retriable) throw err;
+        const kind = classifyGeminiError(err);
+        if (kind === 'fatal') throw err; // kalit/so'rov xatosi — qayta urinish behuda
+        if (kind === 'fallthrough') {
+          // Timeout/abort/tarmoq: shu modelni tashlab, keyingi zaxiraga o'tamiz.
+          console.warn(`Gemini "${modelName}" javob bermadi (${err?.message || 'abort'}); zaxira modelga o'tilmoqda`);
+          break;
+        }
+        // kind === 'retry': o'tkinchi 429/5xx — qisqa backoff bilan shu modelda qayta.
         if (attempt < retriesPerModel) await sleep(baseDelayMs * (attempt + 1));
       }
     }

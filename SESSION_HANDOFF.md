@@ -185,9 +185,9 @@
 - **Tuzatish:**
   - `index.js`: webhook `{ onTimeout: 'return', timeoutMilliseconds: 25_000 }` — timeout'da Telegram'ga 200 qaytaramiz, handler fonda davom etib javobni baribir yuboradi (alohida `bot.api` chaqiruvi orqali), crash yo'q.
   - `index.js`: global `process.on('unhandledRejection')` + `process.on('uncaughtException')` — bitta xato butun botni o'ldirmaydi (so'nggi himoya chizig'i).
-  - `gemini.js`: har `generateContent`'ga `{ timeout: 20_000 }` — osilib qolgan Gemini chaqiruvi uziladi, xato handler'da ushlanib egaga aniq javob beriladi.
+  - `gemini.js`: har `generateContent`'ga `{ timeout: 15_000 }` — osilib qolgan Gemini chaqiruvi uziladi. Timeout/abort/tarmoq xatosi endi DARHOL throw qilinmaydi: `classifyGeminiError` uni `'fallthrough'` deb baholaydi va `generate()` keyingi zaxira modelni sinab ko'radi (faqat hamma model osilsa egaga xato chiqadi). 4xx (kalit/so'rov) — `'fatal'`, darhol uzatiladi; 429/5xx — `'retry'`, qisqa backoff. (15s tanlandi: asosiy osilsa ham webhook oynasida (25s) zaxirani sinashga ulguramiz.)
   - `db/connect.js`: `connected`/`reconnected` tinglovchilari qo'shildi (connect'dan oldin ulanadi); "MongoDB qayta ulandi ✅" loglanadi. `index.js` health endpoint endi `mongoose.connection.readyState` ni jonli o'qiydi (statik bayroq emas).
-- **Vaqt byudjeti:** Gemini per-call 20s < webhook ack 25s; bitta osilgan chaqiruv 25s ichida uziladi. Ko'p chaqiruvli ovoz oqimi 25s dan oshsa — Telegram 200 oladi, ish fonda tugab javob keladi.
+- **Vaqt byudjeti:** Gemini per-call 15s < webhook ack 25s; bitta osilgan chaqiruv 15s ichida uziladi va zaxira modelga o'tadi (15s + ~2-3s zaxira ≈ webhook oynasida). Ko'p chaqiruvli ovoz oqimi 25s dan oshsa — Telegram 200 oladi, ish fonda tugab javob keladi.
 - **Tekshiruv:** `node --check` `index.js`/`connect.js`/`gemini.js` — OK. (Bot/DB runtime testi haqiqiy `.env` + Telegram talab qiladi.)
 
 ## 2026-06-24 Yangi yozuvga YAKUNIY TASDIQLASH bosqichi (3 tugma + tahrir loop)
@@ -366,8 +366,12 @@
 - Tuzatish (`agent.js`): `asArray()` — `searchServices`/`listClients`/`listTransactions` natijasi massivga keltiriladi.
   Route'lar hamon `{items}` obyektni frontendga beradi (o'zgartirilmadi).
 - Gemini 503 "high demand" o'tkinchi xatosi: `gemini.js` `generate()` helperi har modelni qisqa backoff bilan
-  qayta uriniydi, keyin zaxira modellarga o'tadi: `[primary, gemini-2.5-flash, gemini-flash-latest]`. 6 ta chaqiruv
-  shu orqali ketadi; 4xx (kalit/model) darhol uzatiladi.
+  qayta uriniydi, keyin zaxira modellarga o'tadi: `[primary, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-flash-latest]`.
+  6 ta chaqiruv shu orqali ketadi; 4xx (kalit/model) darhol uzatiladi.
+  **(2026-06-29 kengaytirildi)** Timeout/abort/tarmoq xatosi (HTTP status'siz, mas. "This operation was aborted")
+  ham endi zaxira modelga o'tadi — eski kodda `status` yo'qligi sabab darhol throw bo'lib egaga xato chiqarar edi.
+  Yangi `classifyGeminiError`: abort/tarmoq → `'fallthrough'` (shu modelni tashlab keyingisiga), 429/5xx → `'retry'`,
+  boshqa 4xx → `'fatal'`.
 - Tekshirildi: lokal e2e (DB+Gemini) salom 5/5 OK; jonli deploy salom 4/5 OK (5-chi Railway 502 infra blip, AI emas),
   Sardor/analytics 200. Commitlar: `04945cb` (asArray+retry), `941e061` (model fallback). Faqat `agent.js`+`gemini.js`
   push qilindi (multi-user/redesign WIP aralashtirilmadi).
