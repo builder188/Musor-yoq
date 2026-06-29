@@ -312,6 +312,11 @@
   all have executors in agent.js. Intent→tool gating still validates Gemini's chosen tool against the expected one.
 - Slot-filling for `paymentMethod` now offers inline buttons (`paymentMethodKeyboard` → `pm_naqd/pm_karta/pm_otkazma`);
   the pm_* callback resumes the entry via runAgent and finalizes the service.
+  **(2026-06-29 SUPERSEDED)** SERVICE_ENTRY no longer asks for `paymentMethod` — it was dropped from
+  `ENTRY_REQUIRED`/Gemini-required/prompt FIELD ORDER and `Service.paymentMethod` is now `default:'naqd'`
+  (not required). The bot never prompts payment method; confirmation cards omit the 💳 line. The
+  `paymentMethodKeyboard`/`pm_*` paths remain as harmless dead code (never reached via entry). Mini App
+  still shows/edits the field.
 
 ## 2026-06-20 REST API v1 endpoint contract
 - Express now mounts the same authenticated API router at both `/api` and `/api/v1`; existing Mini App compatibility is preserved while new contract uses `/api/v1`.

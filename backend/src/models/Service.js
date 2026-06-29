@@ -43,7 +43,9 @@ const serviceSchema = new mongoose.Schema(
     originalAmount: { type: Number, default: null }, // mas. 100
     originalCurrency: { type: String, default: null }, // mas. 'USD'
     exchangeRateUsed: { type: Number, default: null }, // mas. 12052 (1$ = ... so'm)
-    paymentMethod: { type: String, enum: PAYMENT_METHODS, required: true },
+    // To'lov usuli endi bot oqimida so'ralmaydi (egasi uchun ahamiyatsiz). Default 'naqd';
+    // Mini App'dan istalgan vaqtda o'zgartirilishi mumkin.
+    paymentMethod: { type: String, enum: PAYMENT_METHODS, default: 'naqd' },
     paymentStatus: {
       type: String,
       enum: Object.values(PAYMENT_STATUS),

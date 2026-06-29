@@ -805,7 +805,6 @@ function formatExtractedRecords(records) {
     `Manzil: ${record.location || '-'}`,
     `Sana: ${record.serviceDateTime ? formatBotDateTime(record.serviceDateTime) : '-'}`,
     `Narx: ${record.price ? formatMoney(record.price) : '-'}`,
-    `To'lov: ${record.paymentMethod || '-'}`,
     record.notes ? `Izoh: ${record.notes}` : null,
   ]
     .filter(Boolean)

@@ -120,7 +120,8 @@ STEP 3 — confidence and CLARIFY (do NOT guess):
 
 FIELD ORDER (MIJOZ / SERVICE_ENTRY) — the owner is asked missing fields in this order:
   ism (clientName) -> tel (clientPhone) -> manzil (location) -> sana/vaqt (serviceDateTime)
-  -> narx (price) -> to'lov usuli (paymentMethod).
+  -> narx (price).
+Payment method is NOT asked and NOT required — never prompt for it.
 Extract any of these that are present; never invent the rest.
 
 NORMALIZATION:

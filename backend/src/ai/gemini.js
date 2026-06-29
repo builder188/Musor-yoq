@@ -157,7 +157,7 @@ const agentTools = {
           notes: { type: SchemaType.STRING },
           isHistorical: { type: SchemaType.BOOLEAN },
         },
-        required: ['clientName', 'clientPhone', 'location', 'serviceDateTime', 'price', 'paymentMethod'],
+        required: ['clientName', 'clientPhone', 'location', 'serviceDateTime', 'price'],
       },
     },
     {

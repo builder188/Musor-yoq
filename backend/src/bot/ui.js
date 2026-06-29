@@ -44,7 +44,6 @@ export function serviceConfirmationText(service) {
     `📍 ${location}`,
     `📅 ${formatBotDateTime(service.serviceDateTime)}`,
     `💰 ${formatMoney(service.price)}`,
-    `💳 ${service.paymentMethod || '-'}`,
   ];
   const conv = conversionLineFor(service);
   if (conv) lines.push(conv);
@@ -144,7 +143,6 @@ export function entrySummaryText(intent, fields = {}) {
       `☎️ ${formatPhone(fields.clientPhone) || fields.clientPhone || '-'}`,
       `📍 ${location}`,
       `💰 ${formatMoney(fields.price)}`,
-      `💳 ${fields.paymentMethod || '-'}`,
       `📅 ${fields.serviceDateTime ? formatBotDateTime(fields.serviceDateTime) : '-'}`,
     ];
     if (conv) lines.push(conv);

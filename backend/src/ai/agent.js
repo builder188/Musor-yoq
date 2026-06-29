@@ -1502,7 +1502,6 @@ function serviceSummary(service) {
     `📍 ${service.location?.address || service.location || '-'}`,
     `📅 ${formatDateTime(service.serviceDateTime)}`,
     `💰 ${formatMoney(service.price)}`,
-    `💳 ${service.paymentMethod}`,
   ]
     .filter(Boolean)
     .join('\n');

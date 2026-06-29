@@ -5,9 +5,11 @@ import { parseHumanDateTime } from '../utils/dates.js';
 import { PAYMENT_METHODS } from '../models/Service.js';
 
 // MIJOZ (SERVICE_ENTRY) majburiy maydonlar tartibi:
-// ism -> tel -> manzil -> sana/vaqt -> narx -> to'lov usuli.
+// ism -> tel -> manzil -> sana/vaqt -> narx.
+// To'lov usuli (paymentMethod) so'ralmaydi — egasi uchun ahamiyatga ega emas
+// (model defaulti 'naqd' bo'ladi, kerak bo'lsa Mini App'dan o'zgartiriladi).
 export const ENTRY_REQUIRED = {
-  SERVICE_ENTRY: ['clientName', 'clientPhone', 'location', 'serviceDateTime', 'price', 'paymentMethod'],
+  SERVICE_ENTRY: ['clientName', 'clientPhone', 'location', 'serviceDateTime', 'price'],
   EXPENSE_ENTRY: ['amount'],
   INCOME_ENTRY: ['amount'],
   // Material sotuvi: material nomi + umumiy summa shart. Summa to'g'ridan aytilmasa,
