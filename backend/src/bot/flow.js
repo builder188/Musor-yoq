@@ -1,7 +1,7 @@
 // Slot-filling helpers for missing fields.
 import { normalizePhone } from '../utils/phone.js';
 import { parseMoney } from '../utils/money.js';
-import { parseHumanDateTime } from '../utils/dates.js';
+import { parseHumanDateTime, parseUzbekDate } from '../utils/dates.js';
 import { PAYMENT_METHODS } from '../models/Service.js';
 
 // MIJOZ (SERVICE_ENTRY) majburiy maydonlar tartibi:
@@ -100,12 +100,20 @@ export function mergeFields(collected, incoming = {}, { overwrite = false } = {}
     else if (key === 'category') value = normalizeExpenseCategory(raw) || raw;
     else if (key === 'materialName' || key === 'itemName' || key === 'recipient' || key === 'person') value = String(raw).replace(/\s+/g, ' ').trim();
     else if (key === 'dueDate' || key === 'eventDate') {
-      // AI odatda ISO beradi; xom matn ("ertaga", "3 kundan keyin") bo'lsa parse qilamiz.
-      const iso = new Date(raw);
-      if (!Number.isNaN(iso.getTime())) value = iso.toISOString();
-      else {
-        const d = parseHumanDateTime(raw);
-        value = d ? d.toISOString() : raw;
+      // AI odatda ISO beradi (YYYY-MM-DD...). Sof matn ("30 iyun", "5-may") new Date() da
+      // noto'g'ri yilga o'qilishi mumkin — shuning uchun ISO bo'lmasa avval qat'iy o'zbek oy
+      // parseri, so'ng nisbiy parser sinaladi.
+      const str = String(raw).trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+        const iso = new Date(str);
+        value = Number.isNaN(iso.getTime()) ? raw : iso.toISOString();
+      } else {
+        const d = parseUzbekDate(str) || parseHumanDateTime(str);
+        if (d) value = d.toISOString();
+        else {
+          const iso = new Date(str);
+          value = Number.isNaN(iso.getTime()) ? raw : iso.toISOString();
+        }
       }
     }
     if (value === null || value === undefined || value === '') continue;
@@ -148,11 +156,22 @@ export function applyRawValue(field, rawText, collected) {
       out[field] = normalizeExpenseCategory(text);
       break;
     }
-    case 'serviceDateTime':
-    case 'dueDate': {
+    case 'serviceDateTime': {
       // Foydalanuvchi sana/vaqtni alohida javob bersa ("ertaga soat 9") — mahalliy
       // (Asia/Tashkent) vaqtda deterministik parse qilamiz; bo'lmasa xom matnni qoldiramiz.
       const d = parseHumanDateTime(text);
+      if (d) out[field] = d.toISOString();
+      else {
+        const iso = new Date(text);
+        out[field] = Number.isNaN(iso.getTime()) ? text : iso.toISOString();
+      }
+      break;
+    }
+    case 'dueDate': {
+      // Qarz eslatma sanasi. parseUzbekDate AVVAL: u qat'iy (faqat haqiqiy oy nomida ishlaydi),
+      // shu sabab parseHumanDateTime ning yumshoq new Date() si "5-may" ni 2001-yilga aylantirib
+      // yuborishidan oldin to'g'ri sanani beradi. So'ng nisbiy ("ertaga", "3 kundan keyin"), so'ng ISO.
+      const d = parseUzbekDate(text) || parseHumanDateTime(text);
       if (d) out[field] = d.toISOString();
       else {
         const iso = new Date(text);

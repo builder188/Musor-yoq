@@ -250,6 +250,46 @@ export function correctServiceDateTime(serviceDateTime, rawText) {
   return base.toISOString();
 }
 
+// Oy nomi -> indeks (0=yanvar). O'zbek (lotin) + ruscha (genitiv) variantlar.
+const MONTH_NAMES = {
+  yanvar: 0, fevral: 1, mart: 2, aprel: 3, may: 4, iyun: 5, iyul: 6,
+  avgust: 7, sentyabr: 8, sentabr: 8, oktyabr: 9, noyabr: 10, dekabr: 11,
+  yanvarya: 0, fevralya: 1, marta: 2, aprelya: 3, maya: 4, iyunya: 5, iyulya: 6,
+  avgusta: 7, sentyabrya: 8, oktyabrya: 9, noyabrya: 10, dekabrya: 11,
+  января: 0, февраля: 1, марта: 2, апреля: 3, мая: 4, июня: 5, июля: 6,
+  августа: 7, сентября: 8, октября: 9, ноября: 10, декабря: 11,
+};
+const MONTH_RE = new RegExp(`\\b(\\d{1,2})[-\\s]*(${Object.keys(MONTH_NAMES).join('|')})`, 'i');
+
+// Aniq o'zbekcha/ruscha "30 iyun", "30-iyunda", "5 may", "30 июня" sanasini Date ga aylantiradi.
+// Eslatma (dueDate) uchun — sana o'tib ketgan bo'lsa kelasi yilga suriladi (kelajakdagi eslatma).
+// parseHumanDateTime nisbiy/ISO ni eplaydi; bu esa o'zbek oy nomli sanalarni qo'shimcha qoplaydi.
+// MUHIM: faqat qarz dueDate oqimida ishlatiladi — xizmat (correctServiceDateTime/reschedule) tegmaydi.
+export function parseUzbekDate(input, base = new Date()) {
+  if (input instanceof Date) return Number.isNaN(input.getTime()) ? null : input;
+  const text = String(input || '').toLowerCase().trim();
+  if (!text) return null;
+  const m = text.match(MONTH_RE);
+  if (!m) return null;
+  const day = parseInt(m[1], 10);
+  const month = MONTH_NAMES[m[2]];
+  if (!(day >= 1 && day <= 31) || month === undefined) return null;
+
+  const result = new Date(base);
+  result.setMonth(month, day);
+  const clock = extractClockTime(text);
+  if (clock) result.setHours(clock.hour, clock.minute, 0, 0);
+  else result.setHours(9, 0, 0, 0);
+  result.setSeconds(0, 0);
+  if (Number.isNaN(result.getTime())) return null;
+  // O'tib ketgan KUN (bugundan oldingi sana) -> kelasi yil. Kun bo'yicha solishtiramiz,
+  // shunda "30 iyun" bugun bo'lsa (lekin 9:00 o'tgan) kelasi yilga sakramaydi — bugun qoladi.
+  const resultDay = new Date(result); resultDay.setHours(0, 0, 0, 0);
+  const baseDay = new Date(base); baseDay.setHours(0, 0, 0, 0);
+  if (resultDay.getTime() < baseDay.getTime()) result.setFullYear(result.getFullYear() + 1);
+  return result;
+}
+
 // AI uchun joriy kontekst (nisbiy sanalarni hal qilishda yordam beradi).
 export function nowContext() {
   const d = new Date();
