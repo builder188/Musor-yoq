@@ -27,6 +27,7 @@ import {
   rescheduleService,
 } from '../services/serviceService.js';
 import { createTransaction, getSummary, listTransactions } from '../services/financeService.js';
+import { createDebtReminder } from '../services/reminderEntryService.js';
 import { listClients, updateClient } from '../services/clientService.js';
 import { formatKg } from '../services/materialService.js';
 import {
@@ -66,7 +67,7 @@ const FREE_TEXT_FIELDS = new Set(['clientName', 'location', 'notes', 'descriptio
 // Slot-filling o'rtasida niyat korreksiyasi faqat shu aniq yozuv amallari uchun.
 const WRITE_ACTIONS = new Set([
   'SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'MATERIAL_SALE', 'ITEM_ENTRY', 'ITEM_SALE', 'ITEM_GIVEAWAY', 'STATUS_UPDATE',
-  'SERVICE_EDIT', 'CLIENT_EDIT', 'PAYMENT_UPDATE',
+  'SERVICE_EDIT', 'CLIENT_EDIT', 'PAYMENT_UPDATE', 'DEBT_REMINDER',
 ]);
 
 function looksLikeQuestion(text) {
@@ -141,6 +142,9 @@ function hasConcreteSignal(action, f = {}) {
       return Boolean(f.newStatus);
     case 'PAYMENT_UPDATE':
       return Boolean(f.paymentAmount || f.amount);
+    case 'DEBT_REMINDER':
+      // Aniq qarz: kim + summa + sana (uchalasi bo'lsa haqiqiy yangi qarz eslatmasi).
+      return Boolean(f.person && typeof f.amount === 'number' && f.amount > 0 && f.dueDate);
     case 'SERVICE_EDIT':
     case 'CLIENT_EDIT':
       return Boolean(f.editField || f.newValue);
@@ -178,6 +182,7 @@ const TOOL_BY_INTENT = {
   SERVICE_EDIT: 'edit_service',
   CLIENT_EDIT: 'edit_client',
   PAYMENT_UPDATE: 'record_payment',
+  DEBT_REMINDER: 'create_debt_reminder',
   SEARCH_QUERY: 'search_data',
   ANALYTICS_QUERY: 'get_analytics',
 };
@@ -226,6 +231,7 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
     case 'ITEM_ENTRY':
     case 'ITEM_SALE':
     case 'ITEM_GIVEAWAY':
+    case 'DEBT_REMINDER':
       if (mode === 'query') return { text: "Buni bot orqali bajaramiz oka. Bu yer faqat qidiruv va tahlil uchun." };
       return startEntry({ conversation, intent: action, fields: understanding.fields || {}, rawText, mode, sourceMeta });
 
@@ -348,7 +354,7 @@ async function startClarify({ clarify, understanding, rawText, conversation }) {
 
 // ── Valyuta (dollar/so'm) aniqlash va avtomatik konvertatsiya ────────────────
 // Qaysi maydon pul summasi (intent bo'yicha).
-const AMOUNT_KEY = { SERVICE_ENTRY: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount', MATERIAL_SALE: 'amount', ITEM_ENTRY: 'estimatedPrice', ITEM_SALE: 'amount' };
+const AMOUNT_KEY = { SERVICE_ENTRY: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount', MATERIAL_SALE: 'amount', ITEM_ENTRY: 'estimatedPrice', ITEM_SALE: 'amount', DEBT_REMINDER: 'amount' };
 const USD_RE = /(\$|dollar|dollor|\bdoll?ar\b|\busd\b)/i;
 
 function detectUsd(text) {
@@ -584,6 +590,7 @@ const ENTRY_FIELD_KEYS = [
   'clientName', 'clientPhone', 'location', 'serviceDateTime', 'price', 'paymentMethod',
   'notes', 'isHistorical', 'amount', 'category', 'description', 'date', 'incomeSource',
   'materialName', 'quantityKg', 'pricePerKg', 'itemName', 'estimatedPrice', 'recipient',
+  'person', 'dueDate', 'eventDate', 'direction', 'skipBalance', 'note',
 ];
 const EDIT_FIELD_TO_ENTRY = {
   narx: 'price', narxi: 'price', price: 'price',
@@ -967,6 +974,9 @@ async function executeAgentTool(name, args) {
     case 'record_payment':
       return recordAgentPayment(args);
 
+    case 'create_debt_reminder':
+      return createDebtReminder(args);
+
     case 'search_data':
       return searchAgentData(args);
 
@@ -1314,6 +1324,24 @@ function fallbackToolCall(intent, fields, rawText) {
           date: fields.date || null,
         },
       };
+    case 'create_debt_reminder':
+      return {
+        name,
+        args: {
+          type: 'debt',
+          direction: fields.direction === 'taken' ? 'taken' : 'given',
+          person: fields.person || fields.recipient || fields.clientName || '',
+          amount: fields.amount, // allaqachon so'mda (kerak bo'lsa konvertatsiya qilingan)
+          dueDate: fields.dueDate || null,
+          eventDate: fields.eventDate || fields.date || null,
+          // skipBalance true bo'lsa balansga tegmaymiz (egasi "balansdan minus qilma" dedi).
+          affectsBalance: fields.skipBalance === true ? false : true,
+          note: fields.note || fields.notes || '',
+          originalAmount: fields.originalAmount ?? null,
+          originalCurrency: fields.originalCurrency ?? null,
+          exchangeRateUsed: fields.exchangeRateUsed ?? null,
+        },
+      };
     case 'get_analytics':
       return {
         name,
@@ -1380,6 +1408,11 @@ function applyEntryDefaults(intent, fields) {
   }
   if (intent === 'ITEM_SALE' || intent === 'ITEM_GIVEAWAY') {
     if (!out.date) out.date = new Date().toISOString();
+  }
+  if (intent === 'DEBT_REMINDER') {
+    // Qarz berish/olish voqea sanasi (balans tranzaksiyasi shu sanaga) — odatda bugun.
+    if (!out.eventDate) out.eventDate = out.date || new Date().toISOString();
+    if (out.direction !== 'taken') out.direction = 'given';
   }
   return out;
 }
@@ -1485,6 +1518,8 @@ function fallbackResponse(toolName, result) {
       return `Boldi oka, ${formatMoney(result.amount)} chiqim qo'shdim ✅\nToifa: ${CATEGORY_LABEL[result.category] || 'Boshqa'}`;
     case 'record_payment':
       return `Boldi oka, ${formatMoney(result.amountApplied)} to'lovni yozib qo'ydim ✅`;
+    case 'create_debt_reminder':
+      return debtReminderSummary(result);
     case 'search_data':
       return searchSummary(result);
     case 'get_analytics':
@@ -1492,6 +1527,30 @@ function fallbackResponse(toolName, result) {
     default:
       return 'Boldi oka, bajardim ✅';
   }
+}
+
+// Qarz eslatmasi saqlangach egaga javob: summa, balans ta'siri (yangi balans) va eslatma sanasi.
+function debtReminderSummary(result) {
+  const r = result?.reminder || {};
+  const taken = r.direction === 'taken';
+  const who = r.person || 'kimdir';
+  const when = formatDate(r.dueDate);
+  const lines = [
+    taken
+      ? `Boldi oka, ${who}dan ${formatMoney(r.amount)} qarz olganingizni yozib qo'ydim 🔔`
+      : `Boldi oka, ${who}ga ${formatMoney(r.amount)} qarz berganingizni yozib qo'ydim 🔔`,
+  ];
+  if (result?.affectsBalance) {
+    lines.push(
+      taken
+        ? `💰 Balansga qo'shdim — joriy balans: ${formatMoney(result.balanceAfter)}`
+        : `💸 Balansdan ayirdim — joriy balans: ${formatMoney(result.balanceAfter)}`
+    );
+  } else {
+    lines.push('⚖️ Balansga tegmadim (so\'raganingizdek).');
+  }
+  lines.push(`📅 ${when} kuni eslatib qo'yaman.`);
+  return lines.join('\n');
 }
 
 function serviceSummary(service) {

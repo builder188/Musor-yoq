@@ -50,7 +50,7 @@ STEP 1 — pick exactly ONE high-level intent:
 
 STEP 2 — pick the precise subIntent inside that high-level intent:
 - MIJOZ  => SERVICE_ENTRY | SERVICE_EDIT | CLIENT_EDIT | STATUS_UPDATE
-- MOLIYA => EXPENSE_ENTRY | INCOME_ENTRY | MATERIAL_SALE | ITEM_ENTRY | ITEM_SALE | ITEM_GIVEAWAY | PAYMENT_UPDATE
+- MOLIYA => EXPENSE_ENTRY | INCOME_ENTRY | MATERIAL_SALE | ITEM_ENTRY | ITEM_SALE | ITEM_GIVEAWAY | PAYMENT_UPDATE | DEBT_REMINDER
 - SUXBAT => SEARCH_QUERY | ANALYTICS_QUERY
 
 subIntent meanings:
@@ -91,9 +91,22 @@ subIntent meanings:
   Creates income and marks the inventory item sold if it exists.
 - ITEM_GIVEAWAY  - a useful item was given away for free ("Yangi divanni opamga tekinga berib yubordim").
   Extract itemName, recipient if stated, notes/date. Do NOT create income.
-- INCOME_ENTRY   - extra non-service, non-material income ("boshqa ishdan pul tushdi", "qarz qaytdi").
+- INCOME_ENTRY   - extra non-service, non-material income ("boshqa ishdan pul tushdi"). A loan that
+  was RETURNED to the owner right now with NO future date ("qarz qaytdi", "qarzimni qaytardi") is income.
 - PAYMENT_UPDATE - a client paid for an existing service; updates only that service's
   payment state, never a new balance income.
+- DEBT_REMINDER  - the owner LENT money to someone, or BORROWED money, and wants to be reminded to
+  collect/repay it on a FUTURE date. Trigger when ALL of these are present: (a) a loan verb
+  ("qarz berdim", "qarzga berdim", "qarz oldim", "qarzga oldim", "qarz berib turdim"), (b) a person,
+  (c) a FUTURE day to collect or repay ("30 iyunda olaman", "ertaga qaytaraman", "kelasi hafta beradi",
+  "3 kundan keyin olaman"). direction: owner GAVE the loan => "given" (will collect later); owner TOOK
+  the loan => "taken" (must repay later). Extract: person (the counterparty), amount (required, the loan
+  sum), currency, dueDate (ISO of the FUTURE day the owner should be reminded — collect day for given,
+  repay day for taken; if no clock time is said, use 09:00), eventDate (when the loan happened — today
+  unless a past day is named), skipBalance. BALANCE: by default the loan amount changes the balance
+  (given => subtracted, taken => added). ONLY if the owner explicitly says not to touch the balance
+  ("balansdan minus qilma", "balansga qo'shma", "balansga tegma", "hisobdan ayirma", "balansga yozma"),
+  set skipBalance=true. Do NOT mark skipBalance otherwise.
 - SEARCH_QUERY   - find concrete records: WHICH/WHERE/WHEN ("Chilonzordagi mijozlar",
   "kecha nima ish qildim", "15 mart kuni qayerga borganman").
 - ANALYTICS_QUERY- a NUMBER question: HOW MUCH / HOW MANY / profit / balance.
@@ -165,6 +178,8 @@ DATA EXTRACTION CONTRACT:
 - CLIENT_EDIT:   targetIdentifier, editField ("ism"|"telefon"), newValue (phone -> +998...).
 - STATUS_UPDATE: targetClientName/targetPhone, newStatus ("bajarildi"|"bekor_qilindi").
 - PAYMENT_UPDATE: targetClientName/targetPhone, paymentAmount, currency.
+- DEBT_REMINDER: person (required), amount (required), currency, direction ("given"|"taken"),
+  dueDate (required, future ISO), eventDate (loan day, today if not said), skipBalance (true only if asked).
 - SEARCH_QUERY:  searchText, dateFrom, dateTo.
 - ANALYTICS_QUERY: analyticsPeriod, analyticsMetric.
 
@@ -233,6 +248,15 @@ Args: {"intent":"MIJOZ","subIntent":"SERVICE_EDIT","confidence":0.92,"reason":"e
 
 Input: "bu oyda qancha topdim?"
 Args: {"intent":"SUXBAT","subIntent":"ANALYTICS_QUERY","confidence":0.95,"reason":"income question for this month","fields":{"analyticsPeriod":"month","analyticsMetric":"income"}}
+
+Input: "Sardorga 100 ming qarz berdim, 30 iyunda olaman"
+Args: {"intent":"MOLIYA","subIntent":"DEBT_REMINDER","confidence":0.95,"reason":"owner lent money, wants a reminder on a future date to collect","fields":{"direction":"given","person":"Sardor","amount":100000,"dueDate":"<June 30 of current year, 09:00 ISO>","eventDate":"<today ISO>"}}
+
+Input: "Sardorga 100 ming qarz berdim, 30 kuni qaytaradi lekin balansdan minus qilma"
+Args: {"intent":"MOLIYA","subIntent":"DEBT_REMINDER","confidence":0.95,"reason":"loan given with future reminder, but owner asked not to touch the balance","fields":{"direction":"given","person":"Sardor","amount":100000,"dueDate":"<the 30th of current month, 09:00 ISO>","eventDate":"<today ISO>","skipBalance":true}}
+
+Input: "Akmaldan 500 ming qarz oldim, kelasi oyning 10ida qaytaraman"
+Args: {"intent":"MOLIYA","subIntent":"DEBT_REMINDER","confidence":0.92,"reason":"owner borrowed money, wants a reminder to repay; adds to balance now","fields":{"direction":"taken","person":"Akmal","amount":500000,"dueDate":"<the 10th of next month, 09:00 ISO>","eventDate":"<today ISO>"}}
 
 Input: "salom"
 Args: {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","confidence":0.9,"reason":"small talk / greeting","fields":{}}

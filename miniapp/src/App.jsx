@@ -9,6 +9,7 @@ import Clients from './pages/Clients.jsx';
 import Services from './pages/Services.jsx';
 import Categories from './pages/Categories.jsx';
 import Finance from './pages/Finance.jsx';
+import Reminders from './pages/Reminders.jsx';
 import Reports from './pages/Reports.jsx';
 import Settings from './pages/Settings.jsx';
 
@@ -127,6 +128,7 @@ export default function App() {
           {tab === 'services' && <Services />}
           {tab === 'categories' && <Categories />}
           {tab === 'finance' && <Finance />}
+          {tab === 'reminders' && <Reminders />}
           {tab === 'reports' && <Reports />}
           {tab === 'settings' && <Settings />}
         </div>

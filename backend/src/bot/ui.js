@@ -186,6 +186,26 @@ export function entrySummaryText(intent, fields = {}) {
     lines.push("Ro'yxatdan chiqaramizmi?");
     return lines.join('\n');
   }
+  if (intent === 'DEBT_REMINDER') {
+    const taken = fields.direction === 'taken';
+    const who = fields.person || '-';
+    const affects = fields.skipBalance !== true;
+    const lines = [
+      'Tekshirib chiqing oka:',
+      EMOJI_DIVIDER,
+      '🔔 Qarz eslatmasi',
+      `👤 ${who} ${taken ? '(men oldim)' : '(men berdim)'}`,
+      `💰 ${formatMoney(fields.amount)}`,
+      `📅 ${fields.dueDate ? formatBotDate(fields.dueDate) : '-'} kuni eslataman`,
+    ];
+    lines.push(affects
+      ? (taken ? '💰 Balansga qo\'shaman' : '💸 Balansdan ayiraman')
+      : '⚖️ Balansga tegmayman');
+    if (conv) lines.push(conv);
+    lines.push(EMOJI_DIVIDER);
+    lines.push("To'g'rimi?");
+    return lines.join('\n');
+  }
   if (intent === 'INCOME_ENTRY') {
     const desc = fields.description || fields.notes || fields.incomeSource || '-';
     const lines = ['Tekshirib chiqing:', `💰 ${formatMoney(fields.amount)} | Kirim`, `📝 ${desc}`];
@@ -286,6 +306,22 @@ export function serviceConfirmText(service) {
     `👤 ${service.clientName || '-'}  📱 ${phone}`,
     `📍 ${locationLabel(service)}  💰 ${formatMoney(service.price)}`,
   ].join('\n');
+}
+
+// Qarz eslatmasi vaqti kelganda (dueDate) — tugmali xabar ("hal bo'ldi" / "keyinroq").
+export function debtReminderDueText(reminder) {
+  const taken = reminder.direction === 'taken';
+  const who = reminder.person || 'kimdir';
+  const action = taken ? `${who}ga ${formatMoney(reminder.amount)} qarzni qaytarishingiz` : `${who}dan ${formatMoney(reminder.amount)} qarzni olishingiz`;
+  const lines = [`🔔 Eslatma, oka! Bugun ${action} kerak.`];
+  if (reminder.note) lines.push(`📝 ${reminder.note}`);
+  return lines.join('\n');
+}
+
+export function debtReminderKeyboard(reminderId) {
+  return new InlineKeyboard()
+    .text('✅ Hal bo\'ldi', `debt_done_${reminderId}`)
+    .text('📅 Keyinroq', `debt_snooze_${reminderId}`);
 }
 
 // Xizmat saqlangach: qachon eslatma/tasdiq yuborilishini bildiradi (avtomatik, tugmasiz).

@@ -17,8 +17,16 @@
 import cron from 'node-cron';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import Conversation from '../models/Conversation.js';
+import Reminder, { REMINDER_STATUS } from '../models/Reminder.js';
 import { runGlobal } from '../db/tenantScope.js';
-import { serviceReminderText, serviceStartReminderText, serviceConfirmText, confirmServiceKeyboard } from '../bot/ui.js';
+import {
+  serviceReminderText,
+  serviceStartReminderText,
+  serviceConfirmText,
+  confirmServiceKeyboard,
+  debtReminderDueText,
+  debtReminderKeyboard,
+} from '../bot/ui.js';
 
 // Xizmat vaqtidagi eslatma juda kech qolsa ("hozir vaqti" demaslik uchun) — masalan bot
 // bir necha soat o'chiq bo'lsa yoki eski/o'tib ketgan yozuv bo'lsa — jimgina belgilab o'tamiz.
@@ -179,6 +187,39 @@ async function fireConfirms(bot) {
   }
 }
 
+// Qarz eslatmalari (Reminder): remindAt kelganda egaga tugmali xabar yuboriladi.
+// Xizmat eslatmalari bilan bir xil at-most-once kafolati: atomar claim, bayroq qaytarilmaydi.
+async function fireDebtReminders(bot) {
+  const now = new Date();
+  const due = await Reminder.find({
+    isDeleted: { $ne: true },
+    status: REMINDER_STATUS.PENDING,
+    remindSent: false,
+    remindAt: { $lte: now },
+  })
+    .sort({ remindAt: 1 })
+    .limit(50);
+
+  for (const reminder of due) {
+    const claimed = await Reminder.findOneAndUpdate(
+      {
+        _id: reminder._id,
+        remindSent: false,
+        status: REMINDER_STATUS.PENDING,
+        isDeleted: { $ne: true },
+      },
+      { $set: { remindSent: true } },
+      { new: true }
+    );
+    if (!claimed) continue; // boshqa tik ulgurdi yoki holat o'zgardi
+
+    const delivered = await sendToOwner(bot, claimed.telegramUserId, debtReminderDueText(claimed), {
+      reply_markup: debtReminderKeyboard(claimed._id.toString()),
+    });
+    if (delivered === 0) console.error(`Qarz eslatmasi yetmadi (eslatma ${claimed._id}, ega ${claimed.telegramUserId}).`);
+  }
+}
+
 export function startReminderCron(bot) {
   cron.schedule('* * * * *', () => {
     // runGlobal: cron barcha foydalanuvchilar yozuvlarini ko'radi (ataylab — har biri
@@ -188,8 +229,9 @@ export function startReminderCron(bot) {
         await fireReminders(bot);
         await fireStartReminders(bot);
         await fireConfirms(bot);
+        await fireDebtReminders(bot);
       })
     ).catch((err) => console.error('Reminder cron xatosi:', err.message));
   });
-  console.log('Eslatma cron ishga tushdi (har daqiqada: oldindan + xizmat vaqtida eslatma + tasdiq so\'rovi)');
+  console.log('Eslatma cron ishga tushdi (har daqiqada: oldindan + xizmat vaqtida eslatma + tasdiq so\'rovi + qarz eslatmasi)');
 }

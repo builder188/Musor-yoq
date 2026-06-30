@@ -7,6 +7,7 @@ export const NAV_TABS = [
   { id: 'services', icon: '🗑️' },
   { id: 'categories', icon: '🗂️' },
   { id: 'finance', icon: '💰' },
+  { id: 'reminders', icon: '🔔' },
   { id: 'settings', icon: '⚙️' },
 ];
 

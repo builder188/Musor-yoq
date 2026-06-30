@@ -9,7 +9,9 @@ export const TX_TYPES = {
 
 // Kirim toifalari: xizmat (mijoz ishi), material (musordan chiqqan xom-ashyo sotuvi),
 // boshqa_kirim (qolgan har qanday daromad).
-export const TX_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'];
+// 'qarz' — egasi bergan/olgan shaxsiy qarz (Reminder bilan bog'liq). Ham chiqim (berdim),
+// ham kirim (oldim) tomonida bo'lishi mumkin; qaytarilganda tranzaksiya soft-delete qilinadi.
+export const TX_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim', 'qarz'];
 export const INCOME_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim'];
 export const EXPENSE_CATEGORIES = ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'];
 // Material sotuvi toifasi — daromad, lekin alohida kategoriya statistikasi bor.

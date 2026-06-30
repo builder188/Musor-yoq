@@ -18,6 +18,8 @@ export const ENTRY_REQUIRED = {
   ITEM_ENTRY: ['itemName'],
   ITEM_SALE: ['itemName', 'amount'],
   ITEM_GIVEAWAY: ['itemName'],
+  // Qarz eslatma: kim (person) + summa + qachon eslatish (dueDate).
+  DEBT_REMINDER: ['person', 'amount', 'dueDate'],
 };
 
 export const QUESTIONS = {
@@ -33,6 +35,8 @@ export const QUESTIONS = {
   pricePerKg: "📊 1 kg ni necha pulga sotdingiz, oka?",
   itemName: 'Qaysi buyum, oka? (masalan: muzlatgich, televizor, divan)',
   recipient: 'Kimga berdingiz yoki sotdingiz, oka?',
+  person: '👤 Kimga qarz berdingiz, oka? (ism)',
+  dueDate: '📅 Qachon eslatay, oka? (masalan: 30-iyun, ertaga, 3 kundan keyin)',
 };
 
 export function isEntryIntent(intent) {
@@ -74,6 +78,7 @@ export function hasValue(field, collected) {
     case 'estimatedPrice':
       return typeof v === 'number' && v > 0;
     case 'serviceDateTime':
+    case 'dueDate':
       return !!v && !Number.isNaN(new Date(v).getTime());
     case 'paymentMethod':
       return PAYMENT_METHODS.includes(v);
@@ -93,7 +98,16 @@ export function mergeFields(collected, incoming = {}, { overwrite = false } = {}
     else if (key === 'price' || key === 'amount' || key === 'paymentAmount' || key === 'quantityKg' || key === 'pricePerKg' || key === 'estimatedPrice') value = parseMoney(raw);
     else if (key === 'paymentMethod') value = normalizePaymentMethod(raw) || raw;
     else if (key === 'category') value = normalizeExpenseCategory(raw) || raw;
-    else if (key === 'materialName' || key === 'itemName' || key === 'recipient') value = String(raw).replace(/\s+/g, ' ').trim();
+    else if (key === 'materialName' || key === 'itemName' || key === 'recipient' || key === 'person') value = String(raw).replace(/\s+/g, ' ').trim();
+    else if (key === 'dueDate' || key === 'eventDate') {
+      // AI odatda ISO beradi; xom matn ("ertaga", "3 kundan keyin") bo'lsa parse qilamiz.
+      const iso = new Date(raw);
+      if (!Number.isNaN(iso.getTime())) value = iso.toISOString();
+      else {
+        const d = parseHumanDateTime(raw);
+        value = d ? d.toISOString() : raw;
+      }
+    }
     if (value === null || value === undefined || value === '') continue;
 
     if (overwrite || out[key] === undefined || out[key] === '' || out[key] === null) {
@@ -134,11 +148,16 @@ export function applyRawValue(field, rawText, collected) {
       out[field] = normalizeExpenseCategory(text);
       break;
     }
-    case 'serviceDateTime': {
+    case 'serviceDateTime':
+    case 'dueDate': {
       // Foydalanuvchi sana/vaqtni alohida javob bersa ("ertaga soat 9") — mahalliy
       // (Asia/Tashkent) vaqtda deterministik parse qilamiz; bo'lmasa xom matnni qoldiramiz.
       const d = parseHumanDateTime(text);
-      out[field] = d ? d.toISOString() : text;
+      if (d) out[field] = d.toISOString();
+      else {
+        const iso = new Date(text);
+        out[field] = Number.isNaN(iso.getTime()) ? text : iso.toISOString();
+      }
       break;
     }
     default:

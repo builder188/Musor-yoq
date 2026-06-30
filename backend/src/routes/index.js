@@ -16,6 +16,7 @@ import analyticsRouter from './analytics.js';
 import exchangeRateRouter from './exchangeRate.js';
 import itemsRouter from './items.js';
 import categoriesRouter from './categories.js';
+import remindersRouter from './reminders.js';
 
 const router = Router();
 
@@ -43,6 +44,7 @@ router.use('/analytics', analyticsRouter);
 router.use('/exchange-rate', exchangeRateRouter);
 router.use('/items', itemsRouter);
 router.use('/categories', categoriesRouter);
+router.use('/reminders', remindersRouter);
 router.use('/settings', settingsRouter);
 router.use('/ai', aiRouter);
 router.use('/reports', reportsRouter);

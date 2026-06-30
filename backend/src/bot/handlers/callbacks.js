@@ -5,7 +5,9 @@ import Client from '../../models/Client.js';
 import { generateReportPdf, resolveReportRange } from '../../routes/reports.js';
 import { completeService, cancelService, createService, recordServicePayment } from '../../services/serviceService.js';
 import { runAgent, applyConfirmedEdit, confirmPendingEntry } from '../../ai/agent.js';
+import { markReminderDone, snoozeReminder } from '../../services/reminderEntryService.js';
 import { formatMoney } from '../../utils/money.js';
+import { formatDate } from '../../utils/dates.js';
 import {
   serviceConfirmationText,
   reminderInfoLine,
@@ -330,6 +332,34 @@ export function registerCallbacks(bot) {
     clearSession(ctx);
     await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
     await ctx.editMessageText('Bekor qilindi.');
+  });
+
+  // Qarz eslatmasi — "✅ Hal bo'ldi": qarz qaytdi/to'landi, balans tranzaksiyasi bekor qilinadi.
+  bot.callbackQuery(/^debt_done_(.+)$/, async (ctx) => {
+    try {
+      const { reminder, balanceAfter } = await markReminderDone(ctx.match[1]);
+      const who = reminder?.person || 'qarz';
+      await ctx.answerCallbackQuery({ text: 'Hal bo\'ldi ✅' });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      const line = reminder?.affectsBalance
+        ? `\n💰 Balansni tikladim — joriy balans: ${formatMoney(balanceAfter)}`
+        : '';
+      await ctx.editMessageText(`Zo'r oka, ${who} bilan qarz hal bo'ldi deb belgiladim ✅${line}`).catch(() => {});
+    } catch (err) {
+      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
+    }
+  });
+
+  // Qarz eslatmasi — "📅 Keyinroq": ertaga shu vaqtda yana eslatadi.
+  bot.callbackQuery(/^debt_snooze_(.+)$/, async (ctx) => {
+    try {
+      const { reminder } = await snoozeReminder(ctx.match[1], 1);
+      await ctx.answerCallbackQuery({ text: 'Keyinroq eslataman' });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      await ctx.editMessageText(`Mayli oka, ${formatDate(reminder.remindAt)} kuni yana eslatib qo'yaman 🔔`).catch(() => {});
+    } catch (err) {
+      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
+    }
   });
 
   // PDF hisobot — filtr tanlangach yaratib, bot orqali yuboriladi.

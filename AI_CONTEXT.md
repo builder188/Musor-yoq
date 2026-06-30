@@ -1,5 +1,15 @@
 # AI_CONTEXT.md
 
+## 2026-06-30 Qarz eslatma (DEBT_REMINDER) + Mini App "Eslatmalar" bo'limi
+- **Maqsad:** "Sardorga 100 ming qarz berdim, 30 iyunda olaman" → 100 ming balansdan AVTOMATIK ayiriladi, egaga "berdim, balans -100, 30 iyun kuni eslataman" deb javob, 30 iyun kuni cron tugmali eslatma yuboradi. "...lekin balansdan minus qilma" desa — balansga tegmaydi, lekin eslatma baribir yuboriladi.
+- **Model (YANGI `models/Reminder.js`):** tenant-scoped + soft-delete. type(debt/general), direction(given=men berdim / taken=men oldim), person, amount, affectsBalance, transactionId (bog'langan balans tx), eventDate (qarz sanasi), dueDate, remindAt (cron vaqti), remindSent (at-most-once), status(pending/done/cancelled). 'qarz' kategoriyasi `Transaction.TX_CATEGORIES` enum'iga qo'shildi.
+- **Balans mexanikasi (`services/reminderEntryService.js`):** affectsBalance bo'lsa alohida Transaction (given→chiqim 'qarz', taken→kirim 'qarz') yaratiladi → `getSummary` (notDeleted) balansni darhol o'zgartiradi. "Hal bo'ldi"/bekor/o'chirishda o'sha tx SOFT-DELETE qilinadi → balans TIKLANADI (Reminder yozuvi tarixni saqlaydi). Income taksonomiyasiga tegmaydi (given=chiqim).
+- **AI:** `DEBT_REMINDER` subIntent (MOLIYA). Trigger: qarz fe'li + person + KELAJAK sana. Maydonlar: person/amount/direction/dueDate/eventDate/`skipBalance` (faqat "balansdan minus qilma" desa true). USD avtomatik so'mga (mavjud applyCurrencyConversion). Slot-filling: person→amount→dueDate (flow.js). Bir xil ENTRY_CONFIRM (Ha/Yo'q/Bekor), matn/ovoz javob izchil.
+- **Cron (`cron/reminders.js fireDebtReminders`):** remindAt kelganda atomar claim (at-most-once, qaytarmaydi — service eslatmasi bilan bir xil) → tugmali xabar [✅ Hal bo'ldi][📅 Keyinroq]. Callbacklar: `debt_done_<id>` (markDone+balans tiklash), `debt_snooze_<id>` (+1 kun).
+- **API (`routes/reminders.js`):** GET/POST /api/reminders, PATCH /:id/done|cancel|snooze, DELETE /:id (requireDeleteCode).
+- **Mini App:** yangi nav tab `🔔 Eslatmalar` (7-tab) + `pages/Reminders.jsx`: faol/hal bo'lgan/barchasi, summary (faol soni+jami), qo'lda qo'shish (yo'nalish/kim/summa/sana/balans toggle/izoh), "Hal bo'ldi", soft-delete. i18n uz+ru (`nav.reminders`, `reminders.*`).
+- **Tekshiruv:** node --check 12 fayl OK; import graph OK; sof mantiq testlari (mergeFields/nextMissing/applyRawValue/summary/dueText) PASS; Mini App build OK.
+
 ## 2026-06-28 Tarixiy sana — barcha daromad turlarida + kategoriyalar restrukturizatsiya
 - **O'tgan sana:** o'tgan zamon/sana bilan aytilgan voqea (xizmat/material/buyum/qo'lda kirim) — voqea YUZ BERGAN sanaga yoziladi. Prompt'da global EVENT DATE qoidasi. KOD: `serviceService.completionDateFor` — tarixiy xizmat income tx `serviceDateTime`ga (avval bugun edi → hisobot xato oyga tushardi). Material/item/income Gemini `date`ini saqlaydi (applyEntryDefaults faqat yo'q bo'lsa bugun). Mini App qo'lda sotuvga sana maydoni.
 - **Sotuv≠xarajat (kritik):** ovozli "muzlatgich sotdim" Oziq-ovqat xarajat deb tushunilardi → `gemini.correctSaleClassification` deterministik to'g'rilash (sotish fe'li + tanilgan tovar → ITEM_SALE/MATERIAL_SALE) + prompt qotirildi.
