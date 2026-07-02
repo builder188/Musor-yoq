@@ -28,13 +28,13 @@ export function sameCoords(a, b) {
 
 export function normalizeLocationData(address, coords) {
   const cleanAddress = String(address || '').trim() || 'Lokatsiya (xaritada)';
+  const lat = Number(coords?.lat);
+  const lng = Number(coords?.lng);
   return {
     address: cleanAddress,
     mapUrl: null,
-    coordinates: {
-      lat: Number(coords?.lat),
-      lng: Number(coords?.lng),
-    },
+    // Koordinata yaroqsiz bo'lsa NaN obyekt saqlamaymiz — null (manzil matni qoladi).
+    coordinates: Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null,
   };
 }
 

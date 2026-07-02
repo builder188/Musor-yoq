@@ -22,8 +22,9 @@ function mapUrlForLocation(location) {
 }
 
 export default function LocationDisplay({ location, inline = false }) {
-  const address = location?.address || '-';
-  const mapUrl = mapUrlForLocation(location);
+  // Eski yozuvlarda manzil oddiy matn bo'lishi mumkin — u ham ko'rsatiladi (linksiz).
+  const address = (typeof location === 'string' ? location : location?.address) || '-';
+  const mapUrl = typeof location === 'string' ? '' : mapUrlForLocation(location);
   const content = mapUrl ? (
     <a className="location-link" href={mapUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
       {address}

@@ -30,14 +30,36 @@ export async function findOrCreateClient({ name, phone, location = '', mapUrl = 
     client.name = name;
   }
 
-  // Manzilni mijoz ro'yxatiga qo'shamiz (agar yangi bo'lsa).
+  // Manzilni mijoz ro'yxatiga qo'shamiz (yangi bo'lsa) yoki xuddi shu nomli mavjud
+  // yozuvni yangi pin koordinatasi/mapUrl bilan boyitamiz (dublikat satr ochilmaydi).
   const locationData = normalizeLocationInput(typeof location === 'object' ? location : { address: location, mapUrl, coordinates });
-  if (locationData.address) {
-    const exists = client.locations.some((item) => sameLocation(item, locationData));
-    if (!exists) client.locations.push(locationData);
+  if (locationData.address && upsertLocation(client.locations, locationData)) {
+    client.markModified('locations');
   }
   await client.save();
   return client;
+}
+
+// Ro'yxatga qo'shadi yoki bir xil manzil MATNIdagi yozuvni birlashtiradi:
+// yangi kelgan koordinata/mapUrl ustuvor (eng so'nggi pin — eng ishonchli),
+// bo'lmasa eskisi saqlanadi. true = ro'yxat o'zgardi.
+function upsertLocation(locations, incoming) {
+  const idx = locations.findIndex(
+    (item) => normalizeLocationInput(item).address.toLowerCase() === incoming.address.toLowerCase()
+  );
+  if (idx === -1) {
+    locations.push(incoming);
+    return true;
+  }
+  const existing = normalizeLocationInput(locations[idx]);
+  const merged = {
+    address: existing.address,
+    mapUrl: incoming.mapUrl || existing.mapUrl,
+    coordinates: incoming.coordinates || existing.coordinates,
+  };
+  if (locationKey(merged) === locationKey(existing)) return false;
+  locations[idx] = merged;
+  return true;
 }
 
 export async function listClients({ search = '', page = null, limit = null } = {}) {
@@ -142,10 +164,6 @@ function dedupeLocations(locations = []) {
     result.push(normalized);
   }
   return result;
-}
-
-function sameLocation(a, b) {
-  return locationKey(normalizeLocationInput(a)) === locationKey(normalizeLocationInput(b));
 }
 
 function locationKey(location) {
