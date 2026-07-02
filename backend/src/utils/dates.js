@@ -70,64 +70,96 @@ export function periodRange(period) {
   }
 }
 
-// O'zbekcha sana-vaqt formati: "08.06.2026 10:00"
-export function formatDateTime(d) {
-  if (!d) return '';
-  try {
-    return new Intl.DateTimeFormat('uz-UZ', {
-      timeZone: TZ,
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(d));
-  } catch {
-    return new Date(d).toISOString();
-  }
+// Oy nomli sana-vaqt formati: "4-iyul 2026, soat 11:00".
+const DATE_LOCALES = {
+  uz: {
+    months: ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'],
+    timePrefix: 'soat ',
+  },
+  ru: {
+    months: [
+      '\u044f\u043d\u0432\u0430\u0440\u044f',
+      '\u0444\u0435\u0432\u0440\u0430\u043b\u044f',
+      '\u043c\u0430\u0440\u0442\u0430',
+      '\u0430\u043f\u0440\u0435\u043b\u044f',
+      '\u043c\u0430\u044f',
+      '\u0438\u044e\u043d\u044f',
+      '\u0438\u044e\u043b\u044f',
+      '\u0430\u0432\u0433\u0443\u0441\u0442\u0430',
+      '\u0441\u0435\u043d\u0442\u044f\u0431\u0440\u044f',
+      '\u043e\u043a\u0442\u044f\u0431\u0440\u044f',
+      '\u043d\u043e\u044f\u0431\u0440\u044f',
+      '\u0434\u0435\u043a\u0430\u0431\u0440\u044f',
+    ],
+    timePrefix: '',
+  },
+};
+
+function localeOf(lang) {
+  return DATE_LOCALES[lang === 'ru' ? 'ru' : 'uz'];
 }
 
-export function formatDate(d) {
-  if (!d) return '';
-  try {
-    return new Intl.DateTimeFormat('uz-UZ', {
-      timeZone: TZ,
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    }).format(new Date(d));
-  } catch {
-    return new Date(d).toISOString().slice(0, 10);
-  }
+function tzParts(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const p = Object.fromEntries(dtf.formatToParts(date).map((x) => [x.type, x.value]));
+  const hour = p.hour === '24' ? '00' : p.hour;
+  return {
+    year: Number(p.year),
+    monthIndex: Number(p.month) - 1,
+    day: Number(p.day),
+    hour,
+    minute: p.minute,
+    key: `${p.year}-${p.month}-${p.day}`,
+  };
+}
+
+export function formatDate(d, lang = 'uz', options = {}) {
+  const parts = tzParts(d);
+  if (!parts) return '';
+  const { includeYear = true } = options;
+  const locale = localeOf(lang);
+  const month = locale.months[parts.monthIndex] || '';
+  const base = lang === 'ru' ? `${parts.day} ${month}` : `${parts.day}-${month}`;
+  return includeYear ? `${base} ${parts.year}` : base;
 }
 
 // Faqat soat:daqiqa (Asia/Tashkent) — eslatma matnlari uchun ("18:00").
 export function formatTime(d) {
-  if (!d) return '';
-  try {
-    return new Intl.DateTimeFormat('uz-UZ', {
-      timeZone: TZ,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(new Date(d));
-  } catch {
-    return '';
-  }
+  const parts = tzParts(d);
+  if (!parts) return '';
+  return `${parts.hour}:${parts.minute}`;
 }
 
-// Sanani "Bugun" / "Ertaga" / "DD.MM.YYYY" ko'rinishida (Asia/Tashkent kun chegarasi bo'yicha).
-// Eslatma matni "Bugun soat ..." aniq bo'lishi uchun — yarim tunni kesib o'tsa ham xato bermaydi.
-export function dayWord(d, base = new Date()) {
-  const target = formatDate(d);
+export function formatDateTime(d, lang = 'uz', options = {}) {
+  const parts = tzParts(d);
+  if (!parts) return '';
+  const locale = localeOf(lang);
+  return `${formatDate(d, lang, options)}, ${locale.timePrefix}${formatTime(d)}`;
+}
+
+// Sanani "Bugun" / "Ertaga" / oy nomli sana ko'rinishida qaytaradi.
+export function dayWord(d, base = new Date(), lang = 'uz') {
+  const target = tzParts(d);
   if (!target) return '';
-  const tomorrow = new Date(base);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (target === formatDate(base)) return 'Bugun';
-  if (target === formatDate(tomorrow)) return 'Ertaga';
-  return target;
+  const today = tzParts(base);
+  const tomorrowDate = new Date(base);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrow = tzParts(tomorrowDate);
+  if (today && target.key === today.key) return 'Bugun';
+  if (tomorrow && target.key === tomorrow.key) return 'Ertaga';
+  return formatDate(d, lang);
 }
-
 // Foydalanuvchi yozgan sana/vaqtni (nisbiy yoki aniq) Date ga aylantiradi.
 // AI'ni chetlab o'tadigan joylar uchun (masalan reschedule). Aniqlab bo'lmasa null.
 // Qo'llab-quvvatlaydi: "ertaga", "indinga", "bugun", "N kun/hafta/oy/soat/daqiqadan keyin",

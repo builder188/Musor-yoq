@@ -7,7 +7,7 @@ import { completeService, cancelService, createService, recordServicePayment } f
 import { runAgent, applyConfirmedEdit, cancelSavedEntry } from '../../ai/agent.js';
 import { markReminderDone, snoozeReminder } from '../../services/reminderEntryService.js';
 import { formatMoney } from '../../utils/money.js';
-import { formatDate } from '../../utils/dates.js';
+import { formatDateTime } from '../../utils/dates.js';
 import {
   serviceConfirmationText,
   reminderInfoLine,
@@ -352,7 +352,7 @@ export function registerCallbacks(bot) {
       const { reminder } = await snoozeReminder(ctx.match[1], 1);
       await ctx.answerCallbackQuery({ text: 'Keyinroq eslataman' });
       await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-      await ctx.editMessageText(`Mayli oka, ${formatDate(reminder.remindAt)} kuni yana eslatib qo'yaman 🔔`).catch(() => {});
+      await ctx.editMessageText(`Mayli oka, ${formatDateTime(reminder.remindAt)} da yana eslatib qo'yaman 🔔`).catch(() => {});
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
     }

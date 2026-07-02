@@ -1,5 +1,12 @@
 # AI_CONTEXT.md
 
+## 2026-07-02 Sana/vaqt to'liq ko'rsatish va formatlash bugfix
+- **Markaziy formatlash:** Mini App `miniapp/src/utils/format.js` va backend `backend/src/utils/dates.js` oy nomli formatga o'tdi: uz `4-iyul 2026, soat 11:00`, ru `4 июля 2026, 11:00`. Mini App sahifa-local `Intl.DateTimeFormat` va month array'lar olib tashlandi; `formatDate`/`formatDateTime`/`formatTime`/`formatWeekdayDate`/`formatMonth*` ishlatiladi.
+- **Mini App qamrovi:** mijoz kartalari va tarixida `serviceDateTime` endi vaqt bilan ko'rinadi; xizmatlar list/bottom-sheet, Home qidiruv/AI natijalari, transaction/reminder/deleted restore timestamp'lari formatlandi. Service detail modal va Services bottom-sheet `serviceDateTime`dan tashqari `createdAt`ni ham `Kiritilgan` sifatida ko'rsatadi.
+- **Bot/API/hisobot:** bot `formatBotDate*` custom `DD.MM.YYYY` formatidan backend helperlarga o'tdi; AI search/service summary service vaqtini tushirmaydi; debt snooze aniq timestamp bilan javob beradi. PDF/Excel report sanalari va oylik chart/summary label'lari language bo'yicha oy nomi bilan chiqadi.
+- **Saqlash tekshiruvi:** `Service.serviceDateTime` allaqachon Date maydonida to'liq sana+vaqt saqlaydi; `serviceService.createService/editService/rescheduleService` `serviceDateTime`ni `Date`ga parse qiladi va reminder schedule shu timestampdan hisoblanadi. O'zgarish saqlashga emas, ko'rsatishga qaratildi.
+- **Tekshiruv:** backend `node --check` (`backend/src/**/*.js`) OK; `npm run build` OK; `git diff --check` OK.
+
 ## 2026-07-02 YANGI OQIM: darhol saqlash + moslashuvchan maydonlar (ENTRY_CONFIRM olib tashlandi)
 - **Katta o'zgarish:** barcha kiritish turlarida (xizmat/xarajat/kirim/material/buyum/qarz) "Ha, to'g'ri / Yo'q" TASDIQ BOSQICHI YO'Q. Ma'lumot yig'ilgach `finalizeEntry` DARHOL saqlaydi (MongoDB, kirim balansga avtomatik), keyin xulosa + 3 tugma: [✏️ Tahrirlash `saved_edit`][❌ Bekor qilish `saved_cancel`][📱 Ilovaga o'tish (webApp `?tab=`)]. Yangi holat `ENTRY_SAVED` (collected: savedIntent/fields/saved{type,ids}/stopped).
 - **Tahrirlash — joyida:** `agent.editSavedEntry` foydalanuvchi aytgan maydonni SAQLANGAN yozuv ustida yangilaydi (`applySavedEntryUpdate`: editService / updateTransaction(+material maydonlari) / updateUsefulItem / updateItemSale / updateDebtReminder) — yangi yozuv yaratMAYDI. **Bekor qilish — kodsiz** (1990 so'ralmaydi, hozirgina kiritilgan yozuv): `cancelSavedEntry`→`undoSavedEntry` (service cascade soft-delete / tx soft-delete / item soft-delete / sotuvni revert / giveaway revert / deleteReminder+balans tiklash).

@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatDate, formatDateTime, toInputDateTime } from '../utils/format.js';
+import { formatMoney, formatDate, formatDateTime, formatMonthName, formatMonthYear, toInputDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
 
 const PERIODS = ['today', 'month', 'year'];
-const MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn', 'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek'];
 
 export default function Finance() {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const [period, setPeriod] = useState('month');
   const [summary, setSummary] = useState(null);
   const [chart, setChart] = useState(null);
@@ -59,7 +58,7 @@ export default function Finance() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period]);
 
-  const bars = makeBars(chart);
+  const bars = makeBars(chart, lang);
 
   return (
     <div>
@@ -122,7 +121,7 @@ export default function Finance() {
           {transactions.length === 0 ? (
             <div className="empty">{t('common.noData')}</div>
           ) : (
-            <TransactionGroups groups={groupTransactions(transactions)} t={t} onEdit={setEditingTx} onDelete={setDeleting} />
+            <TransactionGroups groups={groupTransactions(transactions, lang)} t={t} lang={lang} onEdit={setEditingTx} onDelete={setDeleting} />
           )}
         </>
       )}
@@ -183,7 +182,7 @@ function DownloadReportModal({ onClose }) {
   const [done, setDone] = useState(false);
   const [lastPayload, setLastPayload] = useState(null);
 
-  const months = useMemo(() => buildLast12Months(), []);
+  const months = useMemo(() => buildLast12Months(lang), [lang]);
 
   const send = async (payload) => {
     setLastPayload(payload);
@@ -269,14 +268,14 @@ function DownloadReportModal({ onClose }) {
 }
 
 // Oxirgi 12 oy: { value: 'YYYY-MM', label: 'Oy YYYY' } (eng yangisi birinchi).
-function buildLast12Months() {
+function buildLast12Months(lang) {
   const out = [];
   const now = new Date();
   for (let i = 0; i < 12; i += 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     out.push({
       value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`,
+      label: formatMonthYear(d, lang),
     });
   }
   return out;
@@ -388,14 +387,14 @@ function formatNumber(n) {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
-function TransactionGroups({ groups, t, onEdit, onDelete }) {
+function TransactionGroups({ groups, t, lang, onEdit, onDelete }) {
   return (
     <>
       {groups.map((group) => (
         <div key={group.dateLabel}>
           <div className="section-title">{group.dateLabel}</div>
           {group.items.map((tx) => (
-            <SwipeTransaction key={tx._id} tx={tx} t={t} onEdit={onEdit} onDelete={onDelete} />
+            <SwipeTransaction key={tx._id} tx={tx} t={t} lang={lang} onEdit={onEdit} onDelete={onDelete} />
           ))}
         </div>
       ))}
@@ -403,7 +402,7 @@ function TransactionGroups({ groups, t, onEdit, onDelete }) {
   );
 }
 
-function SwipeTransaction({ tx, t, onEdit, onDelete }) {
+function SwipeTransaction({ tx, t, lang, onEdit, onDelete }) {
   const [offset, setOffset] = useState(0);
   const startRef = useRef(null);
   const swipedRef = useRef(false);
@@ -451,7 +450,7 @@ function SwipeTransaction({ tx, t, onEdit, onDelete }) {
               {tx.type === 'income' ? '+' : '−'}{formatNumber(tx.amount)}
             </span>
           </div>
-          <div className="sub">{formatDate(tx.date)} · {tx.description || tx.note || t('category.boshqa')}</div>
+          <div className="sub">{formatDateTime(tx.date, lang)} · {tx.description || tx.note || t('category.boshqa')}</div>
         </div>
       </div>
     </div>
@@ -459,7 +458,7 @@ function SwipeTransaction({ tx, t, onEdit, onDelete }) {
 }
 
 function AddTransactionModal({ initialType = 'expense', onClose, onDone }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const [type, setType] = useState(initialType);
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('yoqilgi');
@@ -514,7 +513,7 @@ function AddTransactionModal({ initialType = 'expense', onClose, onDone }) {
       </button>
       {confirmPayload && (
         <FinalConfirmModal
-          rows={transactionConfirmRows(confirmPayload, t)}
+          rows={transactionConfirmRows(confirmPayload, t, lang)}
           busy={busy}
           onClose={() => setConfirmPayload(null)}
           onConfirm={confirmSave}
@@ -524,13 +523,13 @@ function AddTransactionModal({ initialType = 'expense', onClose, onDone }) {
   );
 }
 
-function transactionConfirmRows(payload, t) {
+function transactionConfirmRows(payload, t, lang) {
   return [
     { label: t('finance.type'), value: t(`finance.${payload.type === 'income' ? 'income' : 'expense'}`) },
     { label: t('common.amount'), value: formatMoney(payload.amount) },
     payload.type === 'expense' ? { label: t('finance.category'), value: t(`category.${payload.category}`) } : null,
     { label: t('common.notes'), value: payload.description },
-    { label: t('common.date'), value: formatDateTime(payload.date) },
+    { label: t('common.date'), value: formatDateTime(payload.date, lang) },
   ].filter(Boolean);
 }
 
@@ -599,38 +598,37 @@ function transactionTitle(tx, t) {
   return `${tx.category ? t(`category.${tx.category}`) : t('category.boshqa')} ${tx.description ? `- ${tx.description}` : ''}`;
 }
 
-function groupTransactions(items) {
+function groupTransactions(items, lang) {
   const groups = new Map();
   items.forEach((tx) => {
-    const label = groupDateLabel(tx.date);
+    const label = groupDateLabel(tx.date, lang);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label).push(tx);
   });
   return Array.from(groups, ([dateLabel, items]) => ({ dateLabel, items }));
 }
 
-function groupDateLabel(date) {
+function groupDateLabel(date, lang) {
   const d = new Date(date);
   const today = new Date();
   const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
-  if (sameDay) return 'Bugun';
+  if (sameDay) return lang === 'ru' ? '\u0421\u0435\u0433\u043e\u0434\u043d\u044f' : 'Bugun';
 
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
   const wasYesterday = d.getFullYear() === yesterday.getFullYear() && d.getMonth() === yesterday.getMonth() && d.getDate() === yesterday.getDate();
-  if (wasYesterday) return 'Kecha';
+  if (wasYesterday) return lang === 'ru' ? '\u0412\u0447\u0435\u0440\u0430' : 'Kecha';
 
-  return new Intl.DateTimeFormat('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
+  return formatDate(d, lang);
 }
-
 // Oxirgi 6 oy uchun yengil CSS bar grafigi (Chart.js o'rniga). Joriy oy — siyoh, qolgani yumshoq yashil.
-function makeBars(chart) {
+function makeBars(chart, lang) {
   if (!chart || !chart.income) return null;
   const now = new Date();
   const months = [];
   for (let i = 5; i >= 0; i -= 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({ index: d.getMonth(), label: MONTHS[d.getMonth()], current: i === 0 });
+    months.push({ index: d.getMonth(), label: formatMonthName(d, lang), current: i === 0 });
   }
   const values = months.map((m) => Number(chart.income[m.index] || 0));
   const max = Math.max(...values, 1);

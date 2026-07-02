@@ -12,7 +12,7 @@ export default function ServiceDetailModal({
   onEdit,
   onDelete,
 }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   if (!service) return null;
 
   const statusClass =
@@ -30,7 +30,8 @@ export default function ServiceDetailModal({
       <div className="card">
         <Row label={t('common.phone')} value={formatPhone(service.clientPhone)} />
         <Row label={t('common.location')} value={<LocationDisplay location={service.location} />} />
-        <Row label={t('common.date')} value={formatDateTime(service.serviceDateTime)} />
+        <Row label={t('common.date')} value={formatDateTime(service.serviceDateTime, lang)} />
+        {service.createdAt ? <Row label={t('common.createdAt')} value={formatDateTime(service.createdAt, lang)} /> : null}
         <Row label={t('common.price')} value={formatMoney(service.price)} />
         <Row label={t('common.paymentMethod')} value={t(`payment.${service.paymentMethod}`)} />
         {service.notes ? <Row label={t('common.notes')} value={service.notes} /> : null}
@@ -38,8 +39,8 @@ export default function ServiceDetailModal({
         {(service.reminderAt || service.confirmAt) && (
           <div style={{ marginTop: 8 }}>
             <div className="label">{t('settings.reminders')}</div>
-            {service.reminderAt && <Row label={t('settings.beforeReminder')} value={formatDateTime(service.reminderAt)} />}
-            {service.confirmAt && <Row label={t('settings.afterConfirm')} value={formatDateTime(service.confirmAt)} />}
+            {service.reminderAt && <Row label={t('settings.beforeReminder')} value={formatDateTime(service.reminderAt, lang)} />}
+            {service.confirmAt && <Row label={t('settings.afterConfirm')} value={formatDateTime(service.confirmAt, lang)} />}
           </div>
         )}
       </div>

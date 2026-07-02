@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatDate, formatDateTime, toInputDateTime } from '../utils/format.js';
+import { formatMoney, formatDateTime, formatWeekdayDate, toInputDateTime } from '../utils/format.js';
 import { shouldWarnMapUrl } from '../utils/mapUrl.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
@@ -11,7 +11,6 @@ import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
 import MapQuickLinks from '../components/MapQuickLinks.jsx';
 
 const STATUSES = ['kutilmoqda', 'bajarildi', 'bekor_qilindi'];
-const SERVICE_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
 
 export default function Services() {
   const { t, lang } = useApp();
@@ -208,11 +207,7 @@ function todayRange() {
 function serviceSectionLabel(view, t, lang) {
   if (view === 'pending') return t('status.kutilmoqda');
   if (view === 'done') return t('status.bajarildi');
-  const d = new Date();
-  if (lang === 'ru') {
-    return new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
-  }
-  return `${t('services.today')} · ${d.getDate()}-${SERVICE_MONTHS[d.getMonth()]}`;
+  return `${t('services.today')} · ${formatWeekdayDate(new Date(), lang)}`;
 }
 
 function normalizeServices(value) {
@@ -282,7 +277,7 @@ function FilterBar({
 }
 
 function ServiceCard({ service, expanded, onToggle, draggable = false, onDetail, onComplete, onReschedule, onCancel, onQuickComplete }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const isPending = service.status === 'kutilmoqda';
   const isDone = service.status === 'bajarildi';
   const isCancelled = service.status === 'bekor_qilindi';
@@ -305,7 +300,7 @@ function ServiceCard({ service, expanded, onToggle, draggable = false, onDetail,
         <div className="job-main">
           <div className="job-name">{service.clientName}</div>
           <div className="job-sub">
-            {formatDateTime(service.serviceDateTime)}
+            {formatDateTime(service.serviceDateTime, lang)}
             {service.location?.address ? ` · ${service.location.address}` : ''}
           </div>
           <div className="job-price">{formatMoney(service.price)}</div>
@@ -360,7 +355,7 @@ function ServiceCard({ service, expanded, onToggle, draggable = false, onDetail,
 }
 
 function ServiceDetailBottomSheet({ service, onClose, onComplete, onReschedule, onCancel, onEdit, onDelete }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   return (
     <Modal title={service.clientName} onClose={onClose}>
       <div className="mb-8">
@@ -370,7 +365,8 @@ function ServiceDetailBottomSheet({ service, onClose, onComplete, onReschedule, 
       <div className="card">
         <Row label={t('common.phone')} value={service.clientPhone} />
         <Row label={t('common.location')} value={<LocationDisplay location={service.location} />} />
-        <Row label={t('common.date')} value={formatDateTime(service.serviceDateTime)} />
+        <Row label={t('common.date')} value={formatDateTime(service.serviceDateTime, lang)} />
+        {service.createdAt ? <Row label={t('common.createdAt')} value={formatDateTime(service.createdAt, lang)} /> : null}
         <Row label={t('common.price')} value={formatMoney(service.price)} />
         <Row label={t('common.paymentMethod')} value={t(`payment.${service.paymentMethod}`)} />
         <Row label={t('services.paymentStatus')} value={t(`paymentStatus.${service.paymentStatus}`)} />
@@ -505,7 +501,7 @@ function CancelModal({ service, onClose, onDone }) {
 }
 
 function ServiceFormModal({ service, onClose, onSaved }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const isEdit = !!service;
   const [form, setForm] = useState({
     clientName: service?.clientName || '',
@@ -597,7 +593,7 @@ function ServiceFormModal({ service, onClose, onSaved }) {
       </button>
       {confirmPayload && (
         <FinalConfirmModal
-          rows={serviceFormConfirmRows(confirmPayload, t)}
+          rows={serviceFormConfirmRows(confirmPayload, t, lang)}
           busy={busy}
           onClose={() => setConfirmPayload(null)}
           onConfirm={confirmSave}
@@ -607,12 +603,12 @@ function ServiceFormModal({ service, onClose, onSaved }) {
   );
 }
 
-function serviceFormConfirmRows(payload, t) {
+function serviceFormConfirmRows(payload, t, lang) {
   return [
     { label: t('common.name'), value: payload.clientName },
     { label: t('common.phone'), value: payload.clientPhone },
     { label: t('common.location'), value: payload.location?.address },
-    { label: t('common.date'), value: formatDateTime(payload.serviceDateTime) },
+    { label: t('common.date'), value: formatDateTime(payload.serviceDateTime, lang) },
     { label: t('common.price'), value: formatMoney(payload.price) },
     { label: t('common.paymentMethod'), value: t(`payment.${payload.paymentMethod}`) },
     { label: t('common.notes'), value: payload.notes },

@@ -11,7 +11,7 @@ import Items from './Items.jsx';
 // Har bir material kategoriyasiga kirilganda — sotuv yozuvlari (sana, kg, narx, balans
 // bayrog'i va asl ovoz). "Kerakli buyumlar" → buyumlar inventari (Items).
 export default function Categories() {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -37,7 +37,7 @@ export default function Categories() {
     return <Items onBack={() => setShowItems(false)} />;
   }
   if (selectedMaterial) {
-    return <MaterialDetail name={selectedMaterial} onBack={() => { setSelectedMaterial(null); load(); }} />;
+    return <MaterialDetail name={selectedMaterial} lang={lang} onBack={() => { setSelectedMaterial(null); load(); }} />;
   }
 
   const materials = overview?.materials || [];
@@ -139,7 +139,7 @@ function CreateCategoryModal({ onClose, onSaved }) {
 }
 
 // Bitta material kategoriyasi: sotuv yozuvlari (sana, kg, kilo narxi, jami, balans, ovoz).
-function MaterialDetail({ name, onBack }) {
+function MaterialDetail({ name, lang, onBack }) {
   const { t } = useApp();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -198,7 +198,7 @@ function MaterialDetail({ name, onBack }) {
       ) : records.length === 0 ? (
         <div className="empty">{t('categories.noSales')}</div>
       ) : (
-        records.map((r) => <MaterialRecordCard key={r.id} record={r} t={t} />)
+        records.map((r) => <MaterialRecordCard key={r.id} record={r} t={t} lang={lang} />)
       )}
 
       {adding && (
@@ -215,7 +215,7 @@ function MaterialDetail({ name, onBack }) {
   );
 }
 
-function MaterialRecordCard({ record, t }) {
+function MaterialRecordCard({ record, t, lang }) {
   const audioUrl = record.voiceFileId
     ? `${api.baseUrl}/api/items/audio/${encodeURIComponent(record.voiceFileId)}?initData=${encodeURIComponent(getInitData())}`
     : null;
@@ -228,7 +228,7 @@ function MaterialRecordCard({ record, t }) {
         </span>
       </div>
       <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-        {formatDate(record.date)}
+        {formatDate(record.date, lang)}
         {record.quantityKg > 0 ? ` · ${formatNumber(record.quantityKg)} kg` : ''}
         {record.pricePerKg > 0 ? ` · ${formatMoney(record.pricePerKg)}/kg` : ''}
       </div>

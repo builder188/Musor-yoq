@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatDate, formatPhone, formatDateTime } from '../utils/format.js';
+import { formatMoney, formatPhone, formatDateTime, formatTime, formatWeekdayDate } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import { useNavigationView } from '../components/useNavigationView.js';
@@ -66,7 +66,7 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
     <div>
       <div className="greeting">
         <div>
-          <div className="greet-date">{greetingDate(lang)}</div>
+          <div className="greet-date">{formatWeekdayDate(new Date(), lang)}</div>
           <div className="greet-hello">{t('home.greeting')}</div>
           <RateChip />
         </div>
@@ -133,17 +133,6 @@ function SummaryCard({ stats, loading }) {
   );
 }
 
-// "Seshanba · 23-iyun" ko'rinishidagi sana.
-const UZ_WEEKDAYS = ['Yakshanba', 'Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba'];
-const UZ_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
-function greetingDate(lang) {
-  const d = new Date();
-  if (lang === 'ru') {
-    return new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
-  }
-  return `${UZ_WEEKDAYS[d.getDay()]} · ${d.getDate()}-${UZ_MONTHS[d.getMonth()]}`;
-}
-
 // Birlik ("so'm")siz raqam: 2 340 000.
 function formatNumber(n) {
   return Math.round(Number(n) || 0)
@@ -153,6 +142,7 @@ function formatNumber(n) {
 
 // Bosh sahifada kichik real-time dollar kursi (CBU). 12 soatlik kesh — serverda.
 function RateChip() {
+  const { lang } = useApp();
   const [info, setInfo] = useState(null);
   useEffect(() => {
     let alive = true;
@@ -160,7 +150,7 @@ function RateChip() {
     return () => { alive = false; };
   }, []);
   if (!info?.usdToUzsRate) return null;
-  const title = info.rateUpdatedAt ? `Yangilangan: ${formatDateTime(info.rateUpdatedAt)} (CBU)` : 'Markaziy bank kursi (CBU)';
+  const title = info.rateUpdatedAt ? `Yangilangan: ${formatDateTime(info.rateUpdatedAt, lang)} (CBU)` : 'Markaziy bank kursi (CBU)';
   return (
     <div
       title={title}
@@ -215,7 +205,7 @@ function TodayServices({ items, loading, busyId, onOpenService, onComplete }) {
 }
 
 function TodayServiceCard({ service, busy, onOpen, onComplete }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const isDone = service.status === 'bajarildi';
   const isCancelled = service.status === 'bekor_qilindi';
   const initial = (service.clientName || '?').trim().charAt(0).toUpperCase() || '?';
@@ -232,7 +222,7 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
         <div className="job-main">
           <div className="job-name">{service.clientName || '-'}</div>
           <div className="job-sub">
-            {formatTime(service.serviceDateTime)}
+            {formatTime(service.serviceDateTime, lang)}
             {service.location?.address ? ` · ${service.location.address}` : ''}
           </div>
           <div className="job-price">{formatMoney(service.price)}</div>
@@ -256,13 +246,8 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
   );
 }
 
-function formatTime(value) {
-  if (!value) return '';
-  return new Intl.DateTimeFormat('uz-UZ', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
-}
-
 function ClientCard({ client, onOpen }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const lastServiceAt = client.lastServiceAt || client.services?.[0]?.serviceDateTime;
   const debt = client.unpaidTotal || client.totalDebt || client.unpaidAmount;
 
@@ -273,7 +258,7 @@ function ClientCard({ client, onOpen }) {
         {client.isDeleted && <span className="badge badge-muted">{t('ui.deleted')}</span>}
       </div>
       <div className="sub">{formatPhone(client.phone)}</div>
-      {lastServiceAt && <div className="sub">{t('ui.lastService')}: {formatDate(lastServiceAt)}</div>}
+      {lastServiceAt && <div className="sub">{t('ui.lastService')}: {formatDateTime(lastServiceAt, lang)}</div>}
       {debt > 0 && <div className="sub debt-text">{formatMoney(debt)}</div>}
     </div>
   );
@@ -288,7 +273,7 @@ function FloatingAiButton({ onClick }) {
 }
 
 function AiChatPanel({ onClose, onSelectService }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const goBack = useNavigationView(t('home.aiChat'), onClose);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -351,7 +336,7 @@ function AiChatPanel({ onClose, onSelectService }) {
                     <button key={service._id} className="ai-result" onClick={() => onSelectService(service)}>
                       <div className="title">{service.clientName}</div>
                       <div className="sub">
-                        {formatDate(service.serviceDateTime)} · {service.location?.address || '-'} · {formatMoney(service.price)}
+                        {formatDateTime(service.serviceDateTime, lang)} · {service.location?.address || '-'} · {formatMoney(service.price)}
                       </div>
                     </button>
                   ))}

@@ -4,7 +4,7 @@ import { api } from '../api/client.js';
 import { LANGUAGES } from '../i18n/index.js';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
-import { formatDate } from '../utils/format.js';
+import { formatDateTime } from '../utils/format.js';
 import { getTgUser } from '../telegram.js';
 
 export default function Settings() {
@@ -252,7 +252,7 @@ export default function Settings() {
         />
       )}
 
-      {showRestore && <RestoreModal t={t} onClose={() => setShowRestore(false)} />}
+      {showRestore && <RestoreModal t={t} lang={lang} onClose={() => setShowRestore(false)} />}
     </div>
   );
 }
@@ -285,7 +285,7 @@ function CodeChangeModal({ t, oldDeleteCode, newDeleteCode, setOldDeleteCode, se
 }
 
 
-function RestoreModal({ t, onClose }) {
+function RestoreModal({ t, lang, onClose }) {
   const [data, setData] = useState(null);
   const [clientForRestore, setClientForRestore] = useState(null);
 
@@ -319,15 +319,15 @@ function RestoreModal({ t, onClose }) {
                 <DeletedRow
                   key={client._id}
                   title={client.name}
-                  subtitle={`${t('settings.deletedAt')}: ${formatDate(client.deletedAt)}`}
+                  subtitle={`${t('settings.deletedAt')}: ${formatDateTime(client.deletedAt, lang)}`}
                   onRestore={() => setClientForRestore(client)}
                   t={t}
                 />
               ))}
             </>
           )}
-          <DeletedSection title={t('services.title')} items={data.services} t={t} onRestore={(item) => restore('service', item._id)} render={(s) => s.clientName || s.location?.address || '-'} />
-          <DeletedSection title={t('finance.transactions')} items={data.transactions} t={t} onRestore={(item) => restore('transaction', item._id)} render={(tx) => `${tx.type} - ${tx.amount}`} />
+          <DeletedSection title={t('services.title')} items={data.services} t={t} lang={lang} onRestore={(item) => restore('service', item._id)} render={(s) => s.clientName || s.location?.address || '-'} />
+          <DeletedSection title={t('finance.transactions')} items={data.transactions} t={t} lang={lang} onRestore={(item) => restore('transaction', item._id)} render={(tx) => `${tx.type} - ${tx.amount}`} />
           {isEmptyDeleted(data) && <div className="empty">{t('common.noData')}</div>}
         </>
       )}
@@ -337,6 +337,7 @@ function RestoreModal({ t, onClose }) {
           client={clientForRestore}
           services={(data?.clientRestoreServices || []).filter((service) => service.clientId === clientForRestore._id)}
           t={t}
+          lang={lang}
           onClose={() => setClientForRestore(null)}
           onDone={() => {
             setClientForRestore(null);
@@ -348,7 +349,7 @@ function RestoreModal({ t, onClose }) {
   );
 }
 
-function ClientRestoreModal({ client, services, t, onClose, onDone }) {
+function ClientRestoreModal({ client, services, t, lang, onClose, onDone }) {
   const [selected, setSelected] = useState(services.map((service) => service._id));
   // Tiklashdan oldin tahrirlash: { [id]: { serviceDateTime(local), price } }
   const [edits, setEdits] = useState(() =>
@@ -397,7 +398,7 @@ function ClientRestoreModal({ client, services, t, onClose, onDone }) {
           return (
             <div key={service._id} className="restore-item">
               <label className="restore-check">
-                <span>{service.clientName || client.name} - {formatDate(service.serviceDateTime)}</span>
+                <span>{service.clientName || client.name} - {formatDateTime(service.serviceDateTime, lang)}</span>
                 <input type="checkbox" checked={isSelected} onChange={() => toggle(service._id)} />
               </label>
               {isSelected && (
@@ -439,7 +440,7 @@ function toLocalInput(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function DeletedSection({ title, items = [], t, onRestore, render }) {
+function DeletedSection({ title, items = [], t, lang, onRestore, render }) {
   if (!items.length) return null;
   return (
     <>
@@ -448,7 +449,7 @@ function DeletedSection({ title, items = [], t, onRestore, render }) {
         <DeletedRow
           key={item._id}
           title={render(item)}
-          subtitle={`${t('settings.deletedAt')}: ${formatDate(item.deletedAt)}`}
+          subtitle={`${t('settings.deletedAt')}: ${formatDateTime(item.deletedAt, lang)}`}
           onRestore={() => onRestore(item)}
           t={t}
         />

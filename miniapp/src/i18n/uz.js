@@ -56,6 +56,7 @@ export default {
     saveConfirm: 'Saqlashni tasdiqlash',
     backToEdit: 'Tahrirlashga qaytish',
     notFilled: 'Kiritilmagan',
+    createdAt: 'Kiritilgan',
   },
 
   home: {

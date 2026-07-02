@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatDate, formatMoney } from '../utils/format.js';
+import { formatDateTime, formatMoney } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
@@ -9,7 +9,7 @@ import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 const todayInput = () => new Date().toISOString().slice(0, 10);
 
 export default function Reminders() {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState('pending');
   const [loading, setLoading] = useState(true);
@@ -99,6 +99,7 @@ export default function Reminders() {
             key={reminder._id}
             reminder={reminder}
             t={t}
+            lang={lang}
             busy={busyId === reminder._id}
             onDone={() => markDone(reminder)}
             onDelete={() => setDeleting(reminder)}
@@ -131,7 +132,7 @@ export default function Reminders() {
   );
 }
 
-function ReminderCard({ reminder, t, busy, onDone, onDelete }) {
+function ReminderCard({ reminder, t, lang, busy, onDone, onDelete }) {
   const taken = reminder.direction === 'taken';
   const who = reminder.person || reminder.text || '-';
   const initial = (who || '?').trim().charAt(0).toUpperCase() || '?';
@@ -145,7 +146,7 @@ function ReminderCard({ reminder, t, busy, onDone, onDelete }) {
             {who} <span className="muted" style={{ fontWeight: 400 }}>· {taken ? t('reminders.taken') : t('reminders.given')}</span>
           </div>
           <div className="job-sub">
-            🔔 {t('reminders.remindOn')}: {formatDate(reminder.dueDate)}
+            🔔 {t('reminders.remindOn')}: {formatDateTime(reminder.dueDate, lang)}
             {overdue && <span className="badge badge-pending" style={{ marginLeft: 6 }}>!</span>}
           </div>
           {reminder.amount > 0 && <div className="job-price">{formatMoney(reminder.amount)}</div>}

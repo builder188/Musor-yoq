@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatPhone, formatDate, formatDateTime, toInputDateTime } from '../utils/format.js';
+import { formatMoney, formatPhone, formatDateTime, toInputDateTime } from '../utils/format.js';
 import { shouldWarnMapUrl } from '../utils/mapUrl.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
@@ -143,7 +143,7 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
 }
 
 function ClientCard({ client, onOpen }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const lastServiceAt = client.lastServiceAt || client.services?.[0]?.serviceDateTime;
   const debt = client.unpaidTotal || client.totalDebt || client.unpaidAmount;
 
@@ -154,7 +154,7 @@ function ClientCard({ client, onOpen }) {
         {client.isDeleted && <span className="badge badge-muted">{t('ui.deleted')}</span>}
       </div>
       <div className="sub">{formatPhone(client.phone)}</div>
-      {lastServiceAt && <div className="sub">{t('ui.lastService')}: {formatDate(lastServiceAt)}</div>}
+      {lastServiceAt && <div className="sub">{t('ui.lastService')}: {formatDateTime(lastServiceAt, lang)}</div>}
       {debt > 0 && <div className="sub debt-text">Qarz: {formatMoney(debt)}</div>}
       {!lastServiceAt && !debt && <div className="sub">{t('clients.noHistory')}</div>}
     </div>
@@ -162,7 +162,7 @@ function ClientCard({ client, onOpen }) {
 }
 
 function ClientDetailModal({ client, onClose, onEdit, onDelete, onOpenService }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   return (
     <Modal title={client.name} onClose={onClose}>
       <div className="card">
@@ -197,7 +197,7 @@ function ClientDetailModal({ client, onClose, onEdit, onDelete, onOpenService })
             onClick={() => onOpenService(service)}
           >
             <div className="row-between">
-              <div className="title">{formatDate(service.serviceDateTime)}</div>
+              <div className="title">{formatDateTime(service.serviceDateTime, lang)}</div>
               <span className={`badge badge-${badgeOf(service.status)}`}>{t(`status.${service.status}`)}</span>
             </div>
             <div className="sub">
@@ -322,7 +322,7 @@ function AddClientModal({ onClose, onSaved }) {
       </button>
       {confirmPayload && (
         <FinalConfirmModal
-          rows={serviceConfirmRows(confirmPayload, t)}
+          rows={serviceConfirmRows(confirmPayload, t, lang)}
           busy={busy}
           onClose={() => setConfirmPayload(null)}
           onConfirm={confirmSave}
@@ -332,41 +332,22 @@ function AddClientModal({ onClose, onSaved }) {
   );
 }
 
-function serviceConfirmRows(payload, t) {
+function serviceConfirmRows(payload, t, lang) {
   return [
     { label: t('common.name'), value: payload.clientName },
     { label: t('common.phone'), value: formatPhone(payload.clientPhone) },
     { label: t('common.location'), value: payload.location?.address },
-    { label: t('common.date'), value: formatDateTime(payload.serviceDateTime) },
+    { label: t('common.date'), value: formatDateTime(payload.serviceDateTime, lang) },
     { label: t('common.serviceFee'), value: formatMoney(payload.price) },
     { label: t('common.paymentMethod'), value: t(`payment.${payload.paymentMethod}`) },
   ];
 }
 
-const CLIENT_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
-
 function reminderText(date, time, t, lang) {
   if (!date || !time) return t('clients.reminderDefault');
   const value = new Date(`${date}T${time}`);
   if (Number.isNaN(value.getTime())) return t('clients.reminderDefault');
-  const formatted = formatReminderDate(value, lang);
-  return t('clients.reminderAt').replace('{time}', formatted);
-}
-
-function formatReminderDate(value, lang) {
-  if (lang === 'ru') {
-    return new Intl.DateTimeFormat('ru-RU', {
-      day: '2-digit',
-      month: 'long',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(value);
-  }
-  const day = String(value.getDate()).padStart(2, '0');
-  const month = CLIENT_MONTHS[value.getMonth()];
-  const hour = String(value.getHours()).padStart(2, '0');
-  const minute = String(value.getMinutes()).padStart(2, '0');
-  return `${day}-${month}, ${hour}:${minute}`;
+  return t('clients.reminderAt').replace('{time}', formatDateTime(value, lang));
 }
 
 function EditClientModal({ client, onClose, onSaved }) {

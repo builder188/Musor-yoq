@@ -8,7 +8,7 @@ import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 
 export default function Items({ onBack = null }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState('available');
   const [search, setSearch] = useState('');
@@ -104,6 +104,7 @@ export default function Items({ onBack = null }) {
             item={item}
             onClick={() => setDetail(item)}
             t={t}
+            lang={lang}
           />
         ))
       )}
@@ -174,7 +175,7 @@ export default function Items({ onBack = null }) {
   );
 }
 
-function ItemCard({ item, onClick, t }) {
+function ItemCard({ item, onClick, t, lang }) {
   const initial = (item.name || '?').trim().charAt(0).toUpperCase() || '?';
   return (
     <button className={`list-item ${item.status !== 'available' ? 'is-done' : ''}`} type="button" onClick={onClick} style={{ width: '100%', textAlign: 'left' }}>
@@ -182,7 +183,7 @@ function ItemCard({ item, onClick, t }) {
         <div className="avatar">{initial}</div>
         <div className="job-main">
           <div className="job-name">{item.name}</div>
-          <div className="job-sub">{formatDate(item.acquiredAt || item.createdAt)}</div>
+          <div className="job-sub">{formatDate(item.acquiredAt || item.createdAt, lang)}</div>
           {item.estimatedPrice > 0 && <div className="job-price">{formatMoney(item.estimatedPrice)}</div>}
         </div>
         <span className={`badge ${item.status === 'available' ? 'badge-pending' : item.status === 'sold' ? 'badge-done' : 'badge-muted'}`}>
@@ -230,7 +231,7 @@ function ItemFormModal({ onClose, onSaved }) {
 }
 
 function ItemDetailModal({ item, onClose, onSell, onGive, onDelete }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const audioUrl = item.voice?.telegramFileId
     ? `${api.baseUrl}/api/items/audio/${encodeURIComponent(item.voice.telegramFileId)}?initData=${encodeURIComponent(getInitData())}`
     : null;
@@ -242,7 +243,7 @@ function ItemDetailModal({ item, onClose, onSell, onGive, onDelete }) {
         </span>
       </div>
       <div className="card">
-        <Row label={t('common.date')} value={formatDate(item.acquiredAt || item.createdAt)} />
+        <Row label={t('common.date')} value={formatDate(item.acquiredAt || item.createdAt, lang)} />
         {item.estimatedPrice > 0 && <Row label={t('items.estimatedPrice')} value={formatMoney(item.estimatedPrice)} />}
         {item.soldAmount > 0 && <Row label={t('items.soldAmount')} value={formatMoney(item.soldAmount)} />}
         {item.recipient && <Row label={t('items.recipient')} value={item.recipient} />}

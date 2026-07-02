@@ -265,7 +265,8 @@ async function buildPdfPayload(body = {}) {
 }
 
 async function buildExcelPayload(body = {}) {
-  const L = excelLabels(body.language);
+  const language = body.language || 'uz';
+  const L = excelLabels(language);
   const range = resolveReportRange(body);
   const dateFilter = range.from || range.to ? { $gte: range.from, $lte: range.to } : null;
   const serviceFilter = { ...notDeleted };
@@ -293,8 +294,8 @@ async function buildExcelPayload(body = {}) {
       client.name || '',
       client.phone || '',
       (client.locations || []).map((loc) => loc.address).filter(Boolean).join('; '),
-      formatDateTime(client.createdAt),
-      formatDateTime(client.updatedAt),
+      formatDateTime(client.createdAt, language),
+      formatDateTime(client.updatedAt, language),
     ]),
   ]);
 
@@ -306,7 +307,7 @@ async function buildExcelPayload(body = {}) {
       service.clientName || '',
       service.clientPhone || '',
       service.location?.address || '',
-      formatDateTime(service.serviceDateTime),
+      formatDateTime(service.serviceDateTime, language),
       service.isHistorical ? L.yes : L.no,
       service.price || 0,
       service.paidAmount || 0,
@@ -314,14 +315,14 @@ async function buildExcelPayload(body = {}) {
       service.paymentStatus || '',
       service.status || '',
       service.cancellationReason || '',
-      formatDateTime(service.completedAt),
+      formatDateTime(service.completedAt, language),
       service.notes || '',
       (service.images || []).map((image) => image.telegramFileId).filter(Boolean).join('; '),
       String(service.incomeTransactionId || ''),
       service.isDeleted ? L.yes : L.no,
-      formatDateTime(service.deletedAt),
-      formatDateTime(service.createdAt),
-      formatDateTime(service.updatedAt),
+      formatDateTime(service.deletedAt, language),
+      formatDateTime(service.createdAt, language),
+      formatDateTime(service.updatedAt, language),
     ]),
   ]);
 
@@ -329,27 +330,27 @@ async function buildExcelPayload(body = {}) {
     L.txHeaders,
     ...transactions.map((tx) => [
       String(tx._id),
-      formatDateTime(tx.date),
+      formatDateTime(tx.date, language),
       tx.type || '',
       tx.category || '',
       tx.amount || 0,
       tx.description || tx.note || '',
       String(tx.serviceId || ''),
       tx.isDeleted ? L.yes : L.no,
-      formatDateTime(tx.deletedAt),
-      formatDateTime(tx.createdAt),
+      formatDateTime(tx.deletedAt, language),
+      formatDateTime(tx.createdAt, language),
     ]),
   ]);
 
-  addSheet(workbook, L.sheets.summary, makeMonthlyBreakdownRows(transactions, services, L.summaryHeaders));
+  addSheet(workbook, L.sheets.summary, makeMonthlyBreakdownRows(transactions, services, L.summaryHeaders, language));
 
   // Daromad manbasi tahlili (oylik): son + foiz + ixcham ulush diagrammasi (unicode bar).
-  const sourceRows = await buildMonthlyIncomeRows(range, body.language);
+  const sourceRows = await buildMonthlyIncomeRows(range, language);
   addSheet(workbook, L.sheets.sourceAnalysis, makeSourceAnalysisRows(sourceRows, L.sourceHeaders));
 
   // Qiziqarli ko'rsatkichlar (insights) varag'i.
-  const insightLines = await buildInsightLines(range, body.language);
-  if (insightLines.length) addSheet(workbook, L.sheets.insights, makeInsightsRows(insightLines, body.language));
+  const insightLines = await buildInsightLines(range, language);
+  if (insightLines.length) addSheet(workbook, L.sheets.insights, makeInsightsRows(insightLines, language));
 
   return {
     buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
@@ -438,7 +439,7 @@ function addSheet(workbook, name, rows) {
   });
 }
 
-function makeMonthlyBreakdownRows(transactions, services, headers = ['Oy', 'Jami kirim', 'Jami chiqim', 'Balans', 'Xizmatlar soni', "To'langan", "To'lanmagan"]) {
+function makeMonthlyBreakdownRows(transactions, services, headers = ['Oy', 'Jami kirim', 'Jami chiqim', 'Balans', 'Xizmatlar soni', "To'langan", "To'lanmagan"], language = 'uz') {
   const byMonth = new Map();
   const ensure = (key) => {
     if (!byMonth.has(key)) {
@@ -466,15 +467,21 @@ function makeMonthlyBreakdownRows(transactions, services, headers = ['Oy', 'Jami
     headers,
     ...Array.from(byMonth.entries())
       .sort(([a], [b]) => b.localeCompare(a))
-      .map(([month, row]) => [
-        month,
-        row.income,
-        row.expense,
-        row.income - row.expense,
-        row.services,
-        row.paid,
-        row.unpaid,
-      ]),
+      .map(([month, row]) => {
+        const [year, monthNo] = month.split('-').map(Number);
+        const label = Number.isFinite(year) && Number.isFinite(monthNo)
+          ? monthLabel(year, monthNo, language)
+          : month;
+        return [
+          label,
+          row.income,
+          row.expense,
+          row.income - row.expense,
+          row.services,
+          row.paid,
+          row.unpaid,
+        ];
+      }),
   ];
 }
 
@@ -519,7 +526,7 @@ async function buildReportData({ reportType, limit, range, language }) {
     includesFinance
       ? Transaction.find(txFilter).sort({ date: -1 }).limit(limit).lean()
       : [],
-    buildLastSixMonthsChart(),
+    buildLastSixMonthsChart(language),
   ]);
 
   const unpaidTotal = servicesForSummary.reduce(
@@ -538,9 +545,9 @@ async function buildReportData({ reportType, limit, range, language }) {
     periodLabel: buildPeriodTitle(range, language),
     language,
     summary,
-    clients: includesClients ? await mapClientRows(clients) : [],
-    services: services.map(mapServiceRow),
-    transactions: mergeFinanceRows(transactions).slice(0, limit),
+    clients: includesClients ? await mapClientRows(clients, language) : [],
+    services: services.map((service) => mapServiceRow(service, language)),
+    transactions: mergeFinanceRows(transactions, language).slice(0, limit),
     monthlyChart,
     monthlyIncomeBySource,
     insights,
@@ -560,7 +567,7 @@ function makeSummary(services, totalIncome, totalExpense, unpaidTotal) {
   };
 }
 
-async function mapClientRows(clients) {
+async function mapClientRows(clients, language = 'uz') {
   const rows = [];
   for (const client of clients) {
     const [lastService, paidRows] = await Promise.all([
@@ -577,7 +584,7 @@ async function mapClientRows(clients) {
     rows.push([
       client.name || '',
       client.phone || '',
-      lastService ? formatDate(lastService.serviceDateTime) : '',
+      lastService ? formatDateTime(lastService.serviceDateTime, language) : '',
       formatMoney(paidRows[0]?.total || 0),
       formatMoney((await clientUnpaidTotal(client._id)) || 0),
     ]);
@@ -602,9 +609,9 @@ async function clientUnpaidTotal(clientId) {
   return rows[0]?.total || 0;
 }
 
-function mapServiceRow(service) {
+function mapServiceRow(service, language = 'uz') {
   return [
-    formatDateTime(service.serviceDateTime),
+    formatDateTime(service.serviceDateTime, language),
     service.clientName || '',
     service.location?.address || '',
     formatMoney(service.price || 0),
@@ -613,12 +620,12 @@ function mapServiceRow(service) {
   ];
 }
 
-function mergeFinanceRows(transactions) {
+function mergeFinanceRows(transactions, language = 'uz') {
   const rows = [
     ...transactions.map((tx) => ({
       date: tx.date,
       row: [
-        formatDateTime(tx.date),
+        formatDateTime(tx.date, language),
         tx.type === TX_TYPES.EXPENSE ? 'Chiqim' : 'Kirim',
         tx.category === 'material' ? (tx.materialName || 'Material') : tx.category === 'buyum' ? (tx.itemName || 'Buyum') : (tx.category || ''),
         `${tx.type === TX_TYPES.EXPENSE ? '-' : '+'}${formatMoney(tx.amount || 0)}`,
@@ -632,14 +639,14 @@ function mergeFinanceRows(transactions) {
     .map((item) => item.row);
 }
 
-async function buildLastSixMonthsChart() {
+async function buildLastSixMonthsChart(language = 'uz') {
   const months = [];
   const now = new Date();
   for (let i = 5; i >= 0; i -= 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const from = new Date(d.getFullYear(), d.getMonth(), 1);
     const to = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-    months.push({ from, to, label: `${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}` });
+    months.push({ from, to, label: monthLabel(d.getFullYear(), d.getMonth() + 1, language) });
   }
 
   const rows = await Transaction.aggregate([
@@ -680,7 +687,7 @@ function resolveReportRange(body = {}) {
     return {
       from,
       to,
-      label: `${UZ_MONTHS[month - 1] || body.month} ${year}`,
+      label: monthLabel(year, month, body.language),
       fileLabel: body.month,
     };
   }
@@ -692,7 +699,7 @@ function resolveReportRange(body = {}) {
     return {
       from,
       to,
-      label: `${formatDate(from)} - ${formatDate(to)}`,
+      label: `${formatDate(from, body.language)} - ${formatDate(to, body.language)}`,
       fileLabel: `${from.toISOString().slice(0, 10)}-${to.toISOString().slice(0, 10)}`,
     };
   }

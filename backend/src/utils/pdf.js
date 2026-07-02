@@ -127,13 +127,13 @@ export function createReportDoc(data) {
     drawMonthlyChart(doc, data.monthlyChart, labels);
   }
 
-  drawHeadersAndFooters(doc, data.periodLabel, labels);
+  drawHeadersAndFooters(doc, data.periodLabel, labels, data.language || 'uz');
   return doc;
 }
 
-function drawHeadersAndFooters(doc, periodLabel, labels) {
+function drawHeadersAndFooters(doc, periodLabel, labels, language = 'uz') {
   const range = doc.bufferedPageRange();
-  const created = formatDateTime(new Date());
+  const created = formatDateTime(new Date(), language);
 
   for (let i = range.start; i < range.start + range.count; i += 1) {
     doc.switchToPage(i);
@@ -364,8 +364,8 @@ function svgRectPath(x, y, width, height) {
   return `M${x} ${y}h${width}v${height}h${-width}Z`;
 }
 
-export function reportDate(value) {
-  return formatDate(value);
+export function reportDate(value, language = 'uz') {
+  return formatDate(value, language);
 }
 
 export default { createReportDoc };

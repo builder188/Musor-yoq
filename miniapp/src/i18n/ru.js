@@ -50,6 +50,7 @@ export default {
     error: 'Ошибка',
     saved: 'Сохранено',
     soum: 'сум',
+    createdAt: '\u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e',
   },
 
   home: {

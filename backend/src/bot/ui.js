@@ -2,33 +2,22 @@ import { InlineKeyboard } from 'grammy';
 import { formatMoney, formatConversionLine } from '../utils/money.js';
 import { formatKg } from '../services/materialService.js';
 import { formatPhone } from '../utils/phone.js';
-import { formatDateTime, formatTime, dayWord } from '../utils/dates.js';
+import { formatDate, formatDateTime, formatTime, dayWord } from '../utils/dates.js';
 import { encodeCoords } from './location.js';
 import { missingEntryFields, FIELD_LABELS } from './flow.js';
 import { miniAppUrl } from '../config/env.js';
 
-function pad(value) {
-  return String(value).padStart(2, '0');
-}
-
 export function formatBotDateTime(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return formatDateTime(value);
 }
 
 export function formatBotDate(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
+  return formatDate(value);
 }
 
 export function formatBotTime(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return formatTime(value);
 }
-
 // Manzil matni. Xarita tugmasi faqat Mini App'dagi mapUrl orqali ko'rsatiladi.
 export function locationLabel(service) {
   return service.location?.address || service.location || '-';

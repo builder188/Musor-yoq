@@ -1,5 +1,11 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-02 Sana/vaqt ko'rsatish bugfix
+- **Maqsad:** Mini App, bot va reportlarda sana faqat kun sifatida yoki raqamli oy bilan chiqmasin; `serviceDateTime` va `createdAt` alohida ko'rinsin; uz/ru oy nomlari ishlatilsin.
+- **Tegilgan joylar:** frontend central formatter (`miniapp/src/utils/format.js`), Home/Clients/Services/Finance/Categories/Items/Reminders/Settings, shared `ServiceDetailModal`, i18n `common.createdAt`; backend `utils/dates.js`, bot UI/callbacklar, AI service summaries, PDF/Excel reports.
+- **Natija:** xizmat tarixlari/listlari va AI search natijalari `serviceDateTime`ni soati bilan ko'rsatadi; service detailda `Kiritilgan` (`createdAt`) alohida chiqadi; report oylari `YYYY-MM`/numeric emas, oy nomlari bilan chiqadi.
+- **Tekshiruv:** backend `node --check` barcha `backend/src/**/*.js`; Mini App `npm run build`; `git diff --check` - hammasi OK.
+
 ## 2026-07-02 Darhol saqlash + ixtiyoriy maydonlar (tasdiqlash bosqichi olib tashlandi)
 - **Maqsad (foydalanuvchi):** "Ha, to'g'ri / Yo'q" tasdig'i olib tashlansin — ma'lumot yig'ilgach DARHOL saqlansin; keyin [✏️ Tahrirlash][❌ Bekor qilish][📱 Ilovaga o'tish] tugmalari. Maydonlar ixtiyoriy: "boshqa narsa so'rama" desa qolganlari bo'sh qoldirilib saqlanadi (kamida bitta identifikatsiya sharti bilan); narx keyin kiritilsa balans o'sha payt qo'shiladi. Balansga yozilmaslik bug'i sababi topilsin.
 - **Oqim (agent.js):** `finalizeEntry` → `executeToolFlow` (DARHOL yozadi) → `ENTRY_SAVED` holati + `ui.savedSummaryText`/`savedEntryKeyboard`. `startEntry`/`continueEntry` da stop-signal (`flow.detectStopSignal` + Gemini `stopAsking`); identifikatsiya yetmasa `askMinimumIdentity`. Tahrir: `editSavedEntry`→`applySavedEntryUpdate` (joyida, yangi yozuv yo'q); Bekor: `cancelSavedEntry`→`undoSavedEntry` (kodsiz soft-delete/revert). `classifyPostSaveMessage` — post-save xabar tahrirmi/yangi buyruqmi.

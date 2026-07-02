@@ -13,7 +13,7 @@ import {
   pickNearestByTime,
 } from '../services/serviceService.js';
 import { formatMoney } from '../utils/money.js';
-import { formatDate, formatTime } from '../utils/dates.js';
+import { formatDate, formatDateTime, formatTime } from '../utils/dates.js';
 
 // Xarajat toifasi -> ko'rsatiladigan o'zbekcha nom (balans hisobotidagi xarajat satrlari uchun).
 const CATEGORY_LABEL = {
@@ -118,7 +118,7 @@ async function buildBalanceReport(period) {
   }
   if (r.topService) {
     lines.push(
-      `🏆 Eng qimmat xizmat: ${r.topService.clientName || 'mijoz'} — ${formatMoney(r.topService.price)} (${formatDate(r.topService.date)})`
+      `🏆 Eng qimmat xizmat: ${r.topService.clientName || 'mijoz'} — ${formatMoney(r.topService.price)} (${formatDateTime(r.topService.date)})`
     );
   }
   lines.push(`✅ Bajarilgan xizmatlar: ${r.doneCount} ta`);

@@ -1092,7 +1092,7 @@ async function handleServiceEdit({ fields, rawText, conversation, mode }) {
   }
 
   const label = SERVICE_EDIT_LABEL[fieldKey] || fieldKey;
-  const when = formatDate(service.serviceDateTime);
+  const when = formatDateTime(service.serviceDateTime);
   return {
     text: `Oka, ${service.clientName} [${when}] xizmatining ${label}ini ${display} ga o'zgartiraymi?`,
     keyboard: editConfirmKeyboard(),
@@ -1889,7 +1889,7 @@ function searchSummary(result) {
   if (!count) return "Oka, bunga mos hech narsa topolmadim.";
   const serviceLines = (result.services || [])
     .slice(0, 10)
-    .map((s, i) => `${i + 1}. ${formatDate(s.serviceDateTime)} - ${s.clientName}, ${s.location?.address || '-'}, ${formatMoney(s.price)}`);
+    .map((s, i) => `${i + 1}. ${formatDateTime(s.serviceDateTime)} - ${s.clientName}, ${s.location?.address || '-'}, ${formatMoney(s.price)}`);
   return `Mana topdim oka, ${count} ta:\n${serviceLines.join('\n')}`;
 }
 
