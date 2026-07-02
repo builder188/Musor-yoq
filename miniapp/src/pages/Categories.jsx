@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { getInitData } from '../telegram.js';
-import { formatMoney, formatDate } from '../utils/format.js';
+import { formatMoney, formatDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import Items from './Items.jsx';
@@ -228,7 +228,7 @@ function MaterialRecordCard({ record, t, lang }) {
         </span>
       </div>
       <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-        {formatDate(record.date, lang)}
+        {formatDateTime(record.date, lang)}
         {record.quantityKg > 0 ? ` · ${formatNumber(record.quantityKg)} kg` : ''}
         {record.pricePerKg > 0 ? ` · ${formatMoney(record.pricePerKg)}/kg` : ''}
       </div>

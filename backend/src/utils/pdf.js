@@ -1,6 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { formatMoney } from './money.js';
-import { formatDate, formatDateTime } from './dates.js';
+import { formatDateTime } from './dates.js';
 
 const COLORS = {
   income: '#2E7D32',
@@ -362,10 +362,6 @@ function truncate(value, width) {
 
 function svgRectPath(x, y, width, height) {
   return `M${x} ${y}h${width}v${height}h${-width}Z`;
-}
-
-export function reportDate(value, language = 'uz') {
-  return formatDate(value, language);
 }
 
 export default { createReportDoc };

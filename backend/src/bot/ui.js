@@ -2,17 +2,13 @@ import { InlineKeyboard } from 'grammy';
 import { formatMoney, formatConversionLine } from '../utils/money.js';
 import { formatKg } from '../services/materialService.js';
 import { formatPhone } from '../utils/phone.js';
-import { formatDate, formatDateTime, formatTime, dayWord } from '../utils/dates.js';
+import { formatDateTime, formatTime, dayWord } from '../utils/dates.js';
 import { encodeCoords } from './location.js';
 import { missingEntryFields, FIELD_LABELS } from './flow.js';
 import { miniAppUrl } from '../config/env.js';
 
 export function formatBotDateTime(value) {
   return formatDateTime(value);
-}
-
-export function formatBotDate(value) {
-  return formatDate(value);
 }
 
 export function formatBotTime(value) {
@@ -168,7 +164,7 @@ function savedFieldLines(intent, fields) {
     const taken = fields.direction === 'taken';
     lines.push(`🔔 Qarz eslatmasi — 👤 ${fields.person || '-'} ${taken ? '(men oldim)' : '(men berdim)'}`);
     if (hasNumber(fields.amount)) lines.push(`💰 ${formatMoney(fields.amount)}`);
-    if (fields.dueDate) lines.push(`📅 ${formatBotDate(fields.dueDate)} kuni eslataman`);
+    if (fields.dueDate) lines.push(`📅 ${formatBotDateTime(fields.dueDate)} da eslataman`);
     if (hasNumber(fields.amount) && fields.skipBalance !== true) {
       lines.push(taken ? "💰 Balansga qo'shildi" : '💸 Balansdan ayirildi');
     } else if (fields.skipBalance === true) {

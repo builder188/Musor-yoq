@@ -7,7 +7,7 @@ import UsefulItem, { USEFUL_ITEM_STATUS } from '../models/UsefulItem.js';
 import MaterialCategory from '../models/MaterialCategory.js';
 import { DEFAULT_MATERIALS, materialKey, getMaterialStats, listUsedMaterialNames } from './materialService.js';
 import { notifyOwner } from '../bot/notify.js';
-import { formatDate } from '../utils/dates.js';
+import { formatDateTime } from '../utils/dates.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -48,7 +48,7 @@ export async function ensureMaterialCategory(rawName, { source = 'bot', notify =
 
   const category = await MaterialCategory.create({ name, normalizedName: key, source });
   if (notify) {
-    await notifyOwner(`🆕 Yangi kategoriya yaratildi: "${name}"\n📅 ${formatDate(new Date())} ✅`);
+    await notifyOwner(`🆕 Yangi kategoriya yaratildi: "${name}"\n📅 ${formatDateTime(new Date())} ✅`);
   }
   return { name: category.name, created: true };
 }

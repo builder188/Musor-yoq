@@ -58,7 +58,7 @@ import { answerReadQuery } from './queries.js';
 import { TX_TYPES } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { formatMoney, parseMoney, convertUsdToUzs } from '../utils/money.js';
-import { formatDateTime, formatDate, parseHumanDateTime, parseUzbekDate, correctServiceDateTime } from '../utils/dates.js';
+import { formatDateTime, parseHumanDateTime, parseUzbekDate, correctServiceDateTime } from '../utils/dates.js';
 import { formatPhone, normalizePhone } from '../utils/phone.js';
 import {
   editConfirmKeyboard,
@@ -1852,7 +1852,7 @@ function debtReminderSummary(result) {
   const r = result?.reminder || {};
   const taken = r.direction === 'taken';
   const who = r.person || 'kimdir';
-  const when = formatDate(r.dueDate);
+  const when = formatDateTime(r.dueDate);
   const lines = [
     taken
       ? `Boldi oka, ${who}dan ${formatMoney(r.amount)} qarz olganingizni yozib qo'ydim 🔔`
@@ -1867,7 +1867,7 @@ function debtReminderSummary(result) {
   } else {
     lines.push('⚖️ Balansga tegmadim (so\'raganingizdek).');
   }
-  lines.push(`📅 ${when} kuni eslatib qo'yaman.`);
+  lines.push(`📅 ${when} da eslatib qo'yaman.`);
   return lines.join('\n');
 }
 

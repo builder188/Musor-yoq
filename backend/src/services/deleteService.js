@@ -6,6 +6,7 @@ import UsefulItem from '../models/UsefulItem.js';
 import env from '../config/env.js';
 import Settings from '../models/Settings.js';
 import { applyServiceSchedule } from './reminderService.js';
+import { formatDateTime } from '../utils/dates.js';
 
 const MODELS = {
   client: Client,
@@ -306,11 +307,11 @@ async function restoreServiceLinks(service) {
 }
 
 function serviceNotVisitedNote(date) {
-  return `Bu xizmat ${date.toISOString().slice(0, 10)} da bekor qilindi, borilmagan.`;
+  return `Bu xizmat ${formatDateTime(date)} da bekor qilindi, borilmagan.`;
 }
 
 function clientDeletedHistoryNote(date) {
-  return `Mijoz ${date.toISOString().slice(0, 10)} da o'chirildi. Xizmat tarixi balans uchun saqlandi.`;
+  return `Mijoz ${formatDateTime(date)} da o'chirildi. Xizmat tarixi balans uchun saqlandi.`;
 }
 
 async function assertDeleteCode(code) {

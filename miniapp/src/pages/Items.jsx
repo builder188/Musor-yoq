@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { getInitData } from '../telegram.js';
-import { formatDate, formatMoney } from '../utils/format.js';
+import { formatDateTime, formatMoney } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
@@ -183,7 +183,7 @@ function ItemCard({ item, onClick, t, lang }) {
         <div className="avatar">{initial}</div>
         <div className="job-main">
           <div className="job-name">{item.name}</div>
-          <div className="job-sub">{formatDate(item.acquiredAt || item.createdAt, lang)}</div>
+          <div className="job-sub">{formatDateTime(item.acquiredAt || item.createdAt, lang)}</div>
           {item.estimatedPrice > 0 && <div className="job-price">{formatMoney(item.estimatedPrice)}</div>}
         </div>
         <span className={`badge ${item.status === 'available' ? 'badge-pending' : item.status === 'sold' ? 'badge-done' : 'badge-muted'}`}>
@@ -243,7 +243,7 @@ function ItemDetailModal({ item, onClose, onSell, onGive, onDelete }) {
         </span>
       </div>
       <div className="card">
-        <Row label={t('common.date')} value={formatDate(item.acquiredAt || item.createdAt, lang)} />
+        <Row label={t('common.date')} value={formatDateTime(item.acquiredAt || item.createdAt, lang)} />
         {item.estimatedPrice > 0 && <Row label={t('items.estimatedPrice')} value={formatMoney(item.estimatedPrice)} />}
         {item.soldAmount > 0 && <Row label={t('items.soldAmount')} value={formatMoney(item.soldAmount)} />}
         {item.recipient && <Row label={t('items.recipient')} value={item.recipient} />}

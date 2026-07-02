@@ -13,7 +13,7 @@ import {
   pickNearestByTime,
 } from '../services/serviceService.js';
 import { formatMoney } from '../utils/money.js';
-import { formatDate, formatDateTime, formatTime } from '../utils/dates.js';
+import { formatDateTime, formatTime } from '../utils/dates.js';
 
 // Xarajat toifasi -> ko'rsatiladigan o'zbekcha nom (balans hisobotidagi xarajat satrlari uchun).
 const CATEGORY_LABEL = {
@@ -108,12 +108,12 @@ async function buildBalanceReport(period) {
   ];
   if (r.biggestExpense) {
     lines.push(
-      `🔺 Eng katta xarajat: ${formatMoney(r.biggestExpense.amount)} (${CATEGORY_LABEL[r.biggestExpense.category] || 'Boshqa'}, ${formatDate(r.biggestExpense.date)})`
+      `🔺 Eng katta xarajat: ${formatMoney(r.biggestExpense.amount)} (${CATEGORY_LABEL[r.biggestExpense.category] || 'Boshqa'}, ${formatDateTime(r.biggestExpense.date)})`
     );
   }
   if (r.smallestExpense) {
     lines.push(
-      `🔻 Eng kichik xarajat: ${formatMoney(r.smallestExpense.amount)} (${CATEGORY_LABEL[r.smallestExpense.category] || 'Boshqa'}, ${formatDate(r.smallestExpense.date)})`
+      `🔻 Eng kichik xarajat: ${formatMoney(r.smallestExpense.amount)} (${CATEGORY_LABEL[r.smallestExpense.category] || 'Boshqa'}, ${formatDateTime(r.smallestExpense.date)})`
     );
   }
   if (r.topService) {
