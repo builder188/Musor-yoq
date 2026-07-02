@@ -201,7 +201,7 @@ function ClientDetailModal({ client, onClose, onEdit, onDelete, onOpenService })
               <span className={`badge badge-${badgeOf(service.status)}`}>{t(`status.${service.status}`)}</span>
             </div>
             <div className="sub">
-              {service.location?.address || '-'} · {formatMoney(service.price)}
+              <LocationDisplay location={service.location} inline /> · {formatMoney(service.price)}
             </div>
             {service.isDeletedByClientDeletion && <div className="sub deleted-text">{t('ui.notVisited')}</div>}
             {service.clientDeletionNote && <div className="sub">{service.clientDeletionNote}</div>}
@@ -357,6 +357,7 @@ function EditClientModal({ client, onClose, onSaved }) {
     phone: client.phone || '',
     locationName: client.locations?.[0]?.address || '',
     locationMapUrl: client.locations?.[0]?.mapUrl || '',
+    locationCoordinates: client.locations?.[0]?.coordinates || null,
   });
   const [busy, setBusy] = useState(false);
 
@@ -367,7 +368,7 @@ function EditClientModal({ client, onClose, onSaved }) {
       const updated = await api.put(`/clients/${client._id}`, {
         name: form.name,
         phone: form.phone,
-        location: { address: form.locationName, mapUrl: form.locationMapUrl },
+        location: { address: form.locationName, mapUrl: form.locationMapUrl, coordinates: form.locationCoordinates },
       });
       onSaved(updated);
     } catch (e) {

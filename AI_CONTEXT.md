@@ -1,5 +1,12 @@
 # AI_CONTEXT.md
 
+## 2026-07-02 Lokatsiya pin koordinatalarini saqlash bugfix
+- **Maqsad:** Telegram botdan yuborilgan map pin endi faqat reverse-geocode address matnini emas, original lat/lng koordinatalarini ham saqlaydi. Eski yo'qolgan koordinatalar backfill qilinmaydi; tuzatish faqat kelajak yozuvlarga taalluqli.
+- **DB/service layer:** Service.location va Client.locations[] formatiga coordinates { lat, lng } qo'shildi. serviceService.normalizeLocation va clientService.normalizeLocationInput address, manual mapUrl va coordinates'ni birga saqlaydi; findOrCreateClient xizmatdan kelgan koordinatani client location ro'yxatiga ham uzatadi.
+- **Bot oqimi:** location confirmation/rename callback payloadi qisqa bo'lishi uchun rounded coord faqat lookup sifatida ishlatiladi; saqlashda pending session/conversation ichidagi original Telegram koordinatalari ustuvor. Rename text route yes/no location question'dan oldin ishlaydi.
+- **Mini App:** LocationDisplay address matnining o'zini xarita linkiga aylantiradi: avval manual mapUrl, bo'lmasa https://maps.google.com/?q={lat},{lng}. Alohida "Xaritada ochish" tugmasi olib tashlandi. Home/Clients/Services raw address qatorlari shared rendererga o'tdi; edit formalari mavjud coordinates'ni yashirin payloadda saqlab qoladi.
+- **Tekshiruv:** node --check o'zgargan backend fayllar OK; npm run build OK; Mongoose smoke check Service.location.coordinates va Client.locations[0].coordinates qiymatlarini aniq saqlashini ko'rsatdi.
+
 ## 2026-07-02 Sana/vaqt to'liq ko'rsatish va formatlash bugfix
 - **Markaziy formatlash:** Mini App `miniapp/src/utils/format.js` va backend `backend/src/utils/dates.js` oy nomli formatga o'tdi: uz `4-iyul 2026, soat 11:00`, ru `4 июля 2026, 11:00`. Mini App sahifa-local `Intl.DateTimeFormat` va month array'lar olib tashlandi; `formatDate`/`formatDateTime`/`formatTime`/`formatWeekdayDate`/`formatMonth*` ishlatiladi.
 - **Mini App qamrovi:** mijoz kartalari va tarixida `serviceDateTime` endi vaqt bilan ko'rinadi; xizmatlar list/bottom-sheet, Home qidiruv/AI natijalari, transaction/reminder/deleted restore timestamp'lari formatlandi. Service detail modal va Services bottom-sheet `serviceDateTime`dan tashqari `createdAt`ni ham `Kiritilgan` sifatida ko'rsatadi.
@@ -517,7 +524,7 @@ miniapp/src/
 ## Spec qamrovi (joriy)
 - Bot: ovoz/matn/rasm/lokatsiya · 3 high-level intent + subIntent · bittalab savol · tasdiq xulosasi.
 - Eslatmalar: `reminderAt = serviceDateTime - reminderHoursBefore`, `confirmAt = serviceDateTime + confirmHoursAfter`; cron har xabarni atomar claim qiladi va reschedule eski jadvalni bekor qiladi.
-- Lokatsiya: Client/Service DB formati `{ address, mapUrl }`; Mini App mapUrl uchun yumshoq warning, ko'rinishda faqat mapUrl bo'lsa `Xaritada ochish`.
+- Lokatsiya: Client/Service DB formati `{ address, mapUrl, coordinates }`; bot pin kelajak yozuvlarda original lat/lng saqlaydi. Mini App address matnining o'zi link: manual mapUrl ustuvor, bo'lmasa Google Maps coords; eski yo'qolgan coords backfill qilinmaydi.
 - Mini App: 5 sahifa + sozlamalarda alohida reminder/confirm soatlari.
 - Moliya: daromad faqat xizmat bajarilganda, balans faqat active Transaction income/expense asosida.
 - O'chirish: 1990 kod, soft-delete, 30 kun tiklash, tungi cleanup.

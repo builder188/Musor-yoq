@@ -1628,28 +1628,24 @@ textarea.input {
   gap: 4px;
   align-items: flex-end;
 }
+.location-inline {
+  display: inline;
+}
+.location-link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.location-link:hover {
+  text-decoration: underline;
+}
 .client-location-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
   align-items: flex-end;
 }
-.map-links {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.map-links a {
-  font-size: 12px;
-  color: var(--accent);
-  text-decoration: none;
-  padding: 3px 10px;
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  white-space: nowrap;
-}
-
 /* Eslatma banneri (yangi mijoz formasida) */
 .reminder-banner {
   background: var(--accent-soft);

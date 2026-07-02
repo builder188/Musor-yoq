@@ -14,7 +14,7 @@ function httpError(status, message) {
 
 // Telefon bo'yicha mijozni topadi yoki yangisini yaratadi.
 // Manzil berilsa — mijoz manzillari ro'yxatiga qo'shadi (takrorlanmasa).
-export async function findOrCreateClient({ name, phone, location = '', mapUrl = '' }) {
+export async function findOrCreateClient({ name, phone, location = '', mapUrl = '', coordinates = null }) {
   const normalized = normalizePhone(phone);
   if (!normalized || !/^\+998\d{9}$/.test(normalized)) throw httpError(400, 'Telefon raqami noto\'g\'ri');
 
@@ -31,12 +31,10 @@ export async function findOrCreateClient({ name, phone, location = '', mapUrl = 
   }
 
   // Manzilni mijoz ro'yxatiga qo'shamiz (agar yangi bo'lsa).
-  if (location) {
-    const cleanMapUrl = normalizeMapUrl(mapUrl);
-    const exists = client.locations.some((l) => l.address === location && (l.mapUrl || null) === cleanMapUrl);
-    if (!exists) {
-      client.locations.push({ address: location, mapUrl: cleanMapUrl });
-    }
+  const locationData = normalizeLocationInput(typeof location === 'object' ? location : { address: location, mapUrl, coordinates });
+  if (locationData.address) {
+    const exists = client.locations.some((item) => sameLocation(item, locationData));
+    if (!exists) client.locations.push(locationData);
   }
   await client.save();
   return client;
@@ -123,11 +121,12 @@ export async function updateClient(id, data) {
 
 function normalizeLocationInput(location) {
   if (typeof location === 'string') {
-    return { address: location.trim(), mapUrl: null };
+    return { address: location.trim(), mapUrl: null, coordinates: null };
   }
   return {
     address: String(location?.address || location?.text || '').trim(),
     mapUrl: normalizeMapUrl(location?.mapUrl || location?.mapLink || location?.url || ''),
+    coordinates: normalizeCoordinates(location?.coordinates || location?.coords || location),
   };
 }
 
@@ -135,14 +134,27 @@ function dedupeLocations(locations = []) {
   const seen = new Set();
   const result = [];
   for (const location of locations) {
-    const address = String(location?.address || '').trim();
-    if (!address) continue;
-    const key = address + '\u0000' + (location?.mapUrl || '');
+    const normalized = normalizeLocationInput(location);
+    if (!normalized.address) continue;
+    const key = locationKey(normalized);
     if (seen.has(key)) continue;
     seen.add(key);
-    result.push({ address, mapUrl: location?.mapUrl || null });
+    result.push(normalized);
   }
   return result;
+}
+
+function sameLocation(a, b) {
+  return locationKey(normalizeLocationInput(a)) === locationKey(normalizeLocationInput(b));
+}
+
+function locationKey(location) {
+  return [location.address, location.mapUrl || '', coordinatesKey(location.coordinates)].join('\u0000');
+}
+
+function coordinatesKey(coordinates) {
+  if (!coordinates) return '';
+  return `${coordinates.lat},${coordinates.lng}`;
 }
 
 function normalizeMapUrl(value) {
@@ -154,6 +166,15 @@ function normalizeMapUrl(value) {
   } catch {
     return text;
   }
+}
+
+function normalizeCoordinates(value) {
+  if (!value) return null;
+  const lat = Number(value.lat ?? value.latitude);
+  const lng = Number(value.lng ?? value.longitude ?? value.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
 }
 
 function escapeRegex(str) {

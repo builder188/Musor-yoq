@@ -1,5 +1,12 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-02 Lokatsiya pin koordinatalari bugfix
+- **Maqsad:** bot orqali kelgan Telegram location pin original lat/lng koordinatalarini yo'qotmasin; reverse-geocode address matni va coords bir recordda saqlansin. Eski records backfill qilinmaydi.
+- **Backend:** Service.location va Client.locations[] schema'lariga coordinates qo'shildi. serviceService/clientService normalizerlari address + manual mapUrl + coords'ni birga saqlaydi; service yaratilganda yoki keyin clientga bog'langanda koordinata client locationga ham o'tadi.
+- **Bot:** loc_confirm_* va loc_rename_* callbacklar rounded callback coordni lookup uchun ishlatadi, saqlashda pending original coordni ustuvor qiladi. Location rename text handler LOCATION_QUESTION yes/no oqimidan oldin ishlaydi.
+- **Mini App:** LocationDisplay address matnini link qiladi: manual mapUrl bo'lsa o'sha, bo'lmasa https://maps.google.com/?q={lat},{lng}. Home/Clients/Services list/history qatorlari shu komponentga o'tdi; edit formalari existing coordinates'ni saqlab qoladi.
+- **Tekshiruv:** backend node --check o'zgargan fayllar OK; npm run build OK; Mongoose smoke check service va client location coordinates precision'ini saqladi.
+
 ## 2026-07-02 Sana/vaqt ko'rsatish bugfix
 - **Maqsad:** Mini App, bot va reportlarda sana faqat kun sifatida yoki raqamli oy bilan chiqmasin; `serviceDateTime` va `createdAt` alohida ko'rinsin; uz/ru oy nomlari ishlatilsin.
 - **Tegilgan joylar:** frontend central formatter (`miniapp/src/utils/format.js`), Home/Clients/Services/Finance/Categories/Items/Reminders/Settings, shared `ServiceDetailModal`, i18n `common.createdAt`; backend `utils/dates.js`, bot UI/callbacklar, AI service summaries, PDF/Excel reports.

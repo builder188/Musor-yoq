@@ -36,6 +36,10 @@ const serviceSchema = new mongoose.Schema(
     location: {
       address: { type: String, default: '' },
       mapUrl: { type: String, default: null },
+      coordinates: {
+        lat: { type: Number, default: null },
+        lng: { type: Number, default: null },
+      },
     },
 
     // Sana ixtiyoriy: aytilmagan bo'lsa null (eslatma/tasdiq jadvali qo'yilmaydi).

@@ -211,9 +211,10 @@ export function registerCallbacks(bot) {
         await conv.save();
       }
       if (ctx.session) {
+        const originalCoords = pending?.coordinates || coords;
         ctx.session.pendingLocationRename = true;
-        ctx.session.pendingLocationCoords = coords;
-        ctx.session.pendingLocation = pending || normalizeLocationData('Lokatsiya (xaritada)', coords);
+        ctx.session.pendingLocationCoords = originalCoords;
+        ctx.session.pendingLocation = pending || normalizeLocationData('Lokatsiya (xaritada)', originalCoords);
       }
       await ctx.answerCallbackQuery();
       await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
@@ -580,7 +581,7 @@ function findPendingLocation(ctx, conv, coords) {
 
 async function resolveLocation(ctx, conv, coords) {
   const pending = findPendingLocation(ctx, conv, coords);
-  if (pending?.address) return normalizeLocationData(pending.address, coords);
+  if (pending?.address) return normalizeLocationData(pending.address, pending.coordinates || coords);
   const address = await reverseGeocode(coords.lat, coords.lng);
   return normalizeLocationData(address, coords);
 }

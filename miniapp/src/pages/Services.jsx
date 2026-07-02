@@ -301,7 +301,12 @@ function ServiceCard({ service, expanded, onToggle, draggable = false, onDetail,
           <div className="job-name">{service.clientName}</div>
           <div className="job-sub">
             {formatDateTime(service.serviceDateTime, lang)}
-            {service.location?.address ? ` · ${service.location.address}` : ''}
+            {service.location?.address ? (
+              <>
+                {' · '}
+                <LocationDisplay location={service.location} inline />
+              </>
+            ) : null}
           </div>
           <div className="job-price">{formatMoney(service.price)}</div>
         </div>
@@ -508,6 +513,7 @@ function ServiceFormModal({ service, onClose, onSaved }) {
     clientPhone: service?.clientPhone || '',
     locationName: service?.location?.address || '',
     locationMapUrl: service?.location?.mapUrl || '',
+    locationCoordinates: service?.location?.coordinates || null,
     serviceDateTime: toInputDateTime(service?.serviceDateTime),
     price: service?.price ?? '',
     paymentMethod: service?.paymentMethod || 'naqd',
@@ -518,11 +524,11 @@ function ServiceFormModal({ service, onClose, onSaved }) {
   const [confirmPayload, setConfirmPayload] = useState(null);
 
   const buildPayload = () => {
-    const { locationName, locationMapUrl, ...fields } = form;
+    const { locationName, locationMapUrl, locationCoordinates, ...fields } = form;
     return {
       ...fields,
       price: Number(form.price),
-      location: { address: locationName, mapUrl: locationMapUrl },
+      location: { address: locationName, mapUrl: locationMapUrl, coordinates: locationCoordinates },
       serviceDateTime: new Date(form.serviceDateTime).toISOString(),
     };
   };

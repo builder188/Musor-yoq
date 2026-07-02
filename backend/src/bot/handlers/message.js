@@ -306,6 +306,9 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
   if (conv.pendingIntent === 'EDIT_CONFIRM') {
     return routeEditConfirmation(ctx, conv, text);
   }
+  if (ctx.session?.pendingLocationRename) {
+    return routeLocationRename(ctx, conv, text);
+  }
   if (conv.pendingIntent === 'LOCATION_QUESTION') {
     return routeLocationQuestion(ctx, conv, text);
   }
@@ -314,9 +317,6 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
     if (await routeClarifyChoice(ctx, conv, text)) return;
   } else if (conv.pendingIntent === 'CLIENT_DISAMBIGUATION') {
     if (await routeClientDisambiguation(ctx, conv, text)) return;
-  }
-  if (ctx.session?.pendingLocationRename) {
-    return routeLocationRename(ctx, conv, text);
   }
   // OCR navbati ochiq turganda boshqa narsa yozilsa — navbatni bekor qilamiz.
   if (ctx.session?.ocrQueue?.length > 0) {
@@ -734,10 +734,10 @@ async function routeLocationRename(ctx, conv, text) {
     return;
   }
 
-  const coords = ctx.session?.pendingLocationCoords
-    || ctx.session?.pendingLocation?.coordinates
+  const coords = ctx.session?.pendingLocation?.coordinates
     || conv.collected?.pendingLocation?.coordinates
-    || conv.collected?.location?.coordinates;
+    || conv.collected?.location?.coordinates
+    || ctx.session?.pendingLocationCoords;
   if (!coords || !Number.isFinite(Number(coords.lat)) || !Number.isFinite(Number(coords.lng))) {
     ctx.session.pendingLocationRename = false;
     ctx.session.pendingLocationCoords = null;

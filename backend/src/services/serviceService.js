@@ -58,13 +58,14 @@ function parseOptionalPositiveMoneyAmount(value, message) {
   return parsePositiveMoneyAmount(value, message);
 }
 
-// Manzilni DB formati: { address, mapUrl } shakliga keltirish.
+// Manzilni DB formati: { address, mapUrl, coordinates } shakliga keltirish.
 function normalizeLocation(loc) {
-  if (!loc) return { address: '', mapUrl: null };
-  if (typeof loc === 'string') return { address: loc.trim(), mapUrl: null };
+  if (!loc) return { address: '', mapUrl: null, coordinates: null };
+  if (typeof loc === 'string') return { address: loc.trim(), mapUrl: null, coordinates: null };
   return {
     address: String(loc.address || loc.text || '').trim(),
     mapUrl: normalizeMapUrl(loc.mapUrl || loc.mapLink || loc.url || ''),
+    coordinates: normalizeCoordinates(loc.coordinates || loc.coords || loc),
   };
 }
 
@@ -77,6 +78,15 @@ function normalizeMapUrl(value) {
   } catch {
     return text;
   }
+}
+
+function normalizeCoordinates(value) {
+  if (!value) return null;
+  const lat = Number(value.lat ?? value.latitude);
+  const lng = Number(value.lng ?? value.longitude ?? value.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
 }
 
 // To'lov holatini paidAmount va narxdan aniqlaydi.
@@ -120,6 +130,7 @@ export async function createService(data) {
       phone: normalizedPhone,
       location: location.address,
       mapUrl: location.mapUrl,
+      coordinates: location.coordinates,
     });
   } else if (name) {
     client = await Client.findOne({ name, isDeleted: { $ne: true } });
@@ -373,6 +384,7 @@ export async function editService(serviceId, data) {
         phone: normalized,
         location: service.location?.address || '',
         mapUrl: service.location?.mapUrl || null,
+        coordinates: service.location?.coordinates || null,
       });
       service.clientId = client._id;
       if (!service.clientName) service.clientName = client.name;

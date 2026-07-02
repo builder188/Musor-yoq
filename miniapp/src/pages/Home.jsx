@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { formatMoney, formatPhone, formatDateTime, formatTime, formatWeekdayDate } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
+import LocationDisplay from '../components/LocationDisplay.jsx';
 import { useNavigationView } from '../components/useNavigationView.js';
 
 export default function Home({ onOpenClient, goToTab, onAddClient }) {
@@ -223,7 +224,12 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
           <div className="job-name">{service.clientName || '-'}</div>
           <div className="job-sub">
             {formatTime(service.serviceDateTime, lang)}
-            {service.location?.address ? ` · ${service.location.address}` : ''}
+            {service.location?.address ? (
+              <>
+                {' · '}
+                <LocationDisplay location={service.location} inline />
+              </>
+            ) : null}
           </div>
           <div className="job-price">{formatMoney(service.price)}</div>
         </div>
@@ -333,12 +339,21 @@ function AiChatPanel({ onClose, onSelectService }) {
               {(m.results || []).length > 0 && (
                 <div className="mt-8">
                   {m.results.map((service) => (
-                    <button key={service._id} className="ai-result" onClick={() => onSelectService(service)}>
+                    <div
+                      key={service._id}
+                      className="ai-result"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onSelectService(service)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') onSelectService(service);
+                      }}
+                    >
                       <div className="title">{service.clientName}</div>
                       <div className="sub">
-                        {formatDateTime(service.serviceDateTime, lang)} · {service.location?.address || '-'} · {formatMoney(service.price)}
+                        {formatDateTime(service.serviceDateTime, lang)} · <LocationDisplay location={service.location} inline /> · {formatMoney(service.price)}
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}
