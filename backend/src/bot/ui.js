@@ -4,6 +4,8 @@ import { formatKg } from '../services/materialService.js';
 import { formatPhone } from '../utils/phone.js';
 import { formatDateTime, formatTime, dayWord } from '../utils/dates.js';
 import { encodeCoords } from './location.js';
+import { missingEntryFields, FIELD_LABELS } from './flow.js';
+import { miniAppUrl } from '../config/env.js';
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -122,7 +124,7 @@ export function editConfirmKeyboard() {
   return new InlineKeyboard().text('Ha', 'edit_confirm').text("Yo'q", 'edit_cancel');
 }
 
-// Xarajat toifasi -> ko'rsatiladigan o'zbekcha nom (yakuniy tasdiq xulosasi uchun).
+// Xarajat toifasi -> ko'rsatiladigan o'zbekcha nom (saqlash xulosasi uchun).
 const ENTRY_CATEGORY_LABEL = {
   yoqilgi: "Yoqilg'i",
   tamirlash: "Ta'mirlash",
@@ -130,107 +132,124 @@ const ENTRY_CATEGORY_LABEL = {
   boshqa_chiqim: 'Boshqa',
 };
 
-// Yangi yozuv (SERVICE/EXPENSE/INCOME) saqlashdan OLDINGI yakuniy tekshirish xulosasi.
-// Barcha majburiy maydonlar yig'ilgach ko'rsatiladi; entryConfirmKeyboard bilan birga.
-export function entrySummaryText(intent, fields = {}) {
-  const conv = conversionLineFor(fields); // dollar bo'lsa: "💵 100$ → ... so'm (kurs ...)"
+function hasNumber(value) {
+  return typeof value === 'number' && value > 0;
+}
+
+// Saqlangan yozuvning AYTILGAN maydonlarini ko'rsatadigan qatorlar (bo'shlari chiqmaydi).
+function savedFieldLines(intent, fields) {
+  const lines = [];
   if (intent === 'SERVICE_ENTRY') {
-    const location = fields.location?.address || fields.location || '-';
-    const lines = [
-      'Tekshirib chiqing oka:',
-      EMOJI_DIVIDER,
-      `👤 ${fields.clientName || '-'}`,
-      `☎️ ${formatPhone(fields.clientPhone) || fields.clientPhone || '-'}`,
-      `📍 ${location}`,
-      `💰 ${formatMoney(fields.price)}`,
-      `📅 ${fields.serviceDateTime ? formatBotDateTime(fields.serviceDateTime) : '-'}`,
-    ];
-    if (conv) lines.push(conv);
-    lines.push(EMOJI_DIVIDER);
-    lines.push("Hammasi to'g'rimi?");
-    return lines.join('\n');
+    if (fields.clientName) lines.push(`👤 ${fields.clientName}`);
+    if (fields.clientPhone) lines.push(`☎️ ${formatPhone(fields.clientPhone) || fields.clientPhone}`);
+    const location = fields.location?.address || fields.location;
+    if (location) lines.push(`📍 ${location}`);
+    if (fields.serviceDateTime) lines.push(`📅 ${formatBotDateTime(fields.serviceDateTime)}`);
+    if (hasNumber(fields.price)) lines.push(`💰 ${formatMoney(fields.price)}`);
+    if (fields.notes) lines.push(`📝 ${fields.notes}`);
+    return lines;
   }
   if (intent === 'MATERIAL_SALE') {
-    const name = fields.materialName || 'Material';
-    const qty = typeof fields.quantityKg === 'number' && fields.quantityKg > 0 ? `${formatKg(fields.quantityKg)} kg ` : '';
-    const lines = ['Tekshirib chiqing oka:', `♻️ ${qty}${name} — 💰 ${formatMoney(fields.amount)}`];
-    if (typeof fields.pricePerKg === 'number' && fields.pricePerKg > 0) {
-      lines.push(`📊 1 kg: ${formatMoney(fields.pricePerKg)}`);
-    }
-    if (conv) lines.push(conv);
-    lines.push("To'g'rimi?");
-    return lines.join('\n');
+    const qty = hasNumber(fields.quantityKg) ? `${formatKg(fields.quantityKg)} kg ` : '';
+    lines.push(`♻️ ${qty}${fields.materialName || 'Material'}${hasNumber(fields.amount) ? ` — 💰 ${formatMoney(fields.amount)}` : ''}`);
+    if (hasNumber(fields.pricePerKg)) lines.push(`📊 1 kg: ${formatMoney(fields.pricePerKg)}`);
+    return lines;
   }
   if (intent === 'ITEM_ENTRY') {
-    const lines = ['Tekshirib chiqing oka:', `Buyum: ${fields.itemName || '-'}`];
-    if (typeof fields.estimatedPrice === 'number' && fields.estimatedPrice > 0) {
-      lines.push(`Taxminiy narx: ${formatMoney(fields.estimatedPrice)}`);
-    }
-    if (fields.sourceType === 'voice') lines.push('Manba: ovozli xabar matni biriktiriladi');
-    if (fields.notes) lines.push(`Izoh: ${fields.notes}`);
-    if (conv) lines.push(conv);
-    lines.push("Kerakli buyumlar ro'yxatiga qo'shamizmi?");
-    return lines.join('\n');
+    lines.push(`📦 Buyum: ${fields.itemName || '-'}`);
+    if (hasNumber(fields.estimatedPrice)) lines.push(`💰 Taxminiy narx: ${formatMoney(fields.estimatedPrice)}`);
+    if (fields.sourceType === 'voice') lines.push('🎙 Manba: ovozli xabar biriktirildi');
+    if (fields.notes) lines.push(`📝 ${fields.notes}`);
+    return lines;
   }
   if (intent === 'ITEM_SALE') {
-    const lines = ['Tekshirib chiqing oka:', `${fields.itemName || 'Buyum'} sotildi - ${formatMoney(fields.amount)}`];
-    if (fields.recipient) lines.push(`Oluvchi: ${fields.recipient}`);
-    if (conv) lines.push(conv);
-    lines.push("Balansga kirim qilib yozamizmi?");
-    return lines.join('\n');
+    lines.push(`📦 ${fields.itemName || 'Buyum'} sotildi${hasNumber(fields.amount) ? ` — 💰 ${formatMoney(fields.amount)}` : ''}`);
+    if (fields.recipient) lines.push(`👤 Oluvchi: ${fields.recipient}`);
+    if (hasNumber(fields.amount)) lines.push('💰 Balansga kirim yozildi');
+    else lines.push('⚖️ Summa aytilmagani uchun balansga hech narsa qo\'shilmadi');
+    return lines;
   }
   if (intent === 'ITEM_GIVEAWAY') {
-    const lines = ['Tekshirib chiqing oka:', `${fields.itemName || 'Buyum'} tekinga berildi`];
-    if (fields.recipient) lines.push(`Oluvchi: ${fields.recipient}`);
-    if (fields.notes) lines.push(`Izoh: ${fields.notes}`);
-    lines.push("Ro'yxatdan chiqaramizmi?");
-    return lines.join('\n');
+    lines.push(`📦 ${fields.itemName || 'Buyum'} tekinga berildi (balansga yozilmadi)`);
+    if (fields.recipient) lines.push(`👤 Oluvchi: ${fields.recipient}`);
+    if (fields.notes) lines.push(`📝 ${fields.notes}`);
+    return lines;
   }
   if (intent === 'DEBT_REMINDER') {
     const taken = fields.direction === 'taken';
-    const who = fields.person || '-';
-    const affects = fields.skipBalance !== true;
-    const lines = [
-      'Tekshirib chiqing oka:',
-      EMOJI_DIVIDER,
-      '🔔 Qarz eslatmasi',
-      `👤 ${who} ${taken ? '(men oldim)' : '(men berdim)'}`,
-      `💰 ${formatMoney(fields.amount)}`,
-      `📅 ${fields.dueDate ? formatBotDate(fields.dueDate) : '-'} kuni eslataman`,
-    ];
-    lines.push(affects
-      ? (taken ? '💰 Balansga qo\'shaman' : '💸 Balansdan ayiraman')
-      : '⚖️ Balansga tegmayman');
-    if (conv) lines.push(conv);
-    lines.push(EMOJI_DIVIDER);
-    lines.push("To'g'rimi?");
-    return lines.join('\n');
+    lines.push(`🔔 Qarz eslatmasi — 👤 ${fields.person || '-'} ${taken ? '(men oldim)' : '(men berdim)'}`);
+    if (hasNumber(fields.amount)) lines.push(`💰 ${formatMoney(fields.amount)}`);
+    if (fields.dueDate) lines.push(`📅 ${formatBotDate(fields.dueDate)} kuni eslataman`);
+    if (hasNumber(fields.amount) && fields.skipBalance !== true) {
+      lines.push(taken ? "💰 Balansga qo'shildi" : '💸 Balansdan ayirildi');
+    } else if (fields.skipBalance === true) {
+      lines.push('⚖️ Balansga tegmadim (so\'raganingizdek)');
+    }
+    return lines;
   }
   if (intent === 'INCOME_ENTRY') {
-    const desc = fields.description || fields.notes || fields.incomeSource || '-';
-    const lines = ['Tekshirib chiqing:', `💰 ${formatMoney(fields.amount)} | Kirim`, `📝 ${desc}`];
-    if (conv) lines.push(conv);
-    lines.push("To'g'rimi?");
-    return lines.join('\n');
+    lines.push(`💰 ${hasNumber(fields.amount) ? formatMoney(fields.amount) : 'Summa aytilmagan'} | Kirim`);
+    const desc = fields.description || fields.notes || fields.incomeSource;
+    if (desc) lines.push(`📝 ${desc}`);
+    return lines;
   }
   // EXPENSE_ENTRY
-  const desc = fields.description || fields.notes || '-';
-  const category = ENTRY_CATEGORY_LABEL[fields.category] || 'Boshqa';
-  const lines = ['Tekshirib chiqing:', `💸 ${formatMoney(fields.amount)} | ${category}`, `📝 ${desc}`];
+  lines.push(`💸 ${hasNumber(fields.amount) ? formatMoney(fields.amount) : 'Summa aytilmagan'} | ${ENTRY_CATEGORY_LABEL[fields.category] || 'Boshqa'}`);
+  const desc = fields.description || fields.notes;
+  if (desc) lines.push(`📝 ${desc}`);
+  return lines;
+}
+
+// Yozuv SAQLANGANDAN KEYINGI xulosa xabari (darhol-saqlash oqimi):
+//  - stopped: foydalanuvchi to'xtatgan ("boshqa so'rama") — "Tushunarli oka..." ohangi.
+//  - edited:  tahrirdan keyin yangilangan xulosa.
+// Aytilmagan (bo'sh qolgan) so'raladigan maydonlar "❕Aytilmagan:" qatorida ko'rsatiladi.
+export function savedSummaryText(intent, fields = {}, { stopped = false, edited = false } = {}) {
+  const header = edited
+    ? "Bo'ldi oka, yozuvni yangiladim ✅"
+    : stopped
+      ? "Tushunarli oka, ma'lumotlarni saqladim ✅"
+      : "Boldi oka, yozib qo'ydim ✅";
+  const lines = [header, EMOJI_DIVIDER, ...savedFieldLines(intent, fields)];
+  const conv = conversionLineFor(fields); // dollar bo'lsa: "💵 100$ → ... so'm (kurs ...)"
   if (conv) lines.push(conv);
-  lines.push("To'g'rimi?");
+  const missing = missingEntryFields(intent, fields);
+  if (missing.length) {
+    lines.push(`❕Aytilmagan: ${missing.map((f) => FIELD_LABELS[f] || f).join(', ')}`);
+  }
+  lines.push(EMOJI_DIVIDER);
   return lines.join('\n');
 }
 
-// Yakuniy tasdiq tugmalari: [✅ Ha, to'g'ri][✏️ Yo'q, tahrirlash kerak][❌ Bekor qilish].
-// Matn/ovoz javobi ham qabul qilinadi (message.routeEntryConfirmation).
-export function entryConfirmKeyboard() {
-  return new InlineKeyboard()
-    .text("✅ Ha, to'g'ri", 'entry_save')
-    .row()
-    .text("✏️ Yo'q, tahrirlash kerak", 'entry_edit')
-    .row()
-    .text('❌ Bekor qilish', 'entry_cancel');
+// Saqlangan yozuv uchun intentga mos Mini App sahifasi (tab) havolasi.
+const INTENT_TAB = {
+  SERVICE_ENTRY: 'services',
+  EXPENSE_ENTRY: 'finance',
+  INCOME_ENTRY: 'finance',
+  MATERIAL_SALE: 'finance',
+  ITEM_ENTRY: 'categories',
+  ITEM_SALE: 'categories',
+  ITEM_GIVEAWAY: 'categories',
+  DEBT_REMINDER: 'reminders',
+};
+
+function miniAppTabUrl(intent) {
+  const base = miniAppUrl();
+  if (!base) return null;
+  return `${base}/?tab=${INTENT_TAB[intent] || 'home'}`;
+}
+
+// Saqlangandan KEYINGI 3 tugma: [✏️ Tahrirlash][❌ Bekor qilish][📱 Ilovaga o'tish].
+// Tahrirlash — ALLAQACHON saqlangan yozuvni joyida yangilaydi; Bekor qilish — uni
+// o'chiradi (kodsiz, chunki hozirgina kiritilgan); Ilovaga o'tish — mos sahifani ochadi.
+// Matn/ovoz javobi ham qabul qilinadi (message.routeSavedEntry).
+export function savedEntryKeyboard(intent) {
+  const keyboard = new InlineKeyboard()
+    .text('✏️ Tahrirlash', 'saved_edit')
+    .text('❌ Bekor qilish', 'saved_cancel');
+  const url = miniAppTabUrl(intent);
+  if (url) keyboard.row().webApp("📱 Ilovaga o'tish", url);
+  return keyboard;
 }
 
 // CLARIFY — niyat noaniq bo'lganda tezkor tanlov tugmalari.

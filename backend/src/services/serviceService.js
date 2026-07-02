@@ -5,10 +5,12 @@
 //  - To'lov holati faqat xizmat ichida: tolangan/tolanmagan/qisman.
 import Service, { SERVICE_STATUS, PAYMENT_STATUS } from '../models/Service.js';
 import Transaction, { TX_TYPES } from '../models/Transaction.js';
+import Client from '../models/Client.js';
 import { findOrCreateClient } from './clientService.js';
 import { computeServiceSchedule, applyServiceSchedule } from './reminderService.js';
 import { runGlobal } from '../db/tenantScope.js';
 import { startOfDay, endOfDay } from '../utils/dates.js';
+import { normalizePhone } from '../utils/phone.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -42,6 +44,18 @@ function parseRequiredDate(value, message) {
   const date = new Date(value);
   if (!value || Number.isNaN(date.getTime())) throw badRequest(message);
   return date;
+}
+
+// Ixtiyoriy sana: berilmagan bo'lsa null, berilgan-u noto'g'ri bo'lsa xato.
+function parseOptionalServiceDate(value, message) {
+  if (value === undefined || value === null || value === '') return null;
+  return parseRequiredDate(value, message);
+}
+
+// Ixtiyoriy narx: berilmagan bo'lsa 0 ("hali aytilmagan"), berilgan bo'lsa musbat bo'lishi shart.
+function parseOptionalPositiveMoneyAmount(value, message) {
+  if (value === undefined || value === null || value === '') return 0;
+  return parsePositiveMoneyAmount(value, message);
 }
 
 // Manzilni DB formati: { address, mapUrl } shakliga keltirish.
@@ -87,35 +101,47 @@ async function buildScheduleFields(serviceDateTime, now = new Date()) {
   };
 }
 
-// Yangi xizmat yaratish.
+// Yangi xizmat yaratish. Faqat identifikatsiya (ism YOKI telefon) majburiy —
+// manzil/sana/narx aytilmagan bo'lsa bo'sh qoladi (keyin tahrir/Mini App'dan to'ldiriladi).
 export async function createService(data) {
   const location = normalizeLocation(data.location);
-  if (!location.address?.trim()) throw badRequest('Manzil kerak');
+  const name = String(data.clientName || '').trim();
+  const normalizedPhone = normalizePhone(data.clientPhone);
+  const hasPhone = !!normalizedPhone && /^\+998\d{9}$/.test(normalizedPhone);
+  if (!name && !hasPhone) throw badRequest('Kamida mijoz ismi yoki telefon raqami kerak');
 
-  const client = await findOrCreateClient({
-    name: data.clientName,
-    phone: data.clientPhone,
-    location: location.address,
-    mapUrl: location.mapUrl,
-  });
+  // Telefon bo'lsa — mijoz topiladi/yaratiladi (eski oqim). Telefon aytilmagan bo'lsa,
+  // ism bo'yicha mavjud mijozga bog'laymiz; topilmasa xizmat mijozsiz saqlanadi
+  // (telefon keyin kiritilganda editService bog'laydi).
+  let client = null;
+  if (hasPhone) {
+    client = await findOrCreateClient({
+      name,
+      phone: normalizedPhone,
+      location: location.address,
+      mapUrl: location.mapUrl,
+    });
+  } else if (name) {
+    client = await Client.findOne({ name, isDeleted: { $ne: true } });
+  }
 
-  const serviceDateTime = parseRequiredDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
-  const price = parsePositiveMoneyAmount(data.price, "Xizmat narxi noto'g'ri");
+  const serviceDateTime = parseOptionalServiceDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
+  const price = parseOptionalPositiveMoneyAmount(data.price, "Xizmat narxi noto'g'ri");
 
   // Eslatma/tasdiqlash jadvali xizmat vaqtiga nisbatan (Settings soatlari).
-  // Tarixiy yozuvga jadval qo'yilmaydi (pastda darhol "bajarildi" qilinadi).
-  const schedule = data.isHistorical
+  // Tarixiy yozuvga (yoki sanasi aytilmagan ishga) jadval qo'yilmaydi.
+  const schedule = data.isHistorical || !serviceDateTime
     ? { reminderAt: null, confirmAt: null, reminderSent: true, startReminderSent: true, confirmSent: true }
     : await buildScheduleFields(serviceDateTime);
 
   const service = await Service.create({
-    telegramUserId: client.telegramUserId, // xizmat egasi = mijoz egasi (joriy foydalanuvchi)
-    clientId: client._id,
-    clientName: client.name,
-    clientPhone: client.phone,
+    // Mijoz bo'lsa egasi = mijoz egasi; bo'lmasa tenant plugin joriy foydalanuvchini qo'yadi.
+    ...(client ? { telegramUserId: client.telegramUserId, clientId: client._id } : {}),
+    clientName: client?.name || name,
+    clientPhone: client?.phone || (hasPhone ? normalizedPhone : ''),
     location,
     serviceDateTime,
-    price, // DOIM so'mda (agent dollarni oldindan aylantiradi)
+    price, // DOIM so'mda (agent dollarni oldindan aylantiradi); 0 = hali aytilmagan
     originalAmount: data.originalAmount ?? null,
     originalCurrency: data.originalCurrency ?? null,
     exchangeRateUsed: data.exchangeRateUsed ?? null,
@@ -244,6 +270,11 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
   }
 
   // Daromad tranzaksiyasi (to'liq narx — xizmat bajarilgani uchun).
+  // Narx hali aytilmagan (0) bo'lsa daromad yozilmaydi — narx keyin kiritilganda
+  // editService/ensureServiceIncome balansga qo'shadi.
+  if (!(completed.price > 0)) {
+    return includeTransaction ? { service: completed, transaction: null, created: false } : completed;
+  }
   const transaction = await Transaction.create({
     telegramUserId: completed.telegramUserId, // daromad egasi = xizmat egasi
     type: TX_TYPES.INCOME,
@@ -329,7 +360,24 @@ export async function editService(serviceId, data) {
 
   let scheduleDirty = false;
   if (data.clientName !== undefined) service.clientName = data.clientName;
-  if (data.clientPhone !== undefined) service.clientPhone = data.clientPhone;
+  if (data.clientPhone !== undefined) {
+    const normalized = normalizePhone(data.clientPhone);
+    if (!normalized || !/^\+998\d{9}$/.test(normalized)) {
+      throw badRequest("Telefon raqami noto'g'ri");
+    }
+    service.clientPhone = normalized;
+    // Xizmat mijozsiz saqlangan bo'lsa (telefon keyin aytildi) — endi mijozga bog'laymiz.
+    if (!service.clientId) {
+      const client = await findOrCreateClient({
+        name: data.clientName || service.clientName,
+        phone: normalized,
+        location: service.location?.address || '',
+        mapUrl: service.location?.mapUrl || null,
+      });
+      service.clientId = client._id;
+      if (!service.clientName) service.clientName = client.name;
+    }
+  }
   if (data.location !== undefined) service.location = normalizeLocation(data.location);
   if (data.serviceDateTime !== undefined) {
     service.serviceDateTime = parseRequiredDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
@@ -351,13 +399,17 @@ export async function editService(serviceId, data) {
   if (wasDone && data.price !== undefined && service.price !== oldPrice) {
     if (service.incomeTransactionId) {
       await Transaction.findByIdAndUpdate(service.incomeTransactionId, { amount: service.price });
+    } else if (service.price > 0) {
+      // Xizmat narxsiz (0) bajarilgan edi — narx endi kiritildi: daromadni endi yozamiz
+      // (spec: narx keyin kiritilganda balansga o'sha payt qo'shiladi).
+      await ensureServiceIncome(service);
     }
     service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
   }
 
   // Sana yoki tarixiy holat o'zgarsa — eslatma/tasdiq jadvalini qayta hisoblaymiz
-  // (eskisi bekor bo'lib, yangisi ishlaydi). Faqat kutilayotgan xizmat uchun.
-  if (scheduleDirty && service.status === SERVICE_STATUS.PENDING) {
+  // (eskisi bekor bo'lib, yangisi ishlaydi). Faqat kutilayotgan va sanasi bor xizmat uchun.
+  if (scheduleDirty && service.status === SERVICE_STATUS.PENDING && service.serviceDateTime) {
     await applyServiceSchedule(service);
   }
 

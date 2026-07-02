@@ -166,7 +166,12 @@ function optionalPositiveNumber(value) {
 
 export async function createTransaction(data) {
   const type = data.type === TX_TYPES.INCOME ? TX_TYPES.INCOME : TX_TYPES.EXPENSE;
-  const amount = parsePositiveAmount(data.amount);
+  // Summa ixtiyoriy: aytilmagan bo'lsa 0 (balansga ta'sir qilmaydi — getSummary $sum 0 qo'shadi).
+  // Keyin tahrir/Mini App orqali kiritilganda balans avtomatik yangilanadi. Berilgan-u
+  // noto'g'ri bo'lsa — avvalgidek xato.
+  const amount = data.amount === undefined || data.amount === null || data.amount === ''
+    ? 0
+    : parsePositiveAmount(data.amount);
   const date = parseOptionalDate(data.date) || new Date();
   const category = normalizeCategory(
     type,
@@ -221,6 +226,22 @@ export async function createTransaction(data) {
   return Transaction.create(tx);
 }
 
+// Tranzaksiyani soft-delete qiladi (bot post-save "Bekor qilish" — kod so'ralmaydi,
+// chunki bu hozirgina kiritilgan, hali hech kim ko'rmagan yozuvni bekor qilish).
+export async function softDeleteTransaction(id) {
+  const transaction = await Transaction.findOneAndUpdate(
+    { _id: id, ...notDeleted },
+    { isDeleted: true, deletedAt: new Date() },
+    { new: true }
+  );
+  if (!transaction) {
+    const error = new Error('Tranzaksiya topilmadi');
+    error.status = 404;
+    throw error;
+  }
+  return transaction;
+}
+
 export async function updateTransaction(id, data) {
   const current = await Transaction.findOne({ _id: id, ...notDeleted });
   if (!current) {
@@ -247,6 +268,31 @@ export async function updateTransaction(id, data) {
   }
   if (data.category !== undefined) {
     allowed.category = normalizeCategory(current.type, data.category);
+  }
+
+  // Material sotuvi maydonlari (bot post-save tahriri uchun): nom kanonik shaklga
+  // keltiriladi, izoh qayta quriladi (aniq description berilmagan bo'lsa).
+  if (current.category === MATERIAL_CATEGORY) {
+    let materialDirty = false;
+    if (data.materialName !== undefined && data.materialName) {
+      const resolved = (await resolveMaterialName(data.materialName)) || 'Boshqa';
+      const ensured = await ensureMaterialCategory(resolved, { source: 'bot', notify: true });
+      allowed.materialName = ensured.name || resolved;
+      materialDirty = true;
+    }
+    if (data.quantityKg !== undefined) {
+      allowed.quantityKg = optionalPositiveNumber(data.quantityKg);
+      materialDirty = true;
+    }
+    if (data.pricePerKg !== undefined) {
+      allowed.pricePerKg = optionalPositiveNumber(data.pricePerKg);
+    }
+    if (materialDirty && data.description === undefined && data.note === undefined) {
+      allowed.description = buildMaterialDescription(
+        allowed.materialName ?? current.materialName,
+        allowed.quantityKg ?? current.quantityKg
+      );
+    }
   }
 
   const transaction = await Transaction.findOneAndUpdate({ _id: id, ...notDeleted }, allowed, { new: true });

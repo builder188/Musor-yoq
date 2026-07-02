@@ -66,13 +66,20 @@ async function softDeleteClient(id) {
   return client;
 }
 
-async function softDeleteService(id) {
+// Xizmatni (bog'langan daromadi bilan) soft-delete qiladi. Bot post-save "Bekor qilish"
+// ham shu funksiyani KODSIZ chaqiradi — hozirgina kiritilgan yozuvni bekor qilish uchun
+// 1990-kod so'ralmaydi (softDeleteOne esa avvalgidek kod talab qiladi).
+export async function softDeleteServiceCascade(id) {
   const deletedAt = new Date();
   const service = await Service.findByIdAndUpdate(id, { isDeleted: true, deletedAt }, { new: true });
   if (service?.incomeTransactionId) {
     await Transaction.findByIdAndUpdate(service.incomeTransactionId, { isDeleted: true, deletedAt });
   }
   return service;
+}
+
+async function softDeleteService(id) {
+  return softDeleteServiceCascade(id);
 }
 
 export async function bulkDelete(target, code = env.CONFIRM_DELETE_CODE) {

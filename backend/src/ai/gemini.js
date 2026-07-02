@@ -81,6 +81,11 @@ const classifyTool = {
               paymentMethod: { type: SchemaType.STRING, enum: ['naqd', 'karta', 'otkazma'] },
               notes: { type: SchemaType.STRING },
               isHistorical: { type: SchemaType.BOOLEAN },
+              stopAsking: {
+                type: SchemaType.BOOLEAN,
+                description:
+                  "true ONLY if the owner signals he is DONE giving details / does not want more questions (\"boshqa narsa so'rama\", \"shu yetadi\", \"bilmayman\", \"keyin aytaman\", refuses to answer). Still extract any fields present in the same message.",
+              },
               hasDollar: { type: SchemaType.BOOLEAN, description: 'true if amount was given in USD.' },
               currency: { type: SchemaType.STRING, enum: ['USD', 'UZS'], description: "Currency of the money amount: 'USD' if $/dollar/dollor/usd, else 'UZS'. Still fill price/amount with the number." },
               amount: { type: SchemaType.NUMBER },
@@ -573,7 +578,14 @@ function resolveCurrency(clean = {}) {
 
 export function normalizeExtractedFields(intent, fields = {}) {
   const clean = cleanObject(fields);
+  // stopAsking — "boshqa so'rama" signali: intentdan qat'i nazar saqlanadi (agent
+  // slot-filling'ni to'xtatib, bor ma'lumot bilan darhol saqlashi uchun).
+  const out = normalizeExtractedFieldsByIntent(intent, clean);
+  if (clean.stopAsking === true && out && typeof out === 'object') out.stopAsking = true;
+  return out;
+}
 
+function normalizeExtractedFieldsByIntent(intent, clean) {
   if (intent === 'SERVICE_ENTRY') {
     const phone = clean.clientPhone ? normalizePhone(clean.clientPhone) : null;
     return {

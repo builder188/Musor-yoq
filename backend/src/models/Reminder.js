@@ -51,10 +51,12 @@ const reminderSchema = new mongoose.Schema(
 
     // Qarz qachon berilgan/olingan (voqea sanasi). Balans tranzaksiyasi shu sanaga yoziladi.
     eventDate: { type: Date, default: Date.now },
-    // Egasi qachon eslatish kerakligini aytgan sana (30 iyun).
-    dueDate: { type: Date, required: true },
+    // Egasi qachon eslatish kerakligini aytgan sana (30 iyun). Aytilmagan bo'lsa null —
+    // eslatma yuborilmaydi (keyin tahrir/Mini App orqali kiritilishi mumkin).
+    dueDate: { type: Date, default: null },
     // Cron aynan qachon xabar yuborishi (odatda dueDate). Snooze shuni suradi.
-    remindAt: { type: Date, required: true, index: true },
+    // null bo'lsa cron bu yozuvni hech qachon olmaydi ($lte Date null'ga mos kelmaydi).
+    remindAt: { type: Date, default: null, index: true },
     // At-most-once: yuborishdan oldin atomar true qilinadi, qaytarilmaydi (dublikatdan saqlanish).
     remindSent: { type: Boolean, default: false },
 

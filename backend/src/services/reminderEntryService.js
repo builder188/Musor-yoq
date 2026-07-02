@@ -78,6 +78,8 @@ async function reverseBalanceTransaction(transactionId) {
 }
 
 // Yangi qarz eslatmasi. affectsBalance=true (default) bo'lsa summa balansdan ayiriladi/qo'shiladi.
+// Faqat person (kim) majburiy — summa/sana aytilmagan bo'lsa bo'sh qoladi: summasiz qarz
+// balansga tegmaydi, sanasiz qarz eslatma yubormaydi (keyin tahrir/Mini App to'ldiradi).
 export async function createDebtReminder(data = {}) {
   const type = data.type === REMINDER_TYPE.GENERAL ? REMINDER_TYPE.GENERAL : REMINDER_TYPE.DEBT;
   const direction = directionOf(data.direction);
@@ -85,10 +87,8 @@ export async function createDebtReminder(data = {}) {
   const amount = parsePositiveAmount(data.amount);
 
   const dueDate = toDate(data.dueDate);
-  if (!dueDate) throw badRequest("Eslatma sanasini ayting oka.");
 
   if (type === REMINDER_TYPE.DEBT && !person) throw badRequest("Kimga/kimdan qarz ekanini ayting oka.");
-  if (type === REMINDER_TYPE.DEBT && amount <= 0) throw badRequest("Qarz summasini ayting oka.");
 
   // Balansga ta'sir faqat summa bo'lsa mantiqiy. skipBalance true bo'lsa — tegmaymiz.
   const affectsBalance = type === REMINDER_TYPE.DEBT && amount > 0 && data.affectsBalance !== false;
@@ -122,7 +122,7 @@ export async function createDebtReminder(data = {}) {
     transactionId,
     eventDate,
     dueDate,
-    remindAt: computeRemindAt(dueDate),
+    remindAt: dueDate ? computeRemindAt(dueDate) : null,
     remindSent: false,
     status: REMINDER_STATUS.PENDING,
     source: data.source === 'miniapp' ? 'miniapp' : 'bot',
@@ -145,6 +145,79 @@ export async function listReminders({ status = 'pending', limit = 200 } = {}) {
 export async function getReminderById(id) {
   if (!mongoose.Types.ObjectId.isValid(id)) return null;
   return Reminder.findOne({ _id: id, ...notDeleted }).lean();
+}
+
+// Qarz eslatmasini tahrirlash (bot post-save tahriri): kim/summa/sana/yo'nalish/izoh.
+// Balans tranzaksiyasi bilan sinxron: summa o'zgarsa tx summasi ham; summa keyin kiritilsa
+// (avval 0 edi) va skipBalance so'ralmagan bo'lsa — tx ENDI yaratiladi (balansga shu payt tushadi);
+// skipBalance keyin so'ralsa — tx bekor qilinadi (balans tiklanadi).
+export async function updateDebtReminder(id, data = {}) {
+  const reminder = await Reminder.findOne({ _id: id, ...notDeleted });
+  if (!reminder) throw badRequest('Eslatma topilmadi.');
+
+  if (data.person !== undefined && data.person) {
+    reminder.person = String(data.person).replace(/\s+/g, ' ').trim();
+  }
+  if (data.direction !== undefined && data.direction) {
+    reminder.direction = directionOf(data.direction);
+  }
+  if (data.note !== undefined) reminder.note = data.note || '';
+  if (data.amount !== undefined) {
+    reminder.amount = parsePositiveAmount(data.amount);
+  }
+  if (data.dueDate !== undefined) {
+    const due = toDate(data.dueDate);
+    if (due) {
+      reminder.dueDate = due;
+      reminder.remindAt = computeRemindAt(due);
+      // Yangi sana kelajakda bo'lsa eslatma qaytadan yuborilsin.
+      if (reminder.remindAt.getTime() > Date.now()) reminder.remindSent = false;
+    }
+  }
+  reminder.text = debtText({ direction: reminder.direction, person: reminder.person, type: reminder.type });
+
+  // Balans holatini kelishtiramiz. wantBalance: summa bor va skipBalance so'ralmagan.
+  const wantBalance =
+    reminder.type === REMINDER_TYPE.DEBT &&
+    reminder.amount > 0 &&
+    (data.affectsBalance !== undefined ? data.affectsBalance !== false : reminder.affectsBalance || !reminder.transactionId);
+  if (reminder.status === REMINDER_STATUS.PENDING) {
+    if (wantBalance && reminder.transactionId) {
+      // Mavjud tx'ni yangilaymiz (summa/yo'nalish/sana/izoh mos bo'lsin).
+      const type = reminder.direction === REMINDER_DIRECTION.TAKEN ? TX_TYPES.INCOME : TX_TYPES.EXPENSE;
+      const who = reminder.person || '-';
+      await Transaction.updateOne(
+        { _id: reminder.transactionId, ...notDeleted },
+        {
+          $set: {
+            amount: reminder.amount,
+            type,
+            description: reminder.direction === REMINDER_DIRECTION.TAKEN ? `Qarz olindi: ${who}` : `Qarz berildi: ${who}`,
+          },
+        }
+      ).catch(() => null);
+      reminder.affectsBalance = true;
+    } else if (wantBalance && !reminder.transactionId) {
+      const tx = await createBalanceTransaction({
+        direction: reminder.direction,
+        person: reminder.person,
+        amount: reminder.amount,
+        eventDate: reminder.eventDate,
+      });
+      reminder.transactionId = tx._id;
+      reminder.affectsBalance = true;
+    } else if (!wantBalance && reminder.transactionId) {
+      await reverseBalanceTransaction(reminder.transactionId);
+      reminder.transactionId = null;
+      reminder.affectsBalance = false;
+    } else {
+      reminder.affectsBalance = false;
+    }
+  }
+
+  await reminder.save();
+  const summary = await getSummary('all');
+  return { reminder: serialize(reminder), balanceAfter: summary.balance, affectsBalance: reminder.affectsBalance };
 }
 
 // Qarz hal bo'ldi (qaytdi/to'lab yubordim) — balans tranzaksiyasi bekor qilinadi (tiklanadi).
@@ -208,6 +281,7 @@ export default {
   REMINDER_TYPE,
   REMINDER_DIRECTION,
   createDebtReminder,
+  updateDebtReminder,
   listReminders,
   getReminderById,
   markReminderDone,

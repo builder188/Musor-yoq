@@ -25,20 +25,25 @@ const imageSchema = new mongoose.Schema(
 
 const serviceSchema = new mongoose.Schema(
   {
-    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true, index: true },
+    // Telefon aytilmagan bo'lsa xizmat mijozsiz (faqat clientName bilan) saqlanishi mumkin —
+    // keyin telefon kiritilganda editService mijozga bog'laydi.
+    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null, index: true },
     // Tezkorlik uchun nusxa (denormalizatsiya).
     clientName: { type: String },
     clientPhone: { type: String },
 
+    // Manzil ixtiyoriy: aytilmagan bo'lsa address bo'sh qoladi.
     location: {
-      address: { type: String, required: true },
+      address: { type: String, default: '' },
       mapUrl: { type: String, default: null },
     },
 
-    serviceDateTime: { type: Date, required: true, index: true },
+    // Sana ixtiyoriy: aytilmagan bo'lsa null (eslatma/tasdiq jadvali qo'yilmaydi).
+    serviceDateTime: { type: Date, default: null, index: true },
     isHistorical: { type: Boolean, default: false },
 
-    price: { type: Number, required: true, min: 0 }, // YAKUNIY summa — DOIM so'mda (balans/hisobot shu).
+    // 0 = narx hali aytilmagan (balansga ta'sir qilmaydi). Musbat qiymat — DOIM so'mda.
+    price: { type: Number, default: 0, min: 0 }, // YAKUNIY summa (balans/hisobot shu).
     // Asl valyuta (dollarda kelishilган bo'lsa) — faqat eslab qolish uchun; balansda ishlatilmaydi.
     originalAmount: { type: Number, default: null }, // mas. 100
     originalCurrency: { type: String, default: null }, // mas. 'USD'

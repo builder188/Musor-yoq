@@ -22,20 +22,27 @@ export function interpretYesNo(text) {
   return null;
 }
 
-// Yakuniy tasdiq (yangi yozuv xulosasi) javobi: 'save' | 'edit' | 'cancel' | null.
-// 3 tugma: [✅ Ha, to'g'ri][✏️ Yo'q, tahrirlash kerak][❌ Bekor qilish] — matn/ovoz bilan ham.
-// Tartib muhim: avval bekor, keyin tahrir ("yo'q"/"noto'g'ri"/"tahrirla"), keyin saqlash ("ha"/"to'g'ri").
-export function interpretEntryConfirm(text) {
+// Saqlangan yozuv xulosasiga (darhol-saqlash oqimi, 3 tugma) matn/ovoz javobi:
+//  'cancel' — saqlangan yozuvni o'chirish ("bekor", "o'chir", "kerakmas").
+//  'edit'   — qisqa/umumiy tahrir so'rovi ("tahrirla", "yo'q", "noto'g'ri") — bot
+//             "nimani o'zgartiramiz?" deb so'raydi. Qiymatli gap ("narxini 200 ming qil")
+//             bu yerda ushlanmaydi — NLU orqali to'g'ridan-to'g'ri tahrir qilinadi.
+//  'ack'    — tasdiq/rahmat ("ha", "to'g'ri", "rahmat", "zo'r") — hech narsa qilinmaydi.
+//  null     — boshqa gap (NLU hal qiladi: tahrirmi yoki yangi buyruqmi).
+export function interpretSavedReply(text) {
   const v = norm(text);
   if (!v) return null;
-  if (/^(bekor|otmen|otmena|cancel|saqlama|qoldir|kerakmas|kerak emas|hammasini bekor)\b/.test(v)) {
+  const words = v.split(/\s+/).length;
+  if (/^(bekor|otmen|otmena|cancel|o'?chir|ochir|saqlama|kerakmas|kerak emas|hammasini bekor)\b/.test(v)) {
     return 'cancel';
   }
-  if (/(tahrir|o'?zgartir|noto'?g'?ri|notog'?ri|xato|edit|to'?g'?rila|almashtir|^yo'?q\b|^yoq\b|^emas\b)/.test(v)) {
+  // Umumiy tahrir so'rovi — faqat QISQA, qiymatsiz gapda ("tahrirla", "yo'q, xato").
+  // Uzun gap ("telefonini 90... ga o'zgartir") NLU'ga o'tadi (aniq maydon tahriri).
+  if (words <= 3 && /(^tahrir|tahrirla|^yo'?q\b|^yoq\b|noto'?g'?ri|notog'?ri|^xato\b|^edit\b|to'?g'?rila)/.test(v)) {
     return 'edit';
   }
-  if (/^(ha+|xa+|to'?g'?ri|to'?gri|bo'?ladi|bo'?pti|mayli|saqla|saqlang|yoz|yozing|tasdiq|tasdiqla|ok|okey|xo'?p|zo'?r|albatta|durust)\b/.test(v)) {
-    return 'save';
+  if (words <= 3 && /^(ha+|xa+|to'?g'?ri|to'?gri|bo'?ldi|boldi|bo'?ladi|bo'?pti|mayli|rahmat|raxmat|ok|okey|xo'?p|zo'?r|albatta|durust|yaxshi|tasdiq)\b/.test(v)) {
+    return 'ack';
   }
   return null;
 }
@@ -98,7 +105,7 @@ function ordinalIndex(v) {
 
 export default {
   interpretYesNo,
-  interpretEntryConfirm,
+  interpretSavedReply,
   interpretConfirmAction,
   interpretPaymentMethod,
   matchClarifyOption,

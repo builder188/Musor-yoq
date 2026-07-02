@@ -4,16 +4,17 @@ import { parseMoney } from '../utils/money.js';
 import { parseHumanDateTime, parseUzbekDate } from '../utils/dates.js';
 import { PAYMENT_METHODS } from '../models/Service.js';
 
-// MIJOZ (SERVICE_ENTRY) majburiy maydonlar tartibi:
-// ism -> tel -> manzil -> sana/vaqt -> narx.
-// To'lov usuli (paymentMethod) so'ralmaydi — egasi uchun ahamiyatga ega emas
-// (model defaulti 'naqd' bo'ladi, kerak bo'lsa Mini App'dan o'zgartiriladi).
+// So'rash tartibi (STANDART holat): AI yetishmayotgan maydonlarni shu tartibda
+// navbat bilan so'raydi. MUHIM: bular endi QAT'IY majburiy EMAS — foydalanuvchi
+// to'xtatsa ("boshqa so'rama", "shu yetadi"...) qolganlari BO'SH qoldirilib saqlanadi.
+// Yagona qat'iy talab — ENTRY_MINIMUM (kamida bitta identifikatsiya maydoni).
+// To'lov usuli (paymentMethod) so'ralmaydi (model defaulti 'naqd').
 export const ENTRY_REQUIRED = {
   SERVICE_ENTRY: ['clientName', 'clientPhone', 'location', 'serviceDateTime', 'price'],
   EXPENSE_ENTRY: ['amount'],
   INCOME_ENTRY: ['amount'],
-  // Material sotuvi: material nomi + umumiy summa shart. Summa to'g'ridan aytilmasa,
-  // miqdor*kilo narxidan hisoblanadi (applyEntryDefaults), shunda 'amount' to'ladi.
+  // Material sotuvi: summa to'g'ridan aytilmasa, miqdor*kilo narxidan hisoblanadi
+  // (applyEntryDefaults), shunda 'amount' to'ladi.
   MATERIAL_SALE: ['materialName', 'amount'],
   ITEM_ENTRY: ['itemName'],
   ITEM_SALE: ['itemName', 'amount'],
@@ -21,6 +22,69 @@ export const ENTRY_REQUIRED = {
   // Qarz eslatma: kim (person) + summa + qachon eslatish (dueDate).
   DEBT_REMINDER: ['person', 'amount', 'dueDate'],
 };
+
+// ENG KAM talab: yozuv nima haqida ekanini bildiradigan KAMIDA BITTA maydon
+// (ro'yxatdan istalgan biri yetarli). Busiz saqlab bo'lmaydi — nima saqlanayotgani noaniq.
+export const ENTRY_MINIMUM = {
+  SERVICE_ENTRY: ['clientName', 'clientPhone'],
+  EXPENSE_ENTRY: ['amount', 'description', 'category'],
+  INCOME_ENTRY: ['amount', 'description'],
+  MATERIAL_SALE: ['materialName'],
+  ITEM_ENTRY: ['itemName'],
+  ITEM_SALE: ['itemName'],
+  ITEM_GIVEAWAY: ['itemName'],
+  DEBT_REMINDER: ['person'],
+};
+
+// Kamida bitta identifikatsiya maydoni to'lganmi?
+export function hasMinimumIdentity(intent, collected) {
+  const keys = ENTRY_MINIMUM[intent] || [];
+  if (!keys.length) return true;
+  return keys.some((field) => hasValue(field, collected));
+}
+
+// So'raladigan maydonlardan hali bo'sh qolganlari (xulosadagi "Aytilmagan" ro'yxati uchun).
+export function missingEntryFields(intent, collected) {
+  return (ENTRY_REQUIRED[intent] || []).filter((field) => !hasValue(field, collected));
+}
+
+// Maydonlarning foydalanuvchiga ko'rinadigan o'zbekcha nomlari ("Aytilmagan: manzil, narx").
+export const FIELD_LABELS = {
+  clientName: 'ism',
+  clientPhone: 'telefon',
+  location: 'manzil',
+  serviceDateTime: 'sana/vaqt',
+  price: 'narx',
+  paymentMethod: "to'lov usuli",
+  amount: 'summa',
+  category: 'toifa',
+  description: 'izoh',
+  materialName: 'material nomi',
+  quantityKg: 'miqdor (kg)',
+  pricePerKg: 'kilo narxi',
+  itemName: 'buyum nomi',
+  estimatedPrice: 'taxminiy narx',
+  recipient: 'oluvchi',
+  person: 'kim',
+  dueDate: 'eslatma sanasi',
+};
+
+// Foydalanuvchi ma'lumot berishni TUGATGANINI bildiradimi? ("boshqa narsa so'rama",
+// "shu yetadi", "bilmayman", qisqa "bo'ldi"...). Bu deterministik zaxira — Gemini ham
+// kontekstdan tushunsa fields.stopAsking=true beradi (ikkalasi ham tekshiriladi).
+const STOP_PHRASE_RE = /(so'?rama|so'?ramang|surama|shu yetadi|shu kifoya|yetarli|qolganini keyin|keyin aytaman|keyin kiritaman|keyin yozaman|hozircha shu|boshqa narsa yo'?q|boshqasi yo'?q|bilmayman|bilmadim|esimda yo'?q|shart emas|hozir bilmayman)/i;
+const STOP_SHORT_RE = /^(bo'?ldi|boldi|bo'?ldi shu|shu bo'?ldi|shu|shu xolos|xolos|tamom|tugadi|yetadi|yetarli|kifoya)[.!\s]*$/i;
+
+export function detectStopSignal(text) {
+  const v = String(text || '').replace(/[`'‘’ʻ]/g, "'").trim().toLowerCase();
+  if (!v) return false;
+  if (STOP_PHRASE_RE.test(v)) return true;
+  // Qisqa yakun so'zlari faqat butun xabar shulardan iborat bo'lsa (<= 3 so'z) sanaladi
+  // ("bo'ldi" — yetarli; "ish bo'ldi zo'r narsa..." — emas).
+  const words = v.split(/\s+/);
+  if (words.length <= 3 && STOP_SHORT_RE.test(v)) return true;
+  return false;
+}
 
 export const QUESTIONS = {
   clientPhone: '📞 Mijozning telefon raqami nechi, oka?',
@@ -93,6 +157,8 @@ export function mergeFields(collected, incoming = {}, { overwrite = false } = {}
   const out = { ...collected };
   for (const [key, raw] of Object.entries(incoming)) {
     if (raw === null || raw === undefined || raw === '' || raw === false) continue;
+    // stopAsking — bir martalik xabar signali (yig'ilgan maydon emas), saqlanmaydi.
+    if (key === 'stopAsking') continue;
     let value = raw;
     if (key === 'clientPhone' || key === 'targetPhone') value = normalizePhone(raw) || raw;
     else if (key === 'price' || key === 'amount' || key === 'paymentAmount' || key === 'quantityKg' || key === 'pricePerKg' || key === 'estimatedPrice') value = parseMoney(raw);

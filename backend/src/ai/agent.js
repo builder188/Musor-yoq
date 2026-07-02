@@ -8,6 +8,10 @@ import {
   hasValue,
   nextMissing,
   nextSoftAsk,
+  hasMinimumIdentity,
+  detectStopSignal,
+  ENTRY_MINIMUM,
+  FIELD_LABELS,
   QUESTIONS,
   normalizeExpenseCategory,
 } from '../bot/flow.js';
@@ -26,8 +30,15 @@ import {
   editService,
   rescheduleService,
 } from '../services/serviceService.js';
-import { createTransaction, getSummary, listTransactions } from '../services/financeService.js';
-import { createDebtReminder } from '../services/reminderEntryService.js';
+import {
+  createTransaction,
+  getSummary,
+  listTransactions,
+  updateTransaction,
+  softDeleteTransaction,
+} from '../services/financeService.js';
+import { createDebtReminder, updateDebtReminder, deleteReminder } from '../services/reminderEntryService.js';
+import { softDeleteServiceCascade } from '../services/deleteService.js';
 import { listClients, updateClient } from '../services/clientService.js';
 import { formatKg } from '../services/materialService.js';
 import {
@@ -35,6 +46,11 @@ import {
   sellUsefulItem,
   giveAwayUsefulItem,
   confirmUsefulItemAction,
+  updateUsefulItem,
+  updateItemSale,
+  revertItemSale,
+  revertItemGiveaway,
+  softDeleteUsefulItem,
 } from '../services/usefulItemService.js';
 import { searchServices, findServiceForUpdate, findClient, findClientsByName } from '../services/searchService.js';
 import { getUsdToUzsRate } from '../services/exchangeRateService.js';
@@ -42,15 +58,16 @@ import { answerReadQuery } from './queries.js';
 import { TX_TYPES } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { formatMoney, parseMoney, convertUsdToUzs } from '../utils/money.js';
-import { formatDateTime, formatDate, parseHumanDateTime, correctServiceDateTime } from '../utils/dates.js';
+import { formatDateTime, formatDate, parseHumanDateTime, parseUzbekDate, correctServiceDateTime } from '../utils/dates.js';
 import { formatPhone, normalizePhone } from '../utils/phone.js';
 import {
   editConfirmKeyboard,
   paymentMethodKeyboard,
   clientPickKeyboard,
   clarifyKeyboard,
-  entrySummaryText,
-  entryConfirmKeyboard,
+  savedSummaryText,
+  savedEntryKeyboard,
+  reminderInfoLine,
 } from '../bot/ui.js';
 
 // Yetishmayotgan maydonni so'rash — paymentMethod uchun tugmalar bilan.
@@ -459,10 +476,42 @@ function applyDateTimeCorrection(intent, fields, rawText) {
   return fields;
 }
 
+// Foydalanuvchi TO'XTATDI ("boshqa so'rama", "shu yetadi" yoki Gemini stopAsking) —
+// qolgan maydonlar so'ralmay, mavjud ma'lumot bilan DARHOL saqlanadi. Faqat kamida
+// bitta identifikatsiya maydoni bo'lishi shart, aks holda nima saqlanishi noaniq.
+function stopRequested(understandingFields, rawText) {
+  return understandingFields?.stopAsking === true || detectStopSignal(rawText);
+}
+
+// Identifikatsiya yetishmasa: saqlamaymiz — sababi bilan birinchi identifikatsiya maydonini so'raymiz.
+async function askMinimumIdentity({ conversation, intent, collected }) {
+  const keys = ENTRY_MINIMUM[intent] || [];
+  const field = keys[0] || nextMissing(intent, collected);
+  if (conversation) {
+    conversation.pendingIntent = intent;
+    conversation.collected = collected;
+    conversation.awaitingField = field;
+    conversation.markModified('collected');
+    await conversation.save();
+  }
+  const labels = keys.map((k) => FIELD_LABELS[k] || k).join(' yoki ');
+  const ask = field ? askField(field) : { text: '' };
+  return { text: `Tushunarli oka, lekin saqlash uchun kamida ${labels} kerak.\n${ask.text}`.trim(), keyboard: ask.keyboard };
+}
+
 async function startEntry({ conversation, intent, fields, rawText, mode, sourceMeta = null }) {
   fields = applyDateTimeCorrection(intent, fields, rawText);
   const collected = applyEntryDefaults(intent, attachEntrySource(intent, mergeFields({}, fields), rawText, sourceMeta));
   trackEntryCurrency(intent, collected, undefined, fields, rawText);
+
+  // Birinchi xabardayoq "boshqa so'rama" desa — bor ma'lumot bilan darhol saqlaymiz.
+  if (stopRequested(fields, rawText)) {
+    if (!hasMinimumIdentity(intent, collected)) {
+      return askMinimumIdentity({ conversation, intent, collected });
+    }
+    return finalizeEntry({ conversation, intent, collected, rawText, mode, stopped: true });
+  }
+
   const missing = nextMissing(intent, collected);
 
   if (missing) {
@@ -514,16 +563,22 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
     return finalizeEntry({ conversation, intent, collected, rawText, mode });
   }
 
-  // SUXBAT pivoti: maydon to'ldirish o'rtasida foydalanuvchi savol/qidiruv bersa —
-  // javob beramiz, keyin to'xtagan maydonni qayta so'raymiz. Sessiya saqlanadi.
-  const pivot = await maybePivot({ conversation, understanding, rawText, mode });
-  if (pivot) return pivot;
+  // Foydalanuvchi to'xtatdimi? ("boshqa so'rama", "shu yetadi", Gemini stopAsking) —
+  // pivot/korreksiyaga bermay, shu xabardagi maydonlarni olib DARHOL saqlaymiz.
+  const stopped = stopRequested(understanding?.fields, rawText);
 
-  // Niyat korreksiyasi: AI avval xato tushunib, foydalanuvchi darhol boshqa aniq niyatni
-  // bildirsa — eski sessiyani tashlab, yangi niyatni shu zahoti ishga tushiramiz.
-  if (maybeCorrectIntent({ conversation, understanding, rawText })) {
-    await conversation.reset();
-    return runAgent({ understanding, rawText, conversation, mode });
+  if (!stopped) {
+    // SUXBAT pivoti: maydon to'ldirish o'rtasida foydalanuvchi savol/qidiruv bersa —
+    // javob beramiz, keyin to'xtagan maydonni qayta so'raymiz. Sessiya saqlanadi.
+    const pivot = await maybePivot({ conversation, understanding, rawText, mode });
+    if (pivot) return pivot;
+
+    // Niyat korreksiyasi: AI avval xato tushunib, foydalanuvchi darhol boshqa aniq niyatni
+    // bildirsa — eski sessiyani tashlab, yangi niyatni shu zahoti ishga tushiramiz.
+    if (maybeCorrectIntent({ conversation, understanding, rawText })) {
+      await conversation.reset();
+      return runAgent({ understanding, rawText, conversation, mode });
+    }
   }
 
   const intent = conversation.pendingIntent;
@@ -533,12 +588,21 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
   const incoming = applyDateTimeCorrection(intent, understanding.fields || {}, rawText);
   let collected = mergeFields(conversation.collected || {}, incoming);
 
-  if (conversation.awaitingField && !hasValue(conversation.awaitingField, collected)) {
+  // To'xtash xabarining o'zi maydon qiymati emas — uni so'ralayotgan maydonga yozmaymiz
+  // ("boshqa so'rama" manzilga aylanib qolmasin).
+  if (!stopped && conversation.awaitingField && !hasValue(conversation.awaitingField, collected)) {
     collected = applyRawValue(conversation.awaitingField, rawText, collected);
   }
   collected = applyEntryDefaults(intent, collected);
   // Summa shu turda kelgan/o'zgargan bo'lsa — valyutasini (USD/UZS) belgilab qo'yamiz.
   trackEntryCurrency(intent, collected, prevAmount, understanding.fields || {}, rawText);
+
+  if (stopped) {
+    if (!hasMinimumIdentity(intent, collected)) {
+      return askMinimumIdentity({ conversation, intent, collected });
+    }
+    return finalizeEntry({ conversation, intent, collected, rawText, mode, stopped: true });
+  }
 
   const missing = nextMissing(intent, collected);
   if (missing) {
@@ -555,9 +619,46 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
   return finalizeEntry({ conversation, intent, collected, rawText, mode });
 }
 
-// Barcha majburiy maydonlar yig'ilgach — DARHOL saqlamaymiz. Avval yakuniy tekshirish
-// xulosasini ko'rsatamiz (3 tugma); foydalanuvchi tasdiqlagandan keyingina saqlanadi.
-async function finalizeEntry({ conversation, intent, collected, rawText, mode }) {
+// Saqlangan yozuvga ko'rsatkich (post-save tahrir/bekor uchun) — tool natijasidan.
+// null qaytsa post-save bosqichi ko'rsatilmaydi (hech narsa saqlanmagan).
+function savedRefFromResult(intent, toolResult) {
+  if (!toolResult) return null;
+  switch (intent) {
+    case 'SERVICE_ENTRY':
+      return toolResult.id ? { type: 'service', serviceId: String(toolResult.id) } : null;
+    case 'EXPENSE_ENTRY':
+    case 'INCOME_ENTRY':
+    case 'MATERIAL_SALE':
+      return toolResult._id ? { type: 'transaction', transactionId: String(toolResult._id) } : null;
+    case 'ITEM_ENTRY':
+      return toolResult._id ? { type: 'item', itemId: String(toolResult._id) } : null;
+    case 'ITEM_SALE':
+      return toolResult.transaction?._id
+        ? {
+            type: 'item_sale',
+            transactionId: String(toolResult.transaction._id),
+            itemId: toolResult.item?._id ? String(toolResult.item._id) : null,
+          }
+        : null;
+    case 'ITEM_GIVEAWAY':
+      return toolResult.item?._id ? { type: 'item_giveaway', itemId: String(toolResult.item._id) } : null;
+    case 'DEBT_REMINDER':
+      return toolResult.reminder?._id
+        ? {
+            type: 'reminder',
+            reminderId: String(toolResult.reminder._id),
+            transactionId: toolResult.reminder.transactionId ? String(toolResult.reminder.transactionId) : null,
+          }
+        : null;
+    default:
+      return null;
+  }
+}
+
+// Ma'lumot yig'ilgach (yoki foydalanuvchi to'xtatgach) — DARHOL saqlanadi (MongoDB'ga
+// yoziladi, kirim bo'lsa balans avtomatik qamraydi). "Ha/Yo'q" tasdig'i YO'Q. Saqlangach
+// xulosa + 3 tugma ko'rsatiladi: [✏️ Tahrirlash][❌ Bekor qilish][📱 Ilovaga o'tish].
+async function finalizeEntry({ conversation, intent, collected, rawText, mode, stopped = false }) {
   // Dollar bo'lsa — so'mga aylantiramiz (yoki kurs yo'q bo'lsa so'mda qayta so'raymiz).
   const conv = await applyCurrencyConversion(intent, collected);
   if (conv.needSom) {
@@ -571,18 +672,48 @@ async function finalizeEntry({ conversation, intent, collected, rawText, mode })
   }
   collected = conv.collected;
 
-  if (conversation && mode === 'bot') {
-    conversation.pendingIntent = 'ENTRY_CONFIRM';
-    conversation.collected = { confirmIntent: intent, fields: collected, rawText };
-    conversation.awaitingField = 'confirmEntry';
-    conversation.markModified('collected');
-    await conversation.save();
-    return { text: entrySummaryText(intent, collected), keyboard: entryConfirmKeyboard() };
+  const result = await executeToolFlow({ intent, fields: collected, rawText, mode, conversation });
+
+  // Buyum nomi noaniq (ITEM_MATCH_CONFIRM) — hali saqlanmadi; tanlovdan keyin
+  // confirmPendingUsefulItemMatch post-save bosqichini o'zi ko'rsatadi.
+  if (conversation?.pendingIntent === 'ITEM_MATCH_CONFIRM') return result;
+
+  if (result?.error) {
+    if (conversation) await conversation.reset();
+    return result;
   }
 
-  const result = await executeToolFlow({ intent, fields: collected, rawText, mode, conversation });
-  if (conversation && conversation.pendingIntent !== 'ITEM_MATCH_CONFIRM') await conversation.reset();
+  const saved = savedRefFromResult(intent, result?.result);
+  if (conversation && mode === 'bot' && saved) {
+    return enterPostSaveState({ conversation, intent, collected, saved, rawText, stopped, toolResult: result });
+  }
+
+  if (conversation) await conversation.reset();
   return result;
+}
+
+// Saqlangan yozuv uchun post-save holatini yozadi va xulosa + 3 tugma javobini quradi.
+async function enterPostSaveState({ conversation, intent, collected, saved, rawText, stopped = false, edited = false, toolResult = null }) {
+  conversation.pendingIntent = 'ENTRY_SAVED';
+  conversation.collected = { savedIntent: intent, fields: collected, saved, rawText, stopped };
+  conversation.awaitingField = 'postSave';
+  conversation.markModified('collected');
+  await conversation.save();
+
+  let text = savedSummaryText(intent, collected, { stopped, edited });
+  // Xizmat saqlanganda eslatma/tasdiq jadvali haqidagi ma'lumot xulosaga qo'shiladi.
+  if (intent === 'SERVICE_ENTRY' && toolResult?.result) {
+    const info = reminderInfoLine(toolResult.result);
+    if (info) text = `${text}\n${info}`;
+  }
+  // Buyum sotuvida ogohlantirish bo'lsa ("ro'yxatda yo'q edi") — ko'rsatamiz.
+  if (toolResult?.result?.warning) text = `${text}\n⚠️ ${toolResult.result.warning}`;
+  // Qarz balansga ta'sir qilgan bo'lsa — joriy balansni ko'rsatamiz.
+  if (intent === 'DEBT_REMINDER' && toolResult?.result?.affectsBalance) {
+    text = `${text}\n${collected.direction === 'taken' ? '💰' : '💸'} Joriy balans: ${formatMoney(toolResult.result.balanceAfter)}`;
+  }
+
+  return { text, keyboard: savedEntryKeyboard(intent), tool: toolResult?.tool || null, result: toolResult?.result || null };
 }
 
 // Foydalanuvchi aytadigan "tahrir maydoni" -> yozuv maydoni (yakuniy tasdiqdagi tuzatish uchun).
@@ -593,20 +724,73 @@ const ENTRY_FIELD_KEYS = [
   'person', 'dueDate', 'eventDate', 'direction', 'skipBalance', 'note',
 ];
 const EDIT_FIELD_TO_ENTRY = {
-  narx: 'price', narxi: 'price', price: 'price',
-  sana: 'serviceDateTime', vaqt: 'serviceDateTime', date: 'serviceDateTime',
+  narx: 'money', narxi: 'money', price: 'money', pul: 'money', puli: 'money', haq: 'money', haqi: 'money',
+  summa: 'money', summasi: 'money', amount: 'money',
+  sana: 'date', sanasi: 'date', vaqt: 'date', date: 'date',
   manzil: 'location', location: 'location', address: 'location',
   ism: 'clientName', name: 'clientName',
   telefon: 'clientPhone', tel: 'clientPhone', phone: 'clientPhone', raqam: 'clientPhone',
-  summa: 'amount', summasi: 'amount', amount: 'amount',
-  izoh: 'description', description: 'description', notes: 'description',
+  izoh: 'note', note: 'note', notes: 'note', description: 'note',
   toifa: 'category', category: 'category',
   material: 'materialName', materialname: 'materialName',
   miqdor: 'quantityKg', miqdori: 'quantityKg', kg: 'quantityKg', kilo: 'quantityKg',
   buyum: 'itemName', item: 'itemName', itemname: 'itemName',
   oluvchi: 'recipient', xaridor: 'recipient', recipient: 'recipient',
   taxminiy: 'estimatedPrice', baho: 'estimatedPrice',
+  kim: 'person', person: 'person',
 };
+
+function normalizeEditFieldName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[`'\u2018\u2019\u02bb]/g, "'")
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function moneyFieldForIntent(intent) {
+  if (intent === 'SERVICE_ENTRY') return 'price';
+  if (intent === 'ITEM_ENTRY') return 'estimatedPrice';
+  if (['EXPENSE_ENTRY', 'INCOME_ENTRY', 'MATERIAL_SALE', 'ITEM_SALE', 'DEBT_REMINDER'].includes(intent)) return 'amount';
+  return 'amount';
+}
+
+function dateFieldForIntent(intent) {
+  if (intent === 'SERVICE_ENTRY') return 'serviceDateTime';
+  if (intent === 'DEBT_REMINDER') return 'dueDate';
+  return 'date';
+}
+
+function noteFieldForIntent(intent) {
+  if (['SERVICE_ENTRY', 'ITEM_ENTRY', 'ITEM_GIVEAWAY'].includes(intent)) return 'notes';
+  if (intent === 'DEBT_REMINDER') return 'note';
+  return 'description';
+}
+
+function parseEditDateValue(value, key) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const parsed = parseHumanDateTime(text);
+  if (parsed && !Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  if (key === 'dueDate') {
+    const due = parseUzbekDate(text);
+    if (due && !Number.isNaN(due.getTime())) return due.toISOString();
+  }
+  const direct = new Date(text.replace(' ', 'T'));
+  return Number.isNaN(direct.getTime()) ? null : direct.toISOString();
+}
+
+function editFieldToEntry(intent, rawField) {
+  const field = normalizeEditFieldName(rawField);
+  if (!field) return null;
+  if (/(kilo|kg).*(narx|price|pul|haq)|(narx|price|pul|haq).*(kilo|kg)/.test(field)) return 'pricePerKg';
+  const mapped = EDIT_FIELD_TO_ENTRY[field];
+  if (mapped === 'money') return moneyFieldForIntent(intent);
+  if (mapped === 'date') return dateFieldForIntent(intent);
+  if (mapped === 'note') return noteFieldForIntent(intent);
+  return mapped || null;
+}
 
 function pickEntryFields(fields = {}) {
   const out = {};
@@ -622,12 +806,10 @@ function buildEditedFields(intent, current, understanding) {
   let fields = mergeFields(current, pickEntryFields(u), { overwrite: true });
 
   if (u.editField && u.newValue !== undefined && u.newValue !== null && u.newValue !== '') {
-    const key = EDIT_FIELD_TO_ENTRY[String(u.editField).toLowerCase()];
-    if (key === 'serviceDateTime') {
-      const d = parseHumanDateTime(u.newValue);
-      if (d && !Number.isNaN(d.getTime())) {
-        fields = mergeFields(fields, { serviceDateTime: d.toISOString() }, { overwrite: true });
-      }
+    const key = editFieldToEntry(intent, u.editField);
+    if (['serviceDateTime', 'date', 'dueDate', 'eventDate'].includes(key)) {
+      const iso = parseEditDateValue(u.newValue, key);
+      if (iso) fields = mergeFields(fields, { [key]: iso }, { overwrite: true });
     } else if (key) {
       fields = mergeFields(fields, { [key]: u.newValue }, { overwrite: true });
     }
@@ -635,13 +817,15 @@ function buildEditedFields(intent, current, understanding) {
   return applyEntryDefaults(intent, fields);
 }
 
-// Yakuniy tasdiqdagi tahrir bosqichi: tuzatilgan maydonlar bilan xulosani QAYTA ko'rsatadi
-// (xuddi shu 3 tugma bilan). Tuzatishdan keyin majburiy maydon yetishmasa — uni so'raydi.
-export async function editPendingEntry({ conversation, understanding, rawText = '' }) {
+// Post-save tahrir: foydalanuvchi aytgan maydon(lar) ALLAQACHON SAQLANGAN yozuv ustida
+// joyida yangilanadi (yangi yozuv yaratilmaydi), so'ng yangilangan xulosa xuddi shu
+// 3 tugma bilan qayta ko'rsatiladi. Aytilmagan maydonlarni ham shu yerda to'ldirsa bo'ladi.
+export async function editSavedEntry({ conversation, understanding, rawText = '' }) {
   const pending = conversation?.collected || {};
-  const intent = pending.confirmIntent;
-  if (!conversation || conversation.pendingIntent !== 'ENTRY_CONFIRM' || !intent) {
-    throw new Error("Tahrirlanadigan ma'lumot topilmadi");
+  const intent = pending.savedIntent;
+  const saved = pending.saved;
+  if (!conversation || conversation.pendingIntent !== 'ENTRY_SAVED' || !intent || !saved) {
+    throw new Error("Tahrirlanadigan yozuv topilmadi");
   }
   let updated = applyDateTimeCorrection(intent, buildEditedFields(intent, pending.fields || {}, understanding), rawText);
 
@@ -658,25 +842,159 @@ export async function editPendingEntry({ conversation, understanding, rawText = 
     delete updated.exchangeRateUsed;
     delete updated._conversion;
     const conv = await applyCurrencyConversion(intent, updated);
-    if (conv.needSom) return currencyFallback({ conversation, intent, collected: updated, usdAmount: conv.usdAmount });
+    if (conv.needSom) {
+      // Kurs yo'q — saqlangan yozuvga tegmaymiz, so'mda qayta so'raymiz (holat saqlanadi).
+      return { text: `Hozir dollar kursini ololmadim oka 😕\n${conv.usdAmount}$ taxminan qancha so'm bo'ladi — so'mda yozib bering.` };
+    }
     updated = conv.collected;
   }
 
-  const missing = nextMissing(intent, updated);
-  if (missing) {
-    conversation.pendingIntent = intent;
-    conversation.collected = updated;
-    conversation.awaitingField = missing;
-    conversation.markModified('collected');
-    await conversation.save();
-    return askField(missing);
+  // O'zgarishlarni SAQLANGAN yozuvga qo'llaymiz (intentga qarab tegishli service funksiyasi).
+  await applySavedEntryUpdate(intent, saved, updated, pending.fields || {});
+
+  return enterPostSaveState({
+    conversation,
+    intent,
+    collected: updated,
+    saved,
+    rawText: pending.rawText || rawText,
+    stopped: false,
+    edited: true,
+  });
+}
+
+// Tahrirlangan maydonlarni saqlangan yozuvga o'tkazadi. Faqat QIYMATI BOR maydonlar
+// yuboriladi — bo'sh qolganlari yozuvda ham bo'sh qoladi (majburlanmaydi).
+async function applySavedEntryUpdate(intent, saved, fields, prevFields = {}) {
+  if (intent === 'SERVICE_ENTRY') {
+    const data = {};
+    if (fields.clientName) data.clientName = fields.clientName;
+    if (hasValue('clientPhone', fields)) data.clientPhone = fields.clientPhone;
+    const address = fields.location?.address || fields.location;
+    if (address) data.location = fields.location;
+    if (hasValue('serviceDateTime', fields)) data.serviceDateTime = fields.serviceDateTime;
+    if (hasValue('price', fields)) data.price = fields.price;
+    if (fields.notes !== undefined && fields.notes !== prevFields.notes) data.notes = fields.notes;
+    if (fields.isHistorical !== undefined && fields.isHistorical !== prevFields.isHistorical) data.isHistorical = fields.isHistorical;
+    await editService(saved.serviceId, data);
+    return;
   }
-  conversation.pendingIntent = 'ENTRY_CONFIRM';
-  conversation.collected = { confirmIntent: intent, fields: updated, rawText: pending.rawText || rawText };
-  conversation.awaitingField = 'confirmEntry';
-  conversation.markModified('collected');
-  await conversation.save();
-  return { text: entrySummaryText(intent, updated), keyboard: entryConfirmKeyboard() };
+  if (intent === 'EXPENSE_ENTRY' || intent === 'INCOME_ENTRY' || intent === 'MATERIAL_SALE') {
+    const data = {};
+    if (hasValue('amount', fields)) data.amount = fields.amount;
+    if (fields.date) data.date = fields.date;
+    if (intent === 'EXPENSE_ENTRY' && fields.category) data.category = fields.category;
+    const desc = fields.description ?? fields.notes;
+    if (desc !== undefined && desc !== (prevFields.description ?? prevFields.notes)) data.description = desc;
+    if (intent === 'MATERIAL_SALE') {
+      if (fields.materialName && fields.materialName !== prevFields.materialName) data.materialName = fields.materialName;
+      if (hasValue('quantityKg', fields) && fields.quantityKg !== prevFields.quantityKg) data.quantityKg = fields.quantityKg;
+      if (hasValue('pricePerKg', fields) && fields.pricePerKg !== prevFields.pricePerKg) data.pricePerKg = fields.pricePerKg;
+    }
+    await updateTransaction(saved.transactionId, data);
+    return;
+  }
+  if (intent === 'ITEM_ENTRY') {
+    await updateUsefulItem(saved.itemId, {
+      itemName: fields.itemName !== prevFields.itemName ? fields.itemName : undefined,
+      estimatedPrice: hasValue('estimatedPrice', fields) ? fields.estimatedPrice : undefined,
+      notes: fields.notes !== prevFields.notes ? fields.notes : undefined,
+      acquiredAt: fields.date !== prevFields.date ? fields.date : undefined,
+    });
+    return;
+  }
+  if (intent === 'ITEM_SALE') {
+    await updateItemSale(saved, {
+      itemName: fields.itemName !== prevFields.itemName ? fields.itemName : undefined,
+      amount: hasValue('amount', fields) ? fields.amount : undefined,
+      recipient: fields.recipient !== prevFields.recipient ? fields.recipient : undefined,
+      date: fields.date !== prevFields.date ? fields.date : undefined,
+    });
+    return;
+  }
+  if (intent === 'ITEM_GIVEAWAY') {
+    if (saved.itemId) {
+      await updateUsefulItem(saved.itemId, {
+        itemName: fields.itemName !== prevFields.itemName ? fields.itemName : undefined,
+        recipient: fields.recipient !== prevFields.recipient ? fields.recipient : undefined,
+        notes: fields.notes !== prevFields.notes ? fields.notes : undefined,
+        closedAt: fields.date !== prevFields.date ? fields.date : undefined,
+      });
+    }
+    return;
+  }
+  if (intent === 'DEBT_REMINDER') {
+    const result = await updateDebtReminder(saved.reminderId, {
+      person: fields.person !== prevFields.person ? fields.person : undefined,
+      amount: hasValue('amount', fields) ? fields.amount : undefined,
+      dueDate: hasValue('dueDate', fields) ? fields.dueDate : undefined,
+      direction: fields.direction !== prevFields.direction ? fields.direction : undefined,
+      note: fields.note !== prevFields.note ? fields.note : undefined,
+      affectsBalance: hasValue('amount', fields) ? fields.skipBalance !== true : undefined,
+    });
+    // Balans tranzaksiyasi keyin yaratilgan/bekor qilingan bo'lishi mumkin — ref yangilanadi.
+    if (result?.reminder) saved.transactionId = result.reminder.transactionId ? String(result.reminder.transactionId) : null;
+    return;
+  }
+  throw new Error("Bu yozuv turini tahrirlab bo'lmaydi");
+}
+
+// Post-save "Bekor qilish": ALLAQACHON saqlangan yozuv o'chiriladi (soft delete).
+// 1990-kod SO'RALMAYDI — bu hozirgina kiritilgan, hali hech kim ko'rmagan yozuv.
+export async function cancelSavedEntry({ conversation }) {
+  const pending = conversation?.collected || {};
+  const saved = pending.saved;
+  if (!conversation || conversation.pendingIntent !== 'ENTRY_SAVED' || !saved) {
+    throw new Error("Bekor qilinadigan yozuv topilmadi");
+  }
+  await undoSavedEntry(saved);
+  await conversation.reset();
+  return { text: "Bo'ldi oka, yozuvni o'chirdim — hech narsa saqlanmadi ✅" };
+}
+
+async function undoSavedEntry(saved) {
+  switch (saved.type) {
+    case 'service':
+      await softDeleteServiceCascade(saved.serviceId);
+      return;
+    case 'transaction':
+      await softDeleteTransaction(saved.transactionId);
+      return;
+    case 'item':
+      await softDeleteUsefulItem(saved.itemId);
+      return;
+    case 'item_sale':
+      await revertItemSale(saved);
+      return;
+    case 'item_giveaway':
+      await revertItemGiveaway(saved.itemId);
+      return;
+    case 'reminder':
+      await deleteReminder(saved.reminderId);
+      return;
+    default:
+      throw new Error("Bu yozuv turini bekor qilib bo'lmaydi");
+  }
+}
+
+// Post-save holatda kelgan yangi xabar TAHRIRMI yoki YANGI BUYRUQMI?
+//  - SUXBAT (qidiruv/tahlil savoli) — yangi buyruq.
+//  - Boshqa aniq WRITE amal (konkret maydonlari bilan) — yangi buyruq.
+//  - SERVICE_EDIT/CLIENT_EDIT yoki shu intentning o'zi / qiymat maydonlari — tahrir.
+export function classifyPostSaveMessage(understanding, savedIntent) {
+  const action = resolveAction(understanding);
+  const conf = understanding?.confidence ?? 0;
+  if (PIVOT_SUBS.has(action) && conf >= CONFIDENCE_THRESHOLD) return 'new';
+  if (action === 'SERVICE_EDIT' || action === 'CLIENT_EDIT') return 'edit';
+  if (
+    WRITE_ACTIONS.has(action) &&
+    action !== savedIntent &&
+    conf >= CONFIDENCE_THRESHOLD &&
+    hasConcreteSignal(action, understanding?.fields || {})
+  ) {
+    return 'new';
+  }
+  return 'edit';
 }
 
 async function handleStatusUpdate({ fields, rawText, conversation, mode }) {
@@ -860,20 +1178,6 @@ export async function applyConfirmedEdit({ editType, targetId, data }) {
     return { editType, client: serializeDoc(client) };
   }
   throw new Error('Noma\'lum tahrir turi');
-}
-
-export async function confirmPendingEntry({ conversation, mode = 'bot' }) {
-  const pending = conversation?.collected || {};
-  const intent = pending.confirmIntent || pending.intent;
-  const fields = pending.fields || pending.confirmFields;
-
-  if (!conversation || conversation.pendingIntent !== 'ENTRY_CONFIRM' || !intent || !fields) {
-    throw new Error("Tasdiqlanadigan ma'lumot topilmadi");
-  }
-
-  const result = await executeToolFlow({ intent, fields, rawText: pending.rawText || '', mode, conversation });
-  if (conversation.pendingIntent !== 'ITEM_MATCH_CONFIRM') await conversation.reset();
-  return result;
 }
 
 // Tabiiy (LLM) javob faqat O'QISH so'rovlari uchun qiymatli — qidiruv/tahlil natijasini
@@ -1185,6 +1489,20 @@ export async function confirmPendingUsefulItemMatch({ conversation, choiceText =
     payload: state.payload,
     itemId: selected.id,
   });
+  const intent = state.action === 'sell' ? 'ITEM_SALE' : 'ITEM_GIVEAWAY';
+  // Endi haqiqatan saqlandi — post-save bosqichi (xulosa + Tahrirlash/Bekor/Ilova tugmalari).
+  const saved = savedRefFromResult(intent, result);
+  if (saved) {
+    const collected = applyEntryDefaults(intent, mergeFields({}, state.payload || {}));
+    return enterPostSaveState({
+      conversation,
+      intent,
+      collected,
+      saved,
+      rawText: '',
+      toolResult: { tool: state.action === 'sell' ? 'sell_useful_item' : 'give_useful_item', result },
+    });
+  }
   await conversation.reset();
   return { text: fallbackResponse(state.action === 'sell' ? 'sell_useful_item' : 'give_useful_item', result), result };
 }

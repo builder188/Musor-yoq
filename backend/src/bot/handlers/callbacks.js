@@ -4,7 +4,7 @@ import Conversation from '../../models/Conversation.js';
 import Client from '../../models/Client.js';
 import { generateReportPdf, resolveReportRange } from '../../routes/reports.js';
 import { completeService, cancelService, createService, recordServicePayment } from '../../services/serviceService.js';
-import { runAgent, applyConfirmedEdit, confirmPendingEntry } from '../../ai/agent.js';
+import { runAgent, applyConfirmedEdit, cancelSavedEntry } from '../../ai/agent.js';
 import { markReminderDone, snoozeReminder } from '../../services/reminderEntryService.js';
 import { formatMoney } from '../../utils/money.js';
 import { formatDate } from '../../utils/dates.js';
@@ -49,53 +49,49 @@ export function registerCallbacks(bot) {
     await askForReschedule(ctx, id);
   });
 
-  // Yakuniy tasdiq (yangi yozuv): "✅ Ha, to'g'ri" -> MongoDB'ga saqlanadi.
-  bot.callbackQuery('entry_save', async (ctx) => {
+  // Post-save "✏️ Tahrirlash": keyingi matn/ovoz SAQLANGAN yozuvni joyida yangilaydi.
+  bot.callbackQuery('saved_edit', async (ctx) => {
     try {
       const conv = await Conversation.findOne({ telegramId: ctx.from.id });
-      if (conv?.pendingIntent !== 'ENTRY_CONFIRM') {
+      if (conv?.pendingIntent !== 'ENTRY_SAVED') {
         await ctx.answerCallbackQuery({ text: 'Bu so\'rov eskirgan' });
         await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
         return;
       }
-      const res = await confirmPendingEntry({ conversation: conv });
-      clearSession(ctx);
-      await ctx.answerCallbackQuery({ text: res?.error ? 'Xatolik' : 'Saqlandi ✅' });
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-      await sendAgentResult(ctx, res);
-    } catch (err) {
-      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
-    }
-  });
-
-  // "✏️ Yo'q, tahrirlash kerak" -> tahrir rejimi: keyingi matn/ovoz maydonni yangilaydi.
-  bot.callbackQuery('entry_edit', async (ctx) => {
-    try {
-      const conv = await Conversation.findOne({ telegramId: ctx.from.id });
-      if (conv?.pendingIntent !== 'ENTRY_CONFIRM') {
-        await ctx.answerCallbackQuery({ text: 'Bu so\'rov eskirgan' });
-        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-        return;
-      }
-      conv.awaitingField = 'editEntry';
+      conv.awaitingField = 'editSaved';
       await conv.save();
-      if (ctx.session) ctx.session.pendingField = 'editEntry';
+      if (ctx.session) ctx.session.pendingField = 'editSaved';
       await ctx.answerCallbackQuery();
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-      await ctx.reply('Nimani tahrirlash kerak, ayting oka');
+      await ctx.reply("Nimani o'zgartiramiz oka? Masalan: 'narxi 300 ming' yoki 'telefoni 90 123 45 67'. Aytilmagan maydonlarni ham shu yerda to'ldirsangiz bo'ladi.");
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
     }
   });
 
-  // "❌ Bekor qilish" -> hech narsa saqlanmaydi, sessiya to'liq tozalanadi.
-  bot.callbackQuery('entry_cancel', async (ctx) => {
-    const conv = await Conversation.findOne({ telegramId: ctx.from.id });
-    if (conv) await conv.reset();
-    clearSession(ctx);
-    await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
+  // Post-save "❌ Bekor qilish": ALLAQACHON saqlangan yozuv o'chiriladi (kod so'ralmaydi —
+  // bu hozirgina kiritilgan, hali hech kim ko'rmagan yozuv).
+  bot.callbackQuery('saved_cancel', async (ctx) => {
+    try {
+      const conv = await Conversation.findOne({ telegramId: ctx.from.id });
+      if (conv?.pendingIntent !== 'ENTRY_SAVED') {
+        await ctx.answerCallbackQuery({ text: 'Bu so\'rov eskirgan' });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        return;
+      }
+      const res = await cancelSavedEntry({ conversation: conv });
+      clearSession(ctx);
+      await ctx.answerCallbackQuery({ text: 'Bekor qilindi' });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      await ctx.reply(res.text);
+    } catch (err) {
+      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
+    }
+  });
+
+  // Eski (deploy'dan oldingi) tasdiqlash tugmalari — endi ishlatilmaydi.
+  bot.callbackQuery(['entry_save', 'entry_edit', 'entry_cancel'], async (ctx) => {
+    await ctx.answerCallbackQuery({ text: "Bu tugma eskirgan — endi yozuvlar darhol saqlanadi" });
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-    await ctx.reply("Bo'ldi, bekor qildim oka, hech narsa saqlanmadi");
   });
 
   bot.callbackQuery('save_yes', async (ctx) => {
@@ -467,14 +463,7 @@ export function registerCallbacks(bot) {
         conversation: conv,
       });
       syncSessionFromConversation(ctx, conv);
-      if (res?.tool === 'create_service' && res.result) {
-        await ctx.reply(serviceConfirmationText(res.result));
-        const info = reminderInfoLine(res.result);
-        if (info) await ctx.reply(info);
-        clearSession(ctx);
-        return;
-      }
-      await ctx.reply(res.text, res.keyboard ? { reply_markup: res.keyboard } : undefined);
+      await sendAgentResult(ctx, res);
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true }).catch(() => {});
     }
@@ -642,6 +631,14 @@ async function confirmLocation(ctx, coords) {
 }
 
 async function sendAgentResult(ctx, res) {
+  // Post-save xulosa (tugmalari bilan) ustuvor — darhol-saqlash oqimining javobi.
+  if (res?.keyboard) {
+    if (ctx.session && res.tool === 'create_service' && res.result) {
+      ctx.session.lastServiceId = res.result.id || res.result._id || null;
+    }
+    await ctx.reply(res.text, { reply_markup: res.keyboard });
+    return;
+  }
   if (res?.tool === 'create_service' && res.result) {
     await ctx.reply(serviceConfirmationText(res.result));
     const info = reminderInfoLine(res.result);
@@ -649,7 +646,7 @@ async function sendAgentResult(ctx, res) {
     if (ctx.session) ctx.session.lastServiceId = res.result.id || res.result._id || null;
     return;
   }
-  await ctx.reply(res.text, res.keyboard ? { reply_markup: res.keyboard } : undefined);
+  await ctx.reply(res.text);
 }
 
 function syncSessionFromConversation(ctx, conv) {
@@ -657,7 +654,7 @@ function syncSessionFromConversation(ctx, conv) {
   ctx.session.intent = conv.pendingIntent;
   ctx.session.collectedData = conv.collected || {};
   ctx.session.pendingField = conv.awaitingField;
-  ctx.session.awaitingConfirmation = ['IMAGE_RECORD_CONFIRM', 'ENTRY_CONFIRM'].includes(conv.pendingIntent);
+  ctx.session.awaitingConfirmation = conv.pendingIntent === 'IMAGE_RECORD_CONFIRM';
   ctx.session.pendingLocation = null;
   ctx.session.pendingLocationRename = false;
   ctx.session.pendingLocationCoords = null;

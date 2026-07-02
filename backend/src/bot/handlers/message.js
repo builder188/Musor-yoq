@@ -3,7 +3,7 @@ import Conversation from '../../models/Conversation.js';
 import Client from '../../models/Client.js';
 import Service, { SERVICE_STATUS } from '../../models/Service.js';
 import { extractNotebookRecords, transcribeAudio, understandText } from '../../ai/gemini.js';
-import { confirmPendingEntry, runAgent, applyConfirmedEdit, editPendingEntry, confirmPendingUsefulItemMatch } from '../../ai/agent.js';
+import { runAgent, applyConfirmedEdit, editSavedEntry, cancelSavedEntry, classifyPostSaveMessage, confirmPendingUsefulItemMatch } from '../../ai/agent.js';
 import { editService, completeService, cancelService } from '../../services/serviceService.js';
 import { mergeFields, nextMissing, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
@@ -22,7 +22,7 @@ import {
 import { formatMoney } from '../../utils/money.js';
 import { parseHumanDateTime } from '../../utils/dates.js';
 import { normalizeLocationData, reverseGeocode } from '../location.js';
-import { interpretYesNo, interpretEntryConfirm, interpretConfirmAction, matchClarifyOption } from '../answers.js';
+import { interpretYesNo, interpretSavedReply, interpretConfirmAction, matchClarifyOption } from '../answers.js';
 import {
   IMAGE_LIMIT_BYPASS_REPLY,
   UNSUPPORTED_MEDIA_REPLY,
@@ -272,7 +272,18 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
   Conversation.pushHistory(ctx.from.id, 'user', text);
 
   // Universal chiqish: istalgan yarim qolgan oqimdan "bekor" bilan chiqish.
+  // Yozuv ALLAQACHON saqlangan bo'lsa (darhol-saqlash oqimi) — o'sha yozuv o'chiriladi.
   if (/^(bekor|otmen|otmena|cancel|to'?xtat|toxtat|stop)\b/i.test(text.trim())) {
+    if (conv.pendingIntent === 'ENTRY_SAVED') {
+      try {
+        const res = await cancelSavedEntry({ conversation: conv });
+        clearAllSessionState(ctx);
+        await ctx.reply(res.text);
+        return;
+      } catch {
+        /* yozuv topilmasa — oddiy bekor bilan davom etamiz */
+      }
+    }
     await conv.reset();
     clearAllSessionState(ctx);
     await ctx.reply('Boldi oka, bekor qildim.');
@@ -282,8 +293,8 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
   if (ctx.session?.awaitingReschedule || conv.pendingIntent === 'SERVICE_RESCHEDULE') {
     return routeServiceReschedule(ctx, conv, text);
   }
-  if (conv.pendingIntent === 'ENTRY_CONFIRM') {
-    return routeEntryConfirmation(ctx, conv, text, priorHistory);
+  if (conv.pendingIntent === 'ENTRY_SAVED') {
+    return routeSavedEntry(ctx, conv, text, priorHistory);
   }
   if (conv.pendingIntent === 'ITEM_MATCH_CONFIRM') {
     return routeItemMatchConfirmation(ctx, conv, text);
@@ -413,51 +424,60 @@ async function routeImageRecords(ctx, records, fileId) {
   await ctx.reply(`${summary}\n\nSaqlashimmi?`, { reply_markup: saveKeyboard() });
 }
 
-// Yakuniy tasdiq xulosasiga matn/ovoz javobi (3 tugma bilan bir xil natija):
-//  - "ha, to'g'ri"  -> saqlaydi
-//  - "yo'q, tahrirlash" -> tahrir rejimiga o'tadi ("Nimani tahrirlash kerak?")
-//  - "bekor"        -> hech narsa saqlamaydi (universal bekor yuqorida ham ushlaydi)
-//  - boshqa har qanday matn -> to'g'ridan-to'g'ri maydon tuzatish deb qabul qilinadi.
-async function routeEntryConfirmation(ctx, conv, text, priorHistory) {
+// Saqlangan yozuv xulosasiga (darhol-saqlash oqimi) matn/ovoz javobi:
+//  - "bekor/o'chir"  -> ALLAQACHON saqlangan yozuv o'chiriladi (kodsiz)
+//  - "tahrirla/yo'q" -> tahrir rejimi ("Nimani o'zgartiramiz?")
+//  - "ha/rahmat/bo'ldi" -> shunchaki tasdiq, holat yopiladi
+//  - qiymatli gap ("narxi 200 ming") -> NLU orqali: saqlangan yozuv tahririmi yoki
+//    butunlay YANGI buyruqmi (yangi yozuv/savol) — shunga qarab yo'naltiriladi.
+async function routeSavedEntry(ctx, conv, text, priorHistory) {
   // Tahrir rejimida — keyingi gap to'g'ridan-to'g'ri maydon tuzatishdir.
-  if (conv.awaitingField === 'editEntry') {
-    return routeEntryEdit(ctx, conv, text, priorHistory);
+  if (conv.awaitingField === 'editSaved') {
+    return routeSavedEdit(ctx, conv, text, priorHistory);
   }
 
-  const choice = interpretEntryConfirm(text);
+  const choice = interpretSavedReply(text);
 
   if (choice === 'cancel') {
-    await conv.reset();
+    const res = await cancelSavedEntry({ conversation: conv });
     clearAllSessionState(ctx);
-    await ctx.reply("Bo'ldi, bekor qildim oka, hech narsa saqlanmadi");
-    return;
-  }
-
-  if (choice === 'save') {
-    const res = await confirmPendingEntry({ conversation: conv });
-    clearAllSessionState(ctx);
-    await sendAgentResult(ctx, res);
+    await ctx.reply(res.text);
     return;
   }
 
   if (choice === 'edit') {
-    conv.awaitingField = 'editEntry';
+    conv.awaitingField = 'editSaved';
     await conv.save();
-    if (ctx.session) ctx.session.pendingField = 'editEntry';
-    await ctx.reply('Nimani tahrirlash kerak, ayting oka');
+    if (ctx.session) ctx.session.pendingField = 'editSaved';
+    await ctx.reply("Nimani o'zgartiramiz oka? Masalan: 'narxi 300 ming' yoki 'telefoni 90 123 45 67'");
     return;
   }
 
-  // Aniq tugma so'zi emas — buni to'g'ridan-to'g'ri maydon tuzatish deb qabul qilamiz
-  // ("narxi 200 ming", "telefon 90 123 45 67"); yangilangan xulosa qayta ko'rsatiladi.
-  return routeEntryEdit(ctx, conv, text, priorHistory);
+  if (choice === 'ack') {
+    await conv.reset();
+    clearAllSessionState(ctx);
+    await ctx.reply('👍');
+    return;
+  }
+
+  // Qiymatli gap — NLU hal qiladi: saqlangan yozuv tahririmi yoki yangi buyruqmi.
+  const understanding = await understandText(text, priorHistory || []);
+  const savedIntent = conv.collected?.savedIntent;
+  if (classifyPostSaveMessage(understanding, savedIntent) === 'new') {
+    await conv.reset();
+    return routeUnderstanding(ctx, understanding, text);
+  }
+  const res = await editSavedEntry({ conversation: conv, understanding, rawText: text });
+  await syncSessionFromConversation(ctx, conv);
+  await ctx.reply(res.text, res.keyboard ? { reply_markup: res.keyboard } : undefined);
 }
 
 async function routeItemMatchConfirmation(ctx, conv, text) {
   try {
     const res = await confirmPendingUsefulItemMatch({ conversation: conv, choiceText: text });
     if (!res.keepPending) clearAllSessionState(ctx);
-    await ctx.reply(res.text);
+    // Tanlov tasdiqlangach yozuv saqlanadi — post-save xulosa tugmalari bilan keladi.
+    await ctx.reply(res.text, res.keyboard ? { reply_markup: res.keyboard } : undefined);
   } catch (err) {
     await conv.reset();
     clearAllSessionState(ctx);
@@ -465,13 +485,18 @@ async function routeItemMatchConfirmation(ctx, conv, text) {
   }
 }
 
-// Tahrir loop'i: AI tuzatilgan maydonni collected.fields ichida yangilaydi, keyin
-// yangilangan xulosa xuddi shu 3 tugma bilan QAYTA ko'rsatiladi ("Ha, to'g'ri" bosilmaguncha).
-async function routeEntryEdit(ctx, conv, text, priorHistory) {
+// Tahrir loop'i: AI tuzatilgan maydonni SAQLANGAN yozuv ustida joyida yangilaydi
+// (yangi yozuv yaratilmaydi), keyin yangilangan xulosa xuddi shu 3 tugma bilan ko'rsatiladi.
+async function routeSavedEdit(ctx, conv, text, priorHistory) {
   const understanding = await understandText(text, priorHistory || []);
-  const res = await editPendingEntry({ conversation: conv, understanding, rawText: text });
-  await syncSessionFromConversation(ctx, conv);
-  await ctx.reply(res.text, res.keyboard ? { reply_markup: res.keyboard } : undefined);
+  try {
+    const res = await editSavedEntry({ conversation: conv, understanding, rawText: text });
+    await syncSessionFromConversation(ctx, conv);
+    await ctx.reply(res.text, res.keyboard ? { reply_markup: res.keyboard } : undefined);
+  } catch (err) {
+    // Tahrir qo'llanmadi (masalan noto'g'ri telefon) — yozuv o'z holicha qoladi.
+    await ctx.reply(`Qo'llay olmadim oka: ${err.message}\nQaytadan ayting yoki 'bekor' deng.`);
+  }
 }
 
 // EDIT_CONFIRM (narx/sana/manzil/ism/telefon tahriri) — [Ha][Yo'q] tugmasiga matn/ovoz javobi.
@@ -756,6 +781,14 @@ async function routeLocationRename(ctx, conv, text) {
 }
 
 async function sendAgentResult(ctx, res) {
+  // Post-save xulosa (tugmalari bilan) ustuvor — darhol-saqlash oqimining javobi.
+  if (res?.keyboard) {
+    if (ctx.session && res.tool === 'create_service' && res.result) {
+      ctx.session.lastServiceId = res.result.id || res.result._id || null;
+    }
+    await ctx.reply(res.text, { reply_markup: res.keyboard });
+    return;
+  }
   if (res?.tool === 'create_service' && res.result) {
     await ctx.reply(serviceConfirmationText(res.result));
     const info = reminderInfoLine(res.result);
@@ -763,7 +796,7 @@ async function sendAgentResult(ctx, res) {
     if (ctx.session) ctx.session.lastServiceId = res.result.id || res.result._id || null;
     return;
   }
-  await ctx.reply(res.text, res.keyboard ? { reply_markup: res.keyboard } : undefined);
+  await ctx.reply(res.text);
 }
 
 async function syncSessionFromConversation(ctx, conv) {
@@ -771,7 +804,7 @@ async function syncSessionFromConversation(ctx, conv) {
   ctx.session.intent = conv.pendingIntent;
   ctx.session.collectedData = conv.collected || {};
   ctx.session.pendingField = conv.awaitingField;
-  ctx.session.awaitingConfirmation = ['IMAGE_RECORD_CONFIRM', 'ENTRY_CONFIRM'].includes(conv.pendingIntent);
+  ctx.session.awaitingConfirmation = conv.pendingIntent === 'IMAGE_RECORD_CONFIRM';
 }
 
 // Barcha session sub-holatlarini tozalash (universal "bekor" uchun).

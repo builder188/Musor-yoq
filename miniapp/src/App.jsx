@@ -16,6 +16,20 @@ import Settings from './pages/Settings.jsx';
 const DESKTOP_BREAKPOINT = 768;
 const SIDEBAR_STORAGE_KEY = 'miniapp.sidebarCollapsed';
 
+// Bot tugmasi ("📱 Ilovaga o'tish") ?tab= bilan tegishli sahifani ochadi.
+const VALID_TABS = ['home', 'clients', 'services', 'categories', 'finance', 'reminders', 'reports', 'settings'];
+
+function initialTab() {
+  try {
+    const fromQuery = new URLSearchParams(window.location.search).get('tab');
+    const fromTelegram = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
+    const candidate = fromQuery || fromTelegram;
+    return VALID_TABS.includes(candidate) ? candidate : 'home';
+  } catch {
+    return 'home';
+  }
+}
+
 function isDesktopViewport() {
   return typeof window !== 'undefined' ? window.innerWidth >= DESKTOP_BREAKPOINT : false;
 }
@@ -55,7 +69,7 @@ function usePersistentSidebar() {
 
 export default function App() {
   const { loaded, error, clearNavigation } = useApp();
-  const [tab, setTab] = useState('home');
+  const [tab, setTab] = useState(initialTab);
   const isDesktop = useResponsiveMode();
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentSidebar();
   // Bosh sahifadagi qidiruvdan mijozni ochish uchun: Mijozlar tabiga o'tib detalni ochamiz.

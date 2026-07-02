@@ -199,8 +199,9 @@ function confirmationPayload(action, payload, candidates) {
 }
 
 export async function sellUsefulItem(data = {}, options = {}) {
-  const amount = normalizePayloadPrice(data.amount);
-  if (!amount) throw new Error('Sotilgan summani ayting oka.');
+  // Summa ixtiyoriy: aytilmagan bo'lsa 0 — yozuv saqlanadi, balansga hech narsa
+  // qo'shilmaydi; keyin tahrir/Mini App orqali kiritilganda balans yangilanadi.
+  const amount = normalizePayloadPrice(data.amount) || 0;
   const canonical = canonicalItemName(data.itemName || data.name);
   if (!canonical) throw new Error('Qaysi buyum sotilganini ayting oka.');
 
@@ -273,6 +274,118 @@ export async function giveAwayUsefulItem(data = {}, options = {}) {
   return { item: serialize(item), warning: null };
 }
 
+// Buyum yozuvini tahrirlash (bot post-save tahriri): nom/taxminiy narx/izoh/sana.
+export async function updateUsefulItem(id, data = {}) {
+  const item = await UsefulItem.findOne({ _id: id, ...notDeleted });
+  if (!item) throw new Error('Buyum topilmadi.');
+  if (data.itemName !== undefined && data.itemName) {
+    const canonical = canonicalItemName(data.itemName);
+    if (canonical) {
+      item.name = canonical;
+      item.normalizedName = itemKey(canonical);
+    }
+  }
+  if (data.estimatedPrice !== undefined) item.estimatedPrice = normalizePayloadPrice(data.estimatedPrice);
+  if (data.notes !== undefined) item.notes = data.notes || '';
+  if (data.recipient !== undefined) item.recipient = data.recipient || null;
+  if (data.acquiredAt !== undefined && data.acquiredAt) {
+    const d = new Date(data.acquiredAt);
+    if (!Number.isNaN(d.getTime())) item.acquiredAt = d;
+  }
+  if (data.closedAt !== undefined && data.closedAt) {
+    const d = new Date(data.closedAt);
+    if (!Number.isNaN(d.getTime())) item.closedAt = d;
+  }
+  await item.save();
+  return serialize(item);
+}
+
+// Sotuv yozuvini tahrirlash: summa/oluvchi/sana/nom — buyum VA bog'langan income
+// tranzaksiyasi birga yangilanadi (balans avtomatik to'g'ri bo'ladi).
+export async function updateItemSale({ itemId = null, transactionId }, data = {}) {
+  const tx = transactionId
+    ? await Transaction.findOne({ _id: transactionId, ...notDeleted })
+    : null;
+  if (!tx) throw new Error('Sotuv yozuvi topilmadi.');
+  const item = itemId ? await UsefulItem.findOne({ _id: itemId, ...notDeleted }) : null;
+
+  const name = data.itemName !== undefined && data.itemName
+    ? canonicalItemName(data.itemName)
+    : null;
+  if (name) {
+    tx.itemName = name;
+    if (item) {
+      item.name = name;
+      item.normalizedName = itemKey(name);
+    }
+  }
+  if (data.amount !== undefined) {
+    const amount = normalizePayloadPrice(data.amount) || 0;
+    tx.amount = amount;
+    if (item) item.soldAmount = amount;
+  }
+  if (data.recipient !== undefined) {
+    if (item) item.recipient = data.recipient || null;
+  }
+  if (data.date !== undefined && data.date) {
+    const d = new Date(data.date);
+    if (!Number.isNaN(d.getTime())) {
+      tx.date = d;
+      if (item) item.closedAt = d;
+    }
+  }
+  tx.description = itemSaleDescription(tx.itemName, item?.recipient ?? data.recipient);
+  await tx.save();
+  if (item) await item.save();
+  return { item: serialize(item), transaction: serialize(tx) };
+}
+
+// Sotuvni bekor qilish (post-save "Bekor qilish"): income tranzaksiya soft-delete,
+// buyum (bo'lsa) yana "mavjud" holatiga qaytadi.
+export async function revertItemSale({ itemId = null, transactionId = null }) {
+  if (transactionId) {
+    await Transaction.updateOne(
+      { _id: transactionId, ...notDeleted },
+      { $set: { isDeleted: true, deletedAt: new Date() } }
+    ).catch(() => null);
+  }
+  if (itemId) {
+    const item = await UsefulItem.findOne({ _id: itemId, ...notDeleted });
+    if (item) {
+      item.status = USEFUL_ITEM_STATUS.AVAILABLE;
+      item.closedAt = null;
+      item.closedReason = null;
+      item.recipient = null;
+      item.soldAmount = null;
+      item.saleTransactionId = null;
+      await item.save();
+    }
+  }
+  return { ok: true };
+}
+
+// Tekinga berishni bekor qilish: buyum yana "mavjud" holatiga qaytadi.
+export async function revertItemGiveaway(itemId) {
+  const item = await UsefulItem.findOne({ _id: itemId, ...notDeleted });
+  if (!item) return { ok: false };
+  item.status = USEFUL_ITEM_STATUS.AVAILABLE;
+  item.closedAt = null;
+  item.closedReason = null;
+  item.recipient = null;
+  await item.save();
+  return { ok: true };
+}
+
+// Buyumni ro'yxatdan soft-delete qilish (post-save "Bekor qilish").
+export async function softDeleteUsefulItem(id) {
+  const item = await UsefulItem.findOne({ _id: id, ...notDeleted });
+  if (!item) return null;
+  item.isDeleted = true;
+  item.deletedAt = new Date();
+  await item.save();
+  return serialize(item);
+}
+
 export async function discardUsefulItem(id) {
   const item = await UsefulItem.findOne({ _id: id, ...notDeleted });
   if (!item) throw new Error('Buyum topilmadi.');
@@ -298,6 +411,11 @@ export default {
   listUsefulItems,
   getUsefulItemById,
   createUsefulItem,
+  updateUsefulItem,
+  updateItemSale,
+  revertItemSale,
+  revertItemGiveaway,
+  softDeleteUsefulItem,
   sellUsefulItem,
   giveAwayUsefulItem,
   discardUsefulItem,

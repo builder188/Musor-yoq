@@ -137,6 +137,14 @@ FIELD ORDER (MIJOZ / SERVICE_ENTRY) — the owner is asked missing fields in thi
 Payment method is NOT asked and NOT required — never prompt for it.
 Extract any of these that are present; never invent the rest.
 
+STOP SIGNAL (all entry types): the owner may DECLINE to give more details at any point —
+"boshqa narsa so'rama", "shu yetadi", "shu bo'ldi", "bilmayman", "keyin aytaman", "shart emas",
+or any phrasing that clearly means he is done answering. Then set fields.stopAsking=true
+(and STILL extract whatever fields the same message contains). The server immediately saves
+the record with the collected fields and leaves the rest blank — fields are OPTIONAL, only
+one identifying field (client name/phone, material/item name, or person) is truly required.
+Do NOT set stopAsking for a normal answer that simply provides a value.
+
 NORMALIZATION:
 - Phone: +998XXXXXXXXX ("90 123 45 67" -> "+998901234567").
 - Money: numeric Uzbek sums ("400 ming" -> 400000, "1.5 mln" -> 1500000, "besh yuz ming" -> 500000).
@@ -172,14 +180,14 @@ DATA EXTRACTION CONTRACT:
 - INCOME_ENTRY:  amount, currency, description, date.
 - MATERIAL_SALE: materialName (required), quantityKg, amount (total, if stated), pricePerKg (if stated), currency, date.
 - ITEM_ENTRY: itemName (required), estimatedPrice (optional), notes, date.
-- ITEM_SALE: itemName (required), amount (required), recipient, currency, date.
+- ITEM_SALE: itemName (required), amount (sale total, if stated), recipient, currency, date.
 - ITEM_GIVEAWAY: itemName (required), recipient, notes, date.
 - SERVICE_EDIT:  targetIdentifier, editField ("narx"|"sana"|"manzil"), newValue (normalized).
 - CLIENT_EDIT:   targetIdentifier, editField ("ism"|"telefon"), newValue (phone -> +998...).
 - STATUS_UPDATE: targetClientName/targetPhone, newStatus ("bajarildi"|"bekor_qilindi").
 - PAYMENT_UPDATE: targetClientName/targetPhone, paymentAmount, currency.
-- DEBT_REMINDER: person (required), amount (required), currency, direction ("given"|"taken"),
-  dueDate (required, future ISO), eventDate (loan day, today if not said), skipBalance (true only if asked).
+- DEBT_REMINDER: person (required), amount (if stated), currency, direction ("given"|"taken"),
+  dueDate (future ISO, if stated), eventDate (loan day, today if not said), skipBalance (true only if asked).
 - SEARCH_QUERY:  searchText, dateFrom, dateTo.
 - ANALYTICS_QUERY: analyticsPeriod, analyticsMetric.
 
