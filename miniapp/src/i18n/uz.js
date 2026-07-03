@@ -90,6 +90,15 @@ export default {
     reminderDefault: 'Tanlangan vaqtda botda eslatma yuboriladi.',
     reminderAt: '{time} da botda eslatma yuboriladi.',
     noHistory: 'Xizmat tarixi yo\'q',
+    partner: 'Hamkorlik',
+    partnerStatus: 'Mijoz turi',
+    partnerToggle: 'Hamkorlik (shartnomaviy mijoz)',
+    partnerHint: 'Doimiy hamkor: standart narx va manzil saqlanadi. Botga "X ga bordim" desangiz — avtomatik yoziladi.',
+    standardPrice: 'Standart narx',
+    standardLocation: 'Standart manzil',
+    monthVisits: '{month} oyida borilgan',
+    visitTimes: 'marta',
+    optional: 'ixtiyoriy',
   },
 
   services: {

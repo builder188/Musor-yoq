@@ -125,6 +125,7 @@ function hasNumber(value) {
 function savedFieldLines(intent, fields) {
   const lines = [];
   if (intent === 'SERVICE_ENTRY') {
+    if (fields._partnerVisit) lines.push('🤝 Hamkorlik tashrifi (standart qiymatlar bilan)');
     if (fields.clientName) lines.push(`👤 ${fields.clientName}`);
     if (fields.clientPhone) lines.push(`☎️ ${formatPhone(fields.clientPhone) || fields.clientPhone}`);
     const location = fields.location?.address || fields.location;
@@ -132,6 +133,15 @@ function savedFieldLines(intent, fields) {
     if (fields.serviceDateTime) lines.push(`📅 ${formatBotDateTime(fields.serviceDateTime)}`);
     if (hasNumber(fields.price)) lines.push(`💰 ${formatMoney(fields.price)}`);
     if (fields.notes) lines.push(`📝 ${fields.notes}`);
+    return lines;
+  }
+  if (intent === 'PARTNER_CONTRACT') {
+    lines.push(`🤝 Hamkorlik: ${fields.clientName || '-'}`);
+    if (hasNumber(fields.price)) lines.push(`💰 Standart narx: ${formatMoney(fields.price)}`);
+    const location = fields.location?.address || fields.location;
+    if (location) lines.push(`📍 Standart manzil: ${location}`);
+    if (fields.clientPhone) lines.push(`☎️ ${formatPhone(fields.clientPhone) || fields.clientPhone}`);
+    lines.push(`Endi "${fields.clientName || 'hamkor'}ga bordim" desangiz — standart narx bilan darhol yozaman.`);
     return lines;
   }
   if (intent === 'MATERIAL_SALE') {
@@ -198,7 +208,9 @@ export function savedSummaryText(intent, fields = {}, { stopped = false, edited 
   const lines = [header, EMOJI_DIVIDER, ...savedFieldLines(intent, fields)];
   const conv = conversionLineFor(fields); // dollar bo'lsa: "💵 100$ → ... so'm (kurs ...)"
   if (conv) lines.push(conv);
-  const missing = missingEntryFields(intent, fields);
+  let missing = missingEntryFields(intent, fields);
+  // Hamkor tashrifida telefon kutilmaydi (hamkor ko'pincha korxona) — "Aytilmagan"da chiqarmaymiz.
+  if (fields._partnerVisit) missing = missing.filter((f) => f !== 'clientPhone');
   if (missing.length) {
     lines.push(`❕Aytilmagan: ${missing.map((f) => FIELD_LABELS[f] || f).join(', ')}`);
   }
@@ -209,6 +221,7 @@ export function savedSummaryText(intent, fields = {}, { stopped = false, edited 
 // Saqlangan yozuv uchun intentga mos Mini App sahifasi (tab) havolasi.
 const INTENT_TAB = {
   SERVICE_ENTRY: 'services',
+  PARTNER_CONTRACT: 'clients',
   EXPENSE_ENTRY: 'finance',
   INCOME_ENTRY: 'finance',
   MATERIAL_SALE: 'finance',

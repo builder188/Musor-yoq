@@ -11,6 +11,9 @@ import { PAYMENT_METHODS } from '../models/Service.js';
 // To'lov usuli (paymentMethod) so'ralmaydi (model defaulti 'naqd').
 export const ENTRY_REQUIRED = {
   SERVICE_ENTRY: ['clientName', 'clientPhone', 'location', 'serviceDateTime', 'price'],
+  // Hamkorlik shartnomasi: nom + standart narx + standart manzil. Telefon so'ralmaydi
+  // (hamkor ko'pincha korxona) — keyin Mini App/tahrir orqali qo'shsa bo'ladi.
+  PARTNER_CONTRACT: ['clientName', 'price', 'location'],
   EXPENSE_ENTRY: ['amount'],
   INCOME_ENTRY: ['amount'],
   // Material sotuvi: summa to'g'ridan aytilmasa, miqdor*kilo narxidan hisoblanadi
@@ -27,6 +30,7 @@ export const ENTRY_REQUIRED = {
 // (ro'yxatdan istalgan biri yetarli). Busiz saqlab bo'lmaydi — nima saqlanayotgani noaniq.
 export const ENTRY_MINIMUM = {
   SERVICE_ENTRY: ['clientName', 'clientPhone'],
+  PARTNER_CONTRACT: ['clientName'],
   EXPENSE_ENTRY: ['amount', 'description', 'category'],
   INCOME_ENTRY: ['amount', 'description'],
   MATERIAL_SALE: ['materialName'],
@@ -85,6 +89,14 @@ export function detectStopSignal(text) {
   if (words.length <= 3 && STOP_SHORT_RE.test(v)) return true;
   return false;
 }
+
+// Hamkorlik shartnomasi uchun maydon savollari (umumiy QUESTIONS o'rniga ishlatiladi —
+// "xizmat haqi" emas, "standart narx" deb so'raladi).
+export const PARTNER_QUESTIONS = {
+  clientName: '🤝 Qaysi mijoz bilan shartnoma tuzdingiz, oka? (nomi)',
+  price: '💰 Har tashrif uchun standart narx qancha, oka?',
+  location: '📍 Hamkorning doimiy manzili qayerda, oka?',
+};
 
 export const QUESTIONS = {
   clientPhone: '📞 Mijozning telefon raqami nechi, oka?',

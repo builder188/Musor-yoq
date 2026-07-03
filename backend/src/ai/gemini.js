@@ -605,6 +605,21 @@ function normalizeExtractedFieldsByIntent(intent, clean) {
     };
   }
 
+  if (intent === 'PARTNER_CONTRACT') {
+    const phone = clean.clientPhone ? normalizePhone(clean.clientPhone) : null;
+    return {
+      clientName: textOrNull(clean.clientName || clean.targetClientName),
+      clientPhone: phone,
+      location:
+        typeof clean.location === 'object'
+          ? textOrNull(clean.location.address || clean.location.text)
+          : textOrNull(clean.location),
+      price: numberOrNull(clean.price ?? clean.amount),
+      notes: textOrNull(clean.notes),
+      currency: resolveCurrency(clean),
+    };
+  }
+
   if (intent === 'SERVICE_EDIT' || intent === 'CLIENT_EDIT') {
     return {
       targetIdentifier: textOrNull(clean.targetIdentifier || clean.targetClientName || clean.clientName || clean.clientPhone),
@@ -765,7 +780,7 @@ function firstMatch(text, re) {
 // yubormaslik uchun (savol bo'lsa to'g'rilamaymiz).
 const QUESTION_RE = /(\?|\bqachon\b|\bqaysi\b|\bnecha\b|\bnechta\b|\bqancha\b|\bqayer|\bkim\b|\bnima(ni|ga)?\b|\bbormi\b)/i;
 // Sotuv emas — bu niyatlarga TEGMAYMIZ.
-const PROTECTED_SUBS = new Set(['SERVICE_ENTRY', 'SERVICE_EDIT', 'CLIENT_EDIT', 'STATUS_UPDATE', 'PAYMENT_UPDATE', 'SEARCH_QUERY', 'ANALYTICS_QUERY']);
+const PROTECTED_SUBS = new Set(['SERVICE_ENTRY', 'PARTNER_CONTRACT', 'SERVICE_EDIT', 'CLIENT_EDIT', 'STATUS_UPDATE', 'PAYMENT_UPDATE', 'SEARCH_QUERY', 'ANALYTICS_QUERY']);
 // Faqat shu YOZUV niyatlari noto'g'ri bo'lsa to'g'rilanadi (xarajat/kirim/buyum yoki noto'g'ri sotuv turi).
 const CORRECTABLE_SUBS = new Set(['EXPENSE_ENTRY', 'INCOME_ENTRY', 'ITEM_ENTRY', 'MATERIAL_SALE', 'ITEM_SALE', 'ITEM_GIVEAWAY']);
 

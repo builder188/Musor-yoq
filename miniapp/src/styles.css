@@ -568,6 +568,30 @@ textarea.input {
   background: var(--surface-2);
   color: var(--text-muted);
 }
+/* Hamkor (shartnomaviy) mijoz nishonchasi va formasi */
+.badge-partner {
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-right: 6px;
+}
+.partner-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-top: 12px;
+}
+.partner-toggle input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.partner-hint {
+  margin: 4px 0 8px;
+}
+.partner-card {
+  border: 1px solid var(--accent-soft);
+}
 
 /* ===== Pastki navigatsiya ===== */
 .bottom-nav {

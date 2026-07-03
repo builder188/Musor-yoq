@@ -7,6 +7,7 @@ import Service, { SERVICE_STATUS, PAYMENT_STATUS } from '../models/Service.js';
 import Transaction, { TX_TYPES } from '../models/Transaction.js';
 import Client from '../models/Client.js';
 import { findOrCreateClient } from './clientService.js';
+import { findClientByExactName, syncPartnerDefaultsFromVisit } from './partnerService.js';
 import { computeServiceSchedule, applyServiceSchedule } from './reminderService.js';
 import { runGlobal } from '../db/tenantScope.js';
 import { startOfDay, endOfDay } from '../utils/dates.js';
@@ -114,14 +115,15 @@ async function buildScheduleFields(serviceDateTime, now = new Date()) {
 // Yangi xizmat yaratish. Faqat identifikatsiya (ism YOKI telefon) majburiy —
 // manzil/sana/narx aytilmagan bo'lsa bo'sh qoladi (keyin tahrir/Mini App'dan to'ldiriladi).
 export async function createService(data) {
-  const location = normalizeLocation(data.location);
+  let location = normalizeLocation(data.location);
   const name = String(data.clientName || '').trim();
   const normalizedPhone = normalizePhone(data.clientPhone);
   const hasPhone = !!normalizedPhone && /^\+998\d{9}$/.test(normalizedPhone);
   if (!name && !hasPhone) throw badRequest('Kamida mijoz ismi yoki telefon raqami kerak');
 
   // Telefon bo'lsa — mijoz topiladi/yaratiladi (eski oqim). Telefon aytilmagan bo'lsa,
-  // ism bo'yicha mavjud mijozga bog'laymiz; topilmasa xizmat mijozsiz saqlanadi
+  // ism bo'yicha mavjud mijozga bog'laymiz (katta-kichik harf farqisiz — AI ismni turli
+  // registrda berishi mumkin); topilmasa xizmat mijozsiz saqlanadi
   // (telefon keyin kiritilganda editService bog'laydi).
   let client = null;
   if (hasPhone) {
@@ -133,11 +135,28 @@ export async function createService(data) {
       coordinates: location.coordinates,
     });
   } else if (name) {
-    client = await Client.findOne({ name, isDeleted: { $ne: true } });
+    client = await findClientByExactName(name);
   }
 
   const serviceDateTime = parseOptionalServiceDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
-  const price = parseOptionalPositiveMoneyAmount(data.price, "Xizmat narxi noto'g'ri");
+  let price = parseOptionalPositiveMoneyAmount(data.price, "Xizmat narxi noto'g'ri");
+
+  // Hamkor (shartnomaviy) mijoz: aytilmagan narx/manzil standartdan olinadi; aytilgan
+  // FARQLI qiymat esa shu tashrifga ishlatiladi VA standartni yangilaydi (spec #2, #3).
+  if (client?.isPartner) {
+    const statedPrice = price > 0;
+    const statedLocation = !!location.address;
+    if (!statedPrice && client.partnerPrice > 0) price = client.partnerPrice;
+    if (!statedLocation && client.partnerLocation?.address) {
+      location = normalizeLocation(client.partnerLocation);
+    }
+    if (statedPrice || statedLocation) {
+      await syncPartnerDefaultsFromVisit(client._id, {
+        price: statedPrice ? price : null,
+        location: statedLocation ? location : null,
+      });
+    }
+  }
 
   // Eslatma/tasdiqlash jadvali xizmat vaqtiga nisbatan (Settings soatlari).
   // Tarixiy yozuvga (yoki sanasi aytilmagan ishga) jadval qo'yilmaydi.
@@ -426,7 +445,30 @@ export async function editService(serviceId, data) {
   }
 
   await service.save();
+
+  // Hamkor mijozning ENG SO'NGGI tashrifi tahrirlansa — yangi narx/manzil standartga ham
+  // yoziladi (post-save "narxi 350 ming" tuzatishi ham standartni yangilashi kerak, spec #3).
+  // Eski (tarixdagi) tashrif tahriri standartga TEGMAYDI.
+  if (service.clientId && (data.price !== undefined || data.location !== undefined)) {
+    await maybeSyncPartnerDefaultsFromEdit(service, data).catch((err) =>
+      console.error('Hamkor standartini yangilashda xato:', err.message)
+    );
+  }
   return service;
+}
+
+async function maybeSyncPartnerDefaultsFromEdit(service, data) {
+  const client = await Client.findOne({ _id: service.clientId, ...notDeleted }).select('isPartner').lean();
+  if (!client?.isPartner) return;
+  const latest = await Service.findOne({ clientId: service.clientId, ...notDeleted })
+    .sort({ serviceDateTime: -1, createdAt: -1 })
+    .select('_id')
+    .lean();
+  if (!latest || String(latest._id) !== String(service._id)) return;
+  await syncPartnerDefaultsFromVisit(service.clientId, {
+    price: data.price !== undefined && service.price > 0 ? service.price : null,
+    location: data.location !== undefined && service.location?.address ? service.location : null,
+  });
 }
 
 export async function rescheduleService(serviceId, newDateTime) {

@@ -10,6 +10,7 @@ import { formatDate, formatDateTime } from '../utils/dates.js';
 import { formatMoney } from '../utils/money.js';
 import { getMonthlyIncomeBreakdown } from '../services/incomeSourceService.js';
 import { getReportInsights } from '../services/reportInsightsService.js';
+import { getPartnerReportRows } from '../services/partnerService.js';
 
 const router = express.Router();
 const notDeleted = { isDeleted: { $ne: true } };
@@ -146,7 +147,8 @@ const EXCEL_LABELS = {
   uz: {
     yes: 'ha',
     no: "yo'q",
-    sheets: { clients: 'Mijozlar', services: 'Xizmatlar', transactions: 'Tranzaksiyalar', summary: 'Xulosa', sourceAnalysis: 'Manba tahlili', insights: 'Tahlil' },
+    sheets: { clients: 'Mijozlar', partners: 'Hamkorlar', services: 'Xizmatlar', transactions: 'Tranzaksiyalar', summary: 'Xulosa', sourceAnalysis: 'Manba tahlili', insights: 'Tahlil' },
+    partnerHeaders: ['Nomi', 'Telefon', 'Standart narx', 'Standart manzil', 'Tashriflar (davr)', 'Jami daromad (davr)'],
     clientHeaders: ['ID', 'Ism', 'Telefon', 'Manzillar', 'Yaratilgan sana', 'Yangilangan sana'],
     serviceHeaders: ['ID', 'Client ID', 'Mijoz', 'Telefon', 'Manzil', 'Sana', 'Tarixiy', 'Narx', "To'langan", "To'lov usuli", "To'lov holati", 'Status', 'Bekor sababi', 'Bajarilgan sana', 'Izoh', 'Rasm fileIdlari', 'Income transaction ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana', 'Yangilangan sana'],
     txHeaders: ['ID', 'Sana', 'Turi', 'Kategoriya', 'Summa', 'Izoh', 'Service ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana'],
@@ -156,7 +158,8 @@ const EXCEL_LABELS = {
   ru: {
     yes: 'да',
     no: 'нет',
-    sheets: { clients: 'Клиенты', services: 'Услуги', transactions: 'Транзакции', summary: 'Сводка', sourceAnalysis: 'Источники', insights: 'Анализ' },
+    sheets: { clients: 'Клиенты', partners: 'Партнёры', services: 'Услуги', transactions: 'Транзакции', summary: 'Сводка', sourceAnalysis: 'Источники', insights: 'Анализ' },
+    partnerHeaders: ['Название', 'Телефон', 'Станд. цена', 'Станд. адрес', 'Визиты (период)', 'Доход (период)'],
     clientHeaders: ['ID', 'Имя', 'Телефон', 'Адреса', 'Дата создания', 'Дата обновления'],
     serviceHeaders: ['ID', 'Client ID', 'Клиент', 'Телефон', 'Адрес', 'Дата', 'Исторический', 'Цена', 'Оплачено', 'Способ оплаты', 'Статус оплаты', 'Статус', 'Причина отмены', 'Дата выполнения', 'Заметка', 'ID файлов фото', 'Income transaction ID', 'Удалён', 'Дата удаления', 'Дата создания', 'Дата обновления'],
     txHeaders: ['ID', 'Дата', 'Тип', 'Категория', 'Сумма', 'Заметка', 'Service ID', 'Удалён', 'Дата удаления', 'Дата создания'],
@@ -341,6 +344,22 @@ async function buildExcelPayload(body = {}) {
       formatDateTime(tx.createdAt, language),
     ]),
   ]);
+
+  // Hamkor (shartnomaviy) mijozlar varag'i: davr ichidagi tashriflar soni va jami daromad.
+  const partnerRows = await getPartnerReportRows({ from: range.from, to: range.to });
+  if (partnerRows.length) {
+    addSheet(workbook, L.sheets.partners, [
+      L.partnerHeaders,
+      ...partnerRows.map((partner) => [
+        partner.name,
+        partner.phone || '',
+        partner.partnerPrice || 0,
+        partner.address || '',
+        partner.visits,
+        partner.total,
+      ]),
+    ]);
+  }
 
   addSheet(workbook, L.sheets.summary, makeMonthlyBreakdownRows(transactions, services, L.summaryHeaders, language));
 
@@ -541,11 +560,23 @@ async function buildReportData({ reportType, limit, range, language }) {
   const monthlyIncomeBySource = includesFinance ? await buildMonthlyIncomeRows(range, language) : [];
   const insights = includesFinance ? await buildInsightLines(range, language) : [];
 
+  // Hamkor mijozlar bo'limi — mijozlarni o'z ichiga olgan hisobotlarda (clients/full).
+  const partners = includesClients
+    ? (await getPartnerReportRows({ from: range.from, to: range.to })).map((partner) => [
+        partner.name,
+        String(partner.visits),
+        formatMoney(partner.total),
+        formatMoney(partner.partnerPrice || 0),
+        partner.address || '',
+      ])
+    : [];
+
   return {
     periodLabel: buildPeriodTitle(range, language),
     language,
     summary,
     clients: includesClients ? await mapClientRows(clients, language) : [],
+    partners,
     services: services.map((service) => mapServiceRow(service, language)),
     transactions: mergeFinanceRows(transactions, language).slice(0, limit),
     monthlyChart,

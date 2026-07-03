@@ -32,10 +32,12 @@ const LABELS = {
     totalExpense: 'Jami chiqim',
     balance: 'Balans',
     clients: 'Mijozlar',
+    partners: 'Hamkor mijozlar (shartnoma)',
     services: 'Xizmatlar',
     finance: 'Moliya',
     lastSixMonths: 'Oxirgi 6 oy',
     clientHeaders: ['Ism', 'Tel', "So'nggi xizmat", "Jami to'lagan", "To'lanmagan"],
+    partnerHeaders: ['Nomi', 'Tashriflar', 'Jami daromad', 'Standart narx', 'Standart manzil'],
     serviceHeaders: ['Sana', 'Mijoz', 'Manzil', 'Narx', 'Status', "To'lov"],
     financeHeaders: ['Sana', 'Turi', 'Toifa', 'Summa', 'Izoh'],
     income: 'Kirim',
@@ -63,10 +65,12 @@ const LABELS = {
     totalExpense: 'Rashod',
     balance: 'Balans',
     clients: 'Klienty',
+    partners: 'Klienty-partnyory (dogovor)',
     services: 'Uslugi',
     finance: 'Finansy',
     lastSixMonths: 'Poslednie 6 mesyatsev',
     clientHeaders: ['Imya', 'Tel', 'Posl. usluga', 'Oplacheno', 'Ne oplacheno'],
+    partnerHeaders: ['Nazvanie', 'Vizity', 'Dohod', 'Stand. cena', 'Stand. adres'],
     serviceHeaders: ['Data', 'Klient', 'Adres', 'Cena', 'Status', 'Oplata'],
     financeHeaders: ['Data', 'Tip', 'Kategoriya', 'Summa', 'Zametka'],
     income: 'Dohod',
@@ -110,6 +114,13 @@ export function createReportDoc(data) {
   if (data.clients?.length) {
     drawSectionTitle(doc, labels.clients);
     drawTable(doc, labels.clientHeaders, data.clients, [110, 90, 100, 95, 80]);
+  }
+
+  // Hamkor (shartnomaviy) mijozlar: davr ichidagi tashriflar soni va jami daromad —
+  // alohida, aniq bo'lim (spec talabi).
+  if (data.partners?.length) {
+    drawSectionTitle(doc, labels.partners);
+    drawTable(doc, labels.partnerHeaders, data.partners, [120, 65, 95, 95, 100]);
   }
 
   if (data.services?.length) {

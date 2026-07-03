@@ -13,6 +13,7 @@ import {
   ENTRY_MINIMUM,
   FIELD_LABELS,
   QUESTIONS,
+  PARTNER_QUESTIONS,
   normalizeExpenseCategory,
 } from '../bot/flow.js';
 import {
@@ -53,6 +54,7 @@ import {
   softDeleteUsefulItem,
 } from '../services/usefulItemService.js';
 import { searchServices, findServiceForUpdate, findClient, findClientsByName } from '../services/searchService.js';
+import { findPartnerByName, upsertPartnerContract, revertPartnerContract } from '../services/partnerService.js';
 import { getUsdToUzsRate } from '../services/exchangeRateService.js';
 import { answerReadQuery } from './queries.js';
 import { TX_TYPES } from '../models/Transaction.js';
@@ -71,9 +73,13 @@ import {
 } from '../bot/ui.js';
 
 // Yetishmayotgan maydonni so'rash — paymentMethod uchun tugmalar bilan.
-function askField(field) {
+// Hamkorlik shartnomasida maydonlar o'ziga xos savol bilan so'raladi ("standart narx").
+function askField(field, intent = null) {
   if (field === 'paymentMethod') {
     return { text: QUESTIONS[field], keyboard: paymentMethodKeyboard() };
+  }
+  if (intent === 'PARTNER_CONTRACT' && PARTNER_QUESTIONS[field]) {
+    return { text: PARTNER_QUESTIONS[field] };
   }
   return { text: QUESTIONS[field] };
 }
@@ -83,7 +89,7 @@ const PIVOT_SUBS = new Set(['SEARCH_QUERY', 'ANALYTICS_QUERY']);
 const FREE_TEXT_FIELDS = new Set(['clientName', 'location', 'notes', 'description']);
 // Slot-filling o'rtasida niyat korreksiyasi faqat shu aniq yozuv amallari uchun.
 const WRITE_ACTIONS = new Set([
-  'SERVICE_ENTRY', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'MATERIAL_SALE', 'ITEM_ENTRY', 'ITEM_SALE', 'ITEM_GIVEAWAY', 'STATUS_UPDATE',
+  'SERVICE_ENTRY', 'PARTNER_CONTRACT', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'MATERIAL_SALE', 'ITEM_ENTRY', 'ITEM_SALE', 'ITEM_GIVEAWAY', 'STATUS_UPDATE',
   'SERVICE_EDIT', 'CLIENT_EDIT', 'PAYMENT_UPDATE', 'DEBT_REMINDER',
 ]);
 
@@ -112,7 +118,7 @@ async function maybePivot({ conversation, understanding, rawText, mode }) {
   const answerSub =
     sub === 'ANALYTICS_QUERY' || hasAnalyticsSignal(understanding.fields) ? 'ANALYTICS_QUERY' : 'SEARCH_QUERY';
   const answer = await executeToolFlow({ intent: answerSub, fields: understanding.fields || {}, rawText, mode });
-  const reAsk = askField(field);
+  const reAsk = askField(field, conversation.pendingIntent);
   const text = `${answer.text}\n\n${reAsk.text}`;
   return reAsk.keyboard ? { text, keyboard: reAsk.keyboard } : { text };
 }
@@ -155,6 +161,9 @@ function hasConcreteSignal(action, f = {}) {
     case 'SERVICE_ENTRY':
       // Shunchaki ism emas — to'liqroq yangi ish (sana/narx/tel ham bor).
       return Boolean(f.clientName && (f.serviceDateTime || f.price || f.clientPhone));
+    case 'PARTNER_CONTRACT':
+      // Aniq shartnoma: nom + (standart narx YOKI manzil) bo'lsa haqiqiy yangi hamkorlik.
+      return Boolean(f.clientName && (f.price || f.location));
     case 'STATUS_UPDATE':
       return Boolean(f.newStatus);
     case 'PAYMENT_UPDATE':
@@ -189,6 +198,7 @@ function answersCurrentField(field, rawText) {
 
 const TOOL_BY_INTENT = {
   SERVICE_ENTRY: 'create_service',
+  PARTNER_CONTRACT: 'upsert_partner_contract',
   EXPENSE_ENTRY: 'create_transaction',
   INCOME_ENTRY: 'create_transaction',
   MATERIAL_SALE: 'create_transaction',
@@ -242,6 +252,7 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
 
   switch (action) {
     case 'SERVICE_ENTRY':
+    case 'PARTNER_CONTRACT':
     case 'EXPENSE_ENTRY':
     case 'INCOME_ENTRY':
     case 'MATERIAL_SALE':
@@ -371,7 +382,7 @@ async function startClarify({ clarify, understanding, rawText, conversation }) {
 
 // ── Valyuta (dollar/so'm) aniqlash va avtomatik konvertatsiya ────────────────
 // Qaysi maydon pul summasi (intent bo'yicha).
-const AMOUNT_KEY = { SERVICE_ENTRY: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount', MATERIAL_SALE: 'amount', ITEM_ENTRY: 'estimatedPrice', ITEM_SALE: 'amount', DEBT_REMINDER: 'amount' };
+const AMOUNT_KEY = { SERVICE_ENTRY: 'price', PARTNER_CONTRACT: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount', MATERIAL_SALE: 'amount', ITEM_ENTRY: 'estimatedPrice', ITEM_SALE: 'amount', DEBT_REMINDER: 'amount' };
 const USD_RE = /(\$|dollar|dollor|\bdoll?ar\b|\busd\b)/i;
 
 function detectUsd(text) {
@@ -495,14 +506,15 @@ async function askMinimumIdentity({ conversation, intent, collected }) {
     await conversation.save();
   }
   const labels = keys.map((k) => FIELD_LABELS[k] || k).join(' yoki ');
-  const ask = field ? askField(field) : { text: '' };
+  const ask = field ? askField(field, intent) : { text: '' };
   return { text: `Tushunarli oka, lekin saqlash uchun kamida ${labels} kerak.\n${ask.text}`.trim(), keyboard: ask.keyboard };
 }
 
 async function startEntry({ conversation, intent, fields, rawText, mode, sourceMeta = null }) {
   fields = applyDateTimeCorrection(intent, fields, rawText);
-  const collected = applyEntryDefaults(intent, attachEntrySource(intent, mergeFields({}, fields), rawText, sourceMeta));
+  let collected = applyEntryDefaults(intent, attachEntrySource(intent, mergeFields({}, fields), rawText, sourceMeta));
   trackEntryCurrency(intent, collected, undefined, fields, rawText);
+  collected = await applyPartnerVisitDefaults(intent, collected);
 
   // Birinchi xabardayoq "boshqa so'rama" desa — bor ma'lumot bilan darhol saqlaymiz.
   if (stopRequested(fields, rawText)) {
@@ -512,7 +524,7 @@ async function startEntry({ conversation, intent, fields, rawText, mode, sourceM
     return finalizeEntry({ conversation, intent, collected, rawText, mode, stopped: true });
   }
 
-  const missing = nextMissing(intent, collected);
+  const missing = entryNextMissing(intent, collected);
 
   if (missing) {
     if (conversation) {
@@ -522,11 +534,65 @@ async function startEntry({ conversation, intent, fields, rawText, mode, sourceM
       conversation.markModified('collected');
       await conversation.save();
     }
-    return askField(missing);
+    return askField(missing, intent);
   }
   const soft = await maybeAskSoft({ conversation, intent, collected, mode });
   if (soft) return soft;
   return finalizeEntry({ conversation, intent, collected, rawText, mode });
+}
+
+// ── Hamkor (shartnomaviy) mijoz tashrifi ─────────────────────────────────────
+// "Salat sexga bordim/boraman" — mijoz hamkor bo'lsa, standart narx/manzil avtomatik
+// to'ldiriladi, telefon so'ralmaydi. Bir marta tekshiriladi (_partnerChecked bayrog'i);
+// keyin ism kelsa (avval bo'sh bo'lgan bo'lsa) continueEntry qayta chaqiradi.
+async function applyPartnerVisitDefaults(intent, collected) {
+  if (intent !== 'SERVICE_ENTRY') return collected;
+  if (collected._partnerChecked || !collected.clientName) return collected;
+  const out = { ...collected, _partnerChecked: true };
+  let partner = null;
+  try {
+    partner = await findPartnerByName(out.clientName);
+  } catch (err) {
+    // Qidiruv xatosi oddiy mijoz oqimini to'xtatmasin.
+    console.warn('Hamkor qidiruvida xato:', err.message);
+    return out;
+  }
+  if (!partner) return out;
+
+  out._partnerVisit = true;
+  out.clientName = partner.name; // kanonik nom ("salat sexga" -> "Salat sex")
+  const filled = {};
+  if (!hasValue('clientPhone', out) && partner.phone) out.clientPhone = partner.phone;
+  if (!hasValue('price', out) && partner.partnerPrice > 0) {
+    out.price = partner.partnerPrice;
+    filled.price = true;
+  }
+  const hasLocation = out.location && (typeof out.location === 'string' ? out.location.trim() : out.location.address);
+  if (!hasLocation && partner.partnerLocation?.address) {
+    out.location = {
+      address: partner.partnerLocation.address,
+      mapUrl: partner.partnerLocation.mapUrl || null,
+      coordinates: partner.partnerLocation.coordinates || null,
+    };
+    filled.location = true;
+  }
+  out._partnerFilled = filled;
+  // Tarixiy ("bordim") tashrifda sana aytilmagan bo'lsa — hozirgi vaqt (tashrif hozir bo'ldi).
+  if (out.isHistorical && !hasValue('serviceDateTime', out)) {
+    out.serviceDateTime = new Date().toISOString();
+  }
+  return out;
+}
+
+// Hamkor tashrifida qo'shimcha savol berilmaydi: faqat KELAJAK reja uchun sana/vaqt
+// (eslatma jadvali uchun shart) va standart narx yo'q bo'lsa narx so'raladi.
+function entryNextMissing(intent, collected) {
+  if (intent === 'SERVICE_ENTRY' && collected._partnerVisit) {
+    if (!collected.isHistorical && !hasValue('serviceDateTime', collected)) return 'serviceDateTime';
+    if (!hasValue('price', collected)) return 'price';
+    return null;
+  }
+  return nextMissing(intent, collected);
 }
 
 // Material sotuvida kilo narxi yumshoq (bir martalik) so'raladi: miqdor va umumiy summa bor,
@@ -544,7 +610,7 @@ async function maybeAskSoft({ conversation, intent, collected, mode }) {
     conversation.markModified('collected');
     await conversation.save();
   }
-  return askField(field);
+  return askField(field, intent);
 }
 
 async function continueEntry({ conversation, understanding, rawText, mode }) {
@@ -586,7 +652,24 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
   const prevAmount = amountKey ? conversation.collected?.[amountKey] : undefined;
   // Model bu xabarda serviceDateTime bergan bo'lsa, mintaqa xatosini birlashtirishdan oldin tuzatamiz.
   const incoming = applyDateTimeCorrection(intent, understanding.fields || {}, rawText);
-  let collected = mergeFields(conversation.collected || {}, incoming);
+  let prior = conversation.collected || {};
+  // Hamkor standartidan AVTO-to'ldirilgan narx/manzilni foydalanuvchining shu xabardagi
+  // ANIQ qiymati almashtira oladi (mergeFields bo'sh bo'lmaganini yozmaydi — shuning
+  // uchun avto qiymatni oldindan bo'shatamiz; yangi qiymat keyin standartni ham yangilaydi).
+  if (prior._partnerFilled) {
+    prior = { ...prior };
+    const filled = { ...prior._partnerFilled };
+    if (filled.price && typeof incoming.price === 'number' && incoming.price > 0) {
+      delete prior.price;
+      delete filled.price;
+    }
+    if (filled.location && incoming.location) {
+      delete prior.location;
+      delete filled.location;
+    }
+    prior._partnerFilled = filled;
+  }
+  let collected = mergeFields(prior, incoming);
 
   // To'xtash xabarining o'zi maydon qiymati emas — uni so'ralayotgan maydonga yozmaymiz
   // ("boshqa so'rama" manzilga aylanib qolmasin).
@@ -596,6 +679,8 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
   collected = applyEntryDefaults(intent, collected);
   // Summa shu turda kelgan/o'zgargan bo'lsa — valyutasini (USD/UZS) belgilab qo'yamiz.
   trackEntryCurrency(intent, collected, prevAmount, understanding.fields || {}, rawText);
+  // Mijoz ismi endi kelgan bo'lsa — hamkorlik standartlarini shu yerda qo'llaymiz.
+  collected = await applyPartnerVisitDefaults(intent, collected);
 
   if (stopped) {
     if (!hasMinimumIdentity(intent, collected)) {
@@ -604,13 +689,13 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
     return finalizeEntry({ conversation, intent, collected, rawText, mode, stopped: true });
   }
 
-  const missing = nextMissing(intent, collected);
+  const missing = entryNextMissing(intent, collected);
   if (missing) {
     conversation.collected = collected;
     conversation.awaitingField = missing;
     conversation.markModified('collected');
     await conversation.save();
-    return askField(missing);
+    return askField(missing, intent);
   }
 
   const soft = await maybeAskSoft({ conversation, intent, collected, mode });
@@ -626,6 +711,15 @@ function savedRefFromResult(intent, toolResult) {
   switch (intent) {
     case 'SERVICE_ENTRY':
       return toolResult.id ? { type: 'service', serviceId: String(toolResult.id) } : null;
+    case 'PARTNER_CONTRACT':
+      return toolResult.client?._id
+        ? {
+            type: 'partner',
+            clientId: String(toolResult.client._id),
+            created: !!toolResult.created,
+            prev: toolResult.prev || null,
+          }
+        : null;
     case 'EXPENSE_ENTRY':
     case 'INCOME_ENTRY':
     case 'MATERIAL_SALE':
@@ -750,7 +844,7 @@ function normalizeEditFieldName(value) {
 }
 
 function moneyFieldForIntent(intent) {
-  if (intent === 'SERVICE_ENTRY') return 'price';
+  if (intent === 'SERVICE_ENTRY' || intent === 'PARTNER_CONTRACT') return 'price';
   if (intent === 'ITEM_ENTRY') return 'estimatedPrice';
   if (['EXPENSE_ENTRY', 'INCOME_ENTRY', 'MATERIAL_SALE', 'ITEM_SALE', 'DEBT_REMINDER'].includes(intent)) return 'amount';
   return 'amount';
@@ -866,6 +960,19 @@ export async function editSavedEntry({ conversation, understanding, rawText = ''
 // Tahrirlangan maydonlarni saqlangan yozuvga o'tkazadi. Faqat QIYMATI BOR maydonlar
 // yuboriladi — bo'sh qolganlari yozuvda ham bo'sh qoladi (majburlanmaydi).
 async function applySavedEntryUpdate(intent, saved, fields, prevFields = {}) {
+  if (intent === 'PARTNER_CONTRACT') {
+    // Saqlangan shartnoma tahriri: hamkorning standart qiymatlari yangilanadi.
+    const data = { isPartner: true };
+    if (fields.clientName && fields.clientName !== prevFields.clientName) data.name = fields.clientName;
+    if (hasValue('clientPhone', fields)) data.phone = fields.clientPhone;
+    if (hasValue('price', fields)) data.partnerPrice = fields.price;
+    const address = fields.location?.address || fields.location;
+    if (address && address !== (prevFields.location?.address || prevFields.location)) {
+      data.partnerLocation = fields.location;
+    }
+    await updateClient(saved.clientId, data);
+    return;
+  }
   if (intent === 'SERVICE_ENTRY') {
     const data = {};
     if (fields.clientName) data.clientName = fields.clientName;
@@ -957,6 +1064,10 @@ async function undoSavedEntry(saved) {
     case 'service':
       await softDeleteServiceCascade(saved.serviceId);
       return;
+    case 'partner':
+      // Yangi yaratilgan hamkor o'chiriladi; mavjud mijoz oldingi holatiga qaytariladi.
+      await revertPartnerContract(saved);
+      return;
     case 'transaction':
       await softDeleteTransaction(saved.transactionId);
       return;
@@ -985,6 +1096,16 @@ export function classifyPostSaveMessage(understanding, savedIntent) {
   const action = resolveAction(understanding);
   const conf = understanding?.confidence ?? 0;
   if (PIVOT_SUBS.has(action) && conf >= CONFIDENCE_THRESHOLD) return 'new';
+  // Shartnoma saqlangach darhol "X ga bordim/boraman" deyilishi tabiiy — bu tahrir emas,
+  // YANGI tashrif (hasConcreteSignal talab qiladigan narx/sana/tel bu iborada bo'lmaydi).
+  if (
+    savedIntent === 'PARTNER_CONTRACT' &&
+    action === 'SERVICE_ENTRY' &&
+    understanding?.fields?.clientName &&
+    conf >= CONFIDENCE_THRESHOLD
+  ) {
+    return 'new';
+  }
   if (action === 'SERVICE_EDIT' || action === 'CLIENT_EDIT') return 'edit';
   if (
     WRITE_ACTIONS.has(action) &&
@@ -1244,6 +1365,11 @@ async function executeAgentTool(name, args) {
   switch (name) {
     case 'create_service':
       return serializeService(await createService(args));
+
+    case 'upsert_partner_contract': {
+      const { client, created, prev } = await upsertPartnerContract(args);
+      return { client: serializeDoc(client), created, prev };
+    }
 
     case 'update_service_status':
       return updateServiceStatus(args);
@@ -1554,6 +1680,17 @@ function fallbackToolCall(intent, fields, rawText) {
   switch (name) {
     case 'create_service':
       return { name, args: serviceArgs(fields) };
+    case 'upsert_partner_contract':
+      return {
+        name,
+        args: {
+          clientName: fields.clientName,
+          clientPhone: fields.clientPhone || null,
+          price: fields.price ?? null, // allaqachon so'mda (USD bo'lsa oldindan aylantirilgan)
+          location: fields.location || null,
+          notes: fields.notes || '',
+        },
+      };
     case 'update_service_status':
       return {
         name,
@@ -1796,6 +1933,16 @@ function fallbackResponse(toolName, result) {
   switch (toolName) {
     case 'create_service':
       return serviceSummary(result);
+    case 'upsert_partner_contract': {
+      const client = result.client || {};
+      const lines = [
+        `🤝 Bo'ldi oka, ${client.name || 'hamkor'} bilan hamkorlik ${result.created ? 'boshlandi' : 'yangilandi'} ✅`,
+      ];
+      if (client.partnerPrice > 0) lines.push(`💰 Standart narx: ${formatMoney(client.partnerPrice)}`);
+      if (client.partnerLocation?.address) lines.push(`📍 Standart manzil: ${client.partnerLocation.address}`);
+      lines.push(`Endi "${client.name || 'hamkor'}ga bordim" desangiz — darhol yozib qo'yaman.`);
+      return lines.join('\n');
+    }
     case 'update_service_status':
     case 'complete_service':
     case 'cancel_service':

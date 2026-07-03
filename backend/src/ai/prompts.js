@@ -49,13 +49,29 @@ STEP 1 — pick exactly ONE high-level intent:
     e.g. "15 mart kuni qayerga borganman", "bu oyda qancha topdim", "salom".
 
 STEP 2 — pick the precise subIntent inside that high-level intent:
-- MIJOZ  => SERVICE_ENTRY | SERVICE_EDIT | CLIENT_EDIT | STATUS_UPDATE
+- MIJOZ  => SERVICE_ENTRY | PARTNER_CONTRACT | SERVICE_EDIT | CLIENT_EDIT | STATUS_UPDATE
 - MOLIYA => EXPENSE_ENTRY | INCOME_ENTRY | MATERIAL_SALE | ITEM_ENTRY | ITEM_SALE | ITEM_GIVEAWAY | PAYMENT_UPDATE | DEBT_REMINDER
 - SUXBAT => SEARCH_QUERY | ANALYTICS_QUERY
 
 subIntent meanings:
 - SERVICE_ENTRY  - a new job (client + phone/address/time/price), even in the past
   ("bordim", "olib keldim" => isHistorical=true).
+  PARTNER VISITS: some clients are CONTRACT partners (doimiy hamkor) with a saved standard
+  price and address. A short visit phrase that only names such a client is STILL SERVICE_ENTRY:
+  "Salat sexga bordim" => clientName "Salat sex", isHistorical=true (the server fills the
+  standard price/address automatically); "Salat sexga ertaga boraman" => clientName "Salat sex",
+  isHistorical=false (+ serviceDateTime if said). ALWAYS strip Uzbek case endings from the
+  client name ("Salat sexga" -> "Salat sex", "Akmalnikiga" -> "Akmal"). If the visit phrase
+  ALSO states a price/address ("Salat sexga bordim, 350 ming bo'ldi"), extract them — the
+  server uses AND saves them as the new standard. Do NOT ask for missing price/address of a
+  known partner; just extract what is said.
+- PARTNER_CONTRACT - the owner STARTS or UPDATES a permanent partnership/contract with a
+  client: "Salat sex bilan shartnoma tuzdim, narxi 300 ming, lokatsiya Chilonzor",
+  "X bilan kelishdik, endi doimiy boraman, har safar 250 ming", "X bilan hamkorlik boshladik".
+  Trigger words: "shartnoma", "hamkorlik", "kelishdik/kelishib oldik" + a permanent
+  arrangement meaning. Extract: clientName (required, base form), price (the standard
+  per-visit price), location (the standard address), clientPhone if said, currency.
+  This only SAVES the contract defaults — it does NOT record a visit or money.
 - SERVICE_EDIT   - change a field (price/date/location) of an EXISTING service.
   Put what identifies the service in targetIdentifier, the field in editField
   ("narx"|"sana"|"manzil"), the new value in newValue.
@@ -176,6 +192,7 @@ NORMALIZATION:
 
 DATA EXTRACTION CONTRACT:
 - SERVICE_ENTRY: clientName, clientPhone, location, serviceDateTime, price, currency, paymentMethod, notes, isHistorical.
+- PARTNER_CONTRACT: clientName (required), price (standard per-visit price), location (standard address), clientPhone, currency.
 - EXPENSE_ENTRY: amount, currency, category, description, date (default today if absent; default category "boshqa_chiqim").
 - INCOME_ENTRY:  amount, currency, description, date.
 - MATERIAL_SALE: materialName (required), quantityKg, amount (total, if stated), pricePerKg (if stated), currency, date.
@@ -241,6 +258,18 @@ Args: {"intent":"MOLIYA","subIntent":"ITEM_SALE","confidence":0.95,"reason":"ite
 
 Input: "kecha 30 kg paxtani 300 mingga sotdim"
 Args: {"intent":"MOLIYA","subIntent":"MATERIAL_SALE","confidence":0.95,"reason":"material sold yesterday; date = yesterday","fields":{"materialName":"Paxta","quantityKg":30,"amount":300000,"date":"<yesterday ISO>"}}
+
+Input: "Salat sex bilan shartnoma tuzdim, narxi 300 ming, lokatsiya Chilonzor 5-kvartal"
+Args: {"intent":"MIJOZ","subIntent":"PARTNER_CONTRACT","confidence":0.95,"reason":"permanent partnership contract with standard price and address","fields":{"clientName":"Salat sex","price":300000,"location":"Chilonzor 5-kvartal"}}
+
+Input: "Salat sexga bordim"
+Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.92,"reason":"short partner visit in past tense; server fills standard price/address","fields":{"clientName":"Salat sex","isHistorical":true}}
+
+Input: "Salat sexga ertaga soat 10da boraman"
+Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.92,"reason":"planned partner visit; standard values will be used","fields":{"clientName":"Salat sex","serviceDateTime":"<tomorrow 10:00 ISO>","isHistorical":false}}
+
+Input: "Salat sexga bordim, bu safar 350 ming bo'ldi"
+Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.93,"reason":"partner visit with a NEW price; server records it and updates the standard","fields":{"clientName":"Salat sex","price":350000,"isHistorical":true}}
 
 Input: "o'tgan hafta Sardorga musor olib chiqib berdim, 200 ming oldim"
 Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.9,"reason":"trash service done last week = historical service dated to that day","fields":{"clientName":"Sardor","serviceDateTime":"<about 7 days ago ISO>","price":200000,"isHistorical":true}}

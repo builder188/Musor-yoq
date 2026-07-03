@@ -7,6 +7,7 @@ import {
   updateClient,
   findOrCreateClient,
 } from '../services/clientService.js';
+import { upsertPartnerContract } from '../services/partnerService.js';
 import { softDeleteOne, restoreClientWithServices } from '../services/deleteService.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
 import Client from '../models/Client.js';
@@ -51,10 +52,20 @@ router.get(
   })
 );
 
-// POST /api/clients — yangi mijoz.
+// POST /api/clients — yangi mijoz. isPartner=true bo'lsa hamkor (shartnomaviy) mijoz
+// sifatida yaratiladi/belgilanadi — telefon shart emas, standart narx/manzil saqlanadi.
 router.post(
   '/',
   asyncHandler(async (req, res) => {
+    if (req.body?.isPartner) {
+      const { client } = await upsertPartnerContract({
+        clientName: req.body.name || req.body.clientName,
+        clientPhone: req.body.phone || req.body.clientPhone,
+        price: req.body.partnerPrice ?? req.body.price ?? null,
+        location: req.body.partnerLocation || req.body.location || null,
+      });
+      return res.status(201).json(client);
+    }
     const client = await findOrCreateClient(req.body);
     res.status(201).json(client);
   })

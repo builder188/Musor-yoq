@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatPhone, formatDateTime, toInputDateTime } from '../utils/format.js';
+import { formatMoney, formatPhone, formatDateTime, formatMonthName, toInputDateTime } from '../utils/format.js';
 import { shouldWarnMapUrl } from '../utils/mapUrl.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
@@ -151,24 +151,55 @@ function ClientCard({ client, onOpen }) {
     <div className={`list-item ${client.isDeleted ? 'deleted-item' : ''}`} onClick={onOpen}>
       <div className="row-between">
         <div className="title">{client.name}</div>
-        {client.isDeleted && <span className="badge badge-muted">{t('ui.deleted')}</span>}
+        <div>
+          {client.isPartner && <span className="badge badge-partner">🤝 {t('clients.partner')}</span>}
+          {client.isDeleted && <span className="badge badge-muted">{t('ui.deleted')}</span>}
+        </div>
       </div>
-      <div className="sub">{formatPhone(client.phone)}</div>
+      {client.phone && <div className="sub">{formatPhone(client.phone)}</div>}
+      {client.isPartner && client.partnerPrice > 0 && (
+        <div className="sub">{t('clients.standardPrice')}: {formatMoney(client.partnerPrice)}</div>
+      )}
       {lastServiceAt && <div className="sub">{t('ui.lastService')}: {formatDateTime(lastServiceAt, lang)}</div>}
       {debt > 0 && <div className="sub debt-text">Qarz: {formatMoney(debt)}</div>}
-      {!lastServiceAt && !debt && <div className="sub">{t('clients.noHistory')}</div>}
+      {!lastServiceAt && !debt && !client.isPartner && <div className="sub">{t('clients.noHistory')}</div>}
     </div>
   );
 }
 
 function ClientDetailModal({ client, onClose, onEdit, onDelete, onOpenService }) {
   const { t, lang } = useApp();
+  const monthName = formatMonthName(new Date(), lang);
   return (
-    <Modal title={client.name} onClose={onClose}>
+    <Modal title={client.isPartner ? `🤝 ${client.name}` : client.name} onClose={onClose}>
+      {client.isPartner && (
+        <div className="card partner-card">
+          <div className="card-row" style={{ padding: '4px 0' }}>
+            <span className="muted">{t('clients.partnerStatus')}</span>
+            <span>🤝 {t('clients.partner')}</span>
+          </div>
+          <div className="card-row" style={{ padding: '4px 0' }}>
+            <span className="muted">{t('clients.standardPrice')}</span>
+            <span>{client.partnerPrice > 0 ? formatMoney(client.partnerPrice) : t('common.notFilled')}</span>
+          </div>
+          <div className="card-row" style={{ padding: '4px 0', alignItems: 'flex-start' }}>
+            <span className="muted">{t('clients.standardLocation')}</span>
+            {client.partnerLocation?.address ? (
+              <LocationDisplay location={client.partnerLocation} />
+            ) : (
+              <span>{t('common.notFilled')}</span>
+            )}
+          </div>
+          <div className="card-row" style={{ padding: '4px 0' }}>
+            <span className="muted">{t('clients.monthVisits').replace('{month}', monthName)}</span>
+            <span>{(client.currentMonthVisits || 0)} {t('clients.visitTimes')}</span>
+          </div>
+        </div>
+      )}
       <div className="card">
         <div className="card-row" style={{ padding: '4px 0' }}>
           <span className="muted">{t('common.phone')}</span>
-          <span>{formatPhone(client.phone)}</span>
+          <span>{client.phone ? formatPhone(client.phone) : t('common.notFilled')}</span>
         </div>
         {client.locations && client.locations.length > 0 && (
           <div className="card-row" style={{ padding: '4px 0', alignItems: 'flex-start' }}>
@@ -233,6 +264,7 @@ function AddClientModal({ onClose, onSaved }) {
     date: datePart,
     time: timePart,
     price: '',
+    isPartner: false,
   });
   const [busy, setBusy] = useState(false);
   const [confirmPayload, setConfirmPayload] = useState(null);
@@ -240,6 +272,27 @@ function AddClientModal({ onClose, onSaved }) {
   const save = async () => {
     if (!form.locationName.trim()) return alert(t('common.locationRequired'));
     if (shouldWarnMapUrl(form.locationMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
+
+    // Hamkor rejimi: xizmat emas, shartnomaviy mijoz yaratiladi (standart narx/manzil).
+    if (form.isPartner) {
+      setBusy(true);
+      try {
+        await api.post('/clients', {
+          isPartner: true,
+          name: form.name,
+          phone: form.phone,
+          partnerPrice: Number(form.price) || 0,
+          partnerLocation: { address: form.locationName, mapUrl: form.locationMapUrl },
+        });
+        onSaved();
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     setConfirmPayload({
       clientName: form.name,
       clientPhone: form.phone,
@@ -264,11 +317,24 @@ function AddClientModal({ onClose, onSaved }) {
     }
   };
 
+  const canSave = form.isPartner
+    ? !busy && form.name && form.locationName
+    : !busy && form.name && form.phone && form.locationName && form.date && form.time && form.price;
+
   return (
     <Modal title={t('clients.addClient')} onClose={onClose}>
+      <label className="label partner-toggle">
+        <input
+          type="checkbox"
+          checked={form.isPartner}
+          onChange={(e) => setForm({ ...form, isPartner: e.target.checked })}
+        />{' '}
+        🤝 {t('clients.partnerToggle')}
+      </label>
+      {form.isPartner && <div className="sub partner-hint">{t('clients.partnerHint')}</div>}
       <label className="label">{t('common.name')}</label>
       <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-      <label className="label">{t('common.phone')}</label>
+      <label className="label">{t('common.phone')}{form.isPartner ? ` (${t('clients.optional')})` : ''}</label>
       <input
         className="input"
         type="tel"
@@ -277,7 +343,7 @@ function AddClientModal({ onClose, onSaved }) {
         value={form.phone}
         onChange={(e) => setForm({ ...form, phone: e.target.value })}
       />
-      <label className="label">{t('common.locationName')}</label>
+      <label className="label">{form.isPartner ? t('clients.standardLocation') : t('common.locationName')}</label>
       <input className="input" value={form.locationName} onChange={(e) => setForm({ ...form, locationName: e.target.value })} />
       <label className="label">{t('common.mapUrl')}</label>
       <input
@@ -289,17 +355,19 @@ function AddClientModal({ onClose, onSaved }) {
         onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })}
       />
       <MapQuickLinks />
-      <div className="date-range">
-        <div>
-          <label className="label">{t('common.date')}</label>
-          <input className="input" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+      {!form.isPartner && (
+        <div className="date-range">
+          <div>
+            <label className="label">{t('common.date')}</label>
+            <input className="input" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">{t('common.time')}</label>
+            <input className="input" type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+          </div>
         </div>
-        <div>
-          <label className="label">{t('common.time')}</label>
-          <input className="input" type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
-        </div>
-      </div>
-      <label className="label">{t('common.serviceFee')}</label>
+      )}
+      <label className="label">{form.isPartner ? t('clients.standardPrice') : t('common.serviceFee')}</label>
       <div className="input-with-action">
         <input
           type="number"
@@ -309,15 +377,13 @@ function AddClientModal({ onClose, onSaved }) {
         />
         <span>so'm</span>
       </div>
-      <div className="reminder-banner">
-        <span>🔔</span>
-        <span>{reminderText(form.date, form.time, t, lang)}</span>
-      </div>
-      <button
-        className="btn btn-primary btn-block premium-save"
-        onClick={save}
-        disabled={busy || !form.name || !form.phone || !form.locationName || !form.date || !form.time || !form.price}
-      >
+      {!form.isPartner && (
+        <div className="reminder-banner">
+          <span>🔔</span>
+          <span>{reminderText(form.date, form.time, t, lang)}</span>
+        </div>
+      )}
+      <button className="btn btn-primary btn-block premium-save" onClick={save} disabled={!canSave}>
         {busy ? '...' : t('common.save')}
       </button>
       {confirmPayload && (
@@ -358,18 +424,32 @@ function EditClientModal({ client, onClose, onSaved }) {
     locationName: client.locations?.[0]?.address || '',
     locationMapUrl: client.locations?.[0]?.mapUrl || '',
     locationCoordinates: client.locations?.[0]?.coordinates || null,
+    isPartner: !!client.isPartner,
+    partnerPrice: client.partnerPrice > 0 ? String(client.partnerPrice) : '',
+    partnerAddress: client.partnerLocation?.address || '',
+    partnerMapUrl: client.partnerLocation?.mapUrl || '',
+    partnerCoordinates: client.partnerLocation?.coordinates || null,
   });
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
     if (shouldWarnMapUrl(form.locationMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
+    if (form.isPartner && shouldWarnMapUrl(form.partnerMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
     setBusy(true);
     try {
-      const updated = await api.put(`/clients/${client._id}`, {
+      const payload = {
         name: form.name,
         phone: form.phone,
         location: { address: form.locationName, mapUrl: form.locationMapUrl, coordinates: form.locationCoordinates },
-      });
+        isPartner: form.isPartner,
+      };
+      if (form.isPartner) {
+        payload.partnerPrice = Number(form.partnerPrice) || 0;
+        payload.partnerLocation = form.partnerAddress
+          ? { address: form.partnerAddress, mapUrl: form.partnerMapUrl, coordinates: form.partnerCoordinates }
+          : null;
+      }
+      const updated = await api.put(`/clients/${client._id}`, payload);
       onSaved(updated);
     } catch (e) {
       alert(e.message);
@@ -378,18 +458,60 @@ function EditClientModal({ client, onClose, onSaved }) {
     }
   };
 
+  // Hamkorda telefon ixtiyoriy; oddiy mijozda majburiy.
+  const canSave = !busy && form.name && (form.isPartner || form.phone) && (form.isPartner || form.locationName);
+
   return (
     <Modal title={t('common.edit')} onClose={onClose}>
       <label className="label">{t('common.name')}</label>
       <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-      <label className="label">{t('common.phone')}</label>
+      <label className="label">{t('common.phone')}{form.isPartner ? ` (${t('clients.optional')})` : ''}</label>
       <input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
       <label className="label">{t('common.locationName')}</label>
       <input className="input" value={form.locationName} onChange={(e) => setForm({ ...form, locationName: e.target.value })} />
       <label className="label">{t('common.mapUrl')}</label>
       <input className="input" type="text" inputMode="url" placeholder={t('common.mapUrlPlaceholder')} value={form.locationMapUrl} onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })} />
       <MapQuickLinks />
-      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !form.name || !form.phone || !form.locationName}>
+
+      <label className="label partner-toggle">
+        <input
+          type="checkbox"
+          checked={form.isPartner}
+          onChange={(e) => setForm({ ...form, isPartner: e.target.checked })}
+        />{' '}
+        🤝 {t('clients.partnerToggle')}
+      </label>
+      {form.isPartner && (
+        <>
+          <label className="label">{t('clients.standardPrice')}</label>
+          <div className="input-with-action">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={form.partnerPrice}
+              onChange={(e) => setForm({ ...form, partnerPrice: e.target.value })}
+            />
+            <span>so'm</span>
+          </div>
+          <label className="label">{t('clients.standardLocation')}</label>
+          <input
+            className="input"
+            value={form.partnerAddress}
+            onChange={(e) => setForm({ ...form, partnerAddress: e.target.value })}
+          />
+          <label className="label">{t('common.mapUrl')}</label>
+          <input
+            className="input"
+            type="text"
+            inputMode="url"
+            placeholder={t('common.mapUrlPlaceholder')}
+            value={form.partnerMapUrl}
+            onChange={(e) => setForm({ ...form, partnerMapUrl: e.target.value })}
+          />
+        </>
+      )}
+
+      <button className="btn btn-primary btn-block" onClick={save} disabled={!canSave}>
         {busy ? '...' : t('common.save')}
       </button>
     </Modal>

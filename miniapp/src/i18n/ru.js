@@ -50,6 +50,7 @@ export default {
     error: 'Ошибка',
     saved: 'Сохранено',
     soum: 'сум',
+    notFilled: 'Не указано',
     createdAt: '\u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e',
   },
 
@@ -85,6 +86,16 @@ export default {
     mapButton: 'Карта',
     reminderDefault: 'Напоминание будет отправлено ботом в выбранное время.',
     reminderAt: 'Бот отправит напоминание в {time}.',
+    noHistory: 'Нет истории услуг',
+    partner: 'Партнёрство',
+    partnerStatus: 'Тип клиента',
+    partnerToggle: 'Партнёрство (договорной клиент)',
+    partnerHint: 'Постоянный партнёр: сохраняются стандартная цена и адрес. Скажите боту «сходил к X» — запишется автоматически.',
+    standardPrice: 'Стандартная цена',
+    standardLocation: 'Стандартный адрес',
+    monthVisits: 'Визитов за {month}',
+    visitTimes: 'раз',
+    optional: 'необязательно',
   },
 
   services: {
