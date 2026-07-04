@@ -106,7 +106,7 @@ export const QUESTIONS = {
   price: '💰 Xizmat haqi qancha, oka?',
   paymentMethod: "💳 To'lovni qanday oladi, oka? (naqd/karta/o'tkazma)",
   amount: "💰 Qancha bo'ldi, oka? (masalan: 50 ming)",
-  category: '🗂 Qaysi turdagi xarajat? (yoqilgi / tamirlash / oziq-ovqat / boshqa)',
+  category: "🗂 Qaysi turdagi xarajat? (masalan: benzin, ta'mirlash, oziq-ovqat, svalka — istalgan nom)",
   materialName: '♻️ Qaysi materialni sotdingiz, oka? (masalan: paxta, temir, plastik)',
   pricePerKg: "📊 1 kg ni necha pulga sotdingiz, oka?",
   itemName: 'Qaysi buyum, oka? (masalan: muzlatgich, televizor, divan)',
@@ -128,16 +128,38 @@ export function normalizePaymentMethod(value) {
   return null;
 }
 
+// Eski (legacy) toifa nomlari -> DB slug. MUHIM: faqat TO'LIQ moslik — avvalgi regex
+// yondashuvda "b-OSH-qa_chiqim" ichidan "osh" topilib, HAR QANDAY noaniq xarajat
+// "oziq-ovqat" bo'lib qolardi (asosiy bug). Ro'yxatda yo'q nom — DINAMIK kategoriya:
+// egasi qanday aytsa shunday saqlanadi ("benzin", "svalka", ...), server avtomatik yaratadi.
+const LEGACY_EXPENSE_CATEGORY = {
+  yoqilgi: 'yoqilgi',
+  fuel: 'yoqilgi',
+  tamirlash: 'tamirlash',
+  tamir: 'tamirlash',
+  remont: 'tamirlash',
+  'oziq-ovqat': 'oziq-ovqat',
+  'oziq ovqat': 'oziq-ovqat',
+  oziqovqat: 'oziq-ovqat',
+  ovqat: 'oziq-ovqat',
+  boshqa: 'boshqa_chiqim',
+  boshqa_chiqim: 'boshqa_chiqim',
+  'boshqa chiqim': 'boshqa_chiqim',
+  chiqim: 'boshqa_chiqim',
+  other: 'boshqa_chiqim',
+};
+
 export function normalizeExpenseCategory(value) {
   if (!value) return null;
-  const v = String(value).toLowerCase().replace(/[`'‘’]/g, '');
-  if (/(yoqilgi|yoqilg|benzin|dizel|gaz|yakit|salyarka|propan|metan)/.test(v)) return 'yoqilgi';
-  if (/(tamir|tamirlash|remont|shina|balon|moy|maslo|ehtiyot|zapchast|akkumulyator)/.test(v)) {
-    return 'tamirlash';
-  }
-  if (/(oziq|ovqat|non|tushlik|choy|kafe|osh|somsa|suv)/.test(v)) return 'oziq-ovqat';
-  if (/(boshqa_chiqim|boshqa|chiqim)/.test(v)) return 'boshqa_chiqim';
-  return 'boshqa_chiqim';
+  const name = String(value).replace(/[`‘’ʻʼ]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!name) return null;
+  const key = name.toLowerCase().replace(/'/g, '');
+  const slug = LEGACY_EXPENSE_CATEGORY[key];
+  if (slug) return slug;
+  // Juda uzun matn — bu kategoriya nomi emas, izoh/jumla (model adashgan): toifasiz qoldiramiz.
+  if (name.length > 40) return null;
+  // Dinamik kategoriya nomi — bosh harf bilan, qolgani egasi aytganidek.
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 export function hasValue(field, collected) {
@@ -175,7 +197,8 @@ export function mergeFields(collected, incoming = {}, { overwrite = false } = {}
     if (key === 'clientPhone' || key === 'targetPhone') value = normalizePhone(raw) || raw;
     else if (key === 'price' || key === 'amount' || key === 'paymentAmount' || key === 'quantityKg' || key === 'pricePerKg' || key === 'estimatedPrice') value = parseMoney(raw);
     else if (key === 'paymentMethod') value = normalizePaymentMethod(raw) || raw;
-    else if (key === 'category') value = normalizeExpenseCategory(raw) || raw;
+    // Normallashmagan (juda uzun/bo'sh) toifa tashlanadi — xom jumla toifa bo'lib qolmasin.
+    else if (key === 'category') value = normalizeExpenseCategory(raw);
     else if (key === 'materialName' || key === 'itemName' || key === 'recipient' || key === 'person') value = String(raw).replace(/\s+/g, ' ').trim();
     else if (key === 'dueDate' || key === 'eventDate') {
       // AI odatda ISO beradi (YYYY-MM-DD...). Sof matn ("30 iyun", "5-may") new Date() da

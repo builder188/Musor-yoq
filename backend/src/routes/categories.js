@@ -5,6 +5,8 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import {
   getCategoryOverview,
   getMaterialCategoryRecords,
+  getExpenseCategoryRecords,
+  getOtherCategoryRecords,
   createMaterialCategory,
 } from '../services/categoryService.js';
 
@@ -31,6 +33,23 @@ router.get(
   '/material/:name/records',
   asyncHandler(async (req, res) => {
     res.json(await getMaterialCategoryRecords(req.params.name));
+  })
+);
+
+// GET /api/categories/expense/:name/records — bitta xarajat kategoriyasining yozuvlari
+// (ovoz + asl matn bilan — Mini App'da qayta eshitish uchun).
+router.get(
+  '/expense/:name/records',
+  asyncHandler(async (req, res) => {
+    res.json(await getExpenseCategoryRecords(req.params.name));
+  })
+);
+
+// GET /api/categories/other/records — "Boshqa kirim-chiqimlar" (toifasiz kirim va chiqimlar).
+router.get(
+  '/other/records',
+  asyncHandler(async (req, res) => {
+    res.json(await getOtherCategoryRecords());
   })
 );
 

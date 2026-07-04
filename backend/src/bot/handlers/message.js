@@ -294,7 +294,7 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
     return routeServiceReschedule(ctx, conv, text);
   }
   if (conv.pendingIntent === 'ENTRY_SAVED') {
-    return routeSavedEntry(ctx, conv, text, priorHistory);
+    return routeSavedEntry(ctx, conv, text, priorHistory, sourceMeta);
   }
   if (conv.pendingIntent === 'ITEM_MATCH_CONFIRM') {
     return routeItemMatchConfirmation(ctx, conv, text);
@@ -430,7 +430,7 @@ async function routeImageRecords(ctx, records, fileId) {
 //  - "ha/rahmat/bo'ldi" -> shunchaki tasdiq, holat yopiladi
 //  - qiymatli gap ("narxi 200 ming") -> NLU orqali: saqlangan yozuv tahririmi yoki
 //    butunlay YANGI buyruqmi (yangi yozuv/savol) — shunga qarab yo'naltiriladi.
-async function routeSavedEntry(ctx, conv, text, priorHistory) {
+async function routeSavedEntry(ctx, conv, text, priorHistory, sourceMeta = null) {
   // Tahrir rejimida — keyingi gap to'g'ridan-to'g'ri maydon tuzatishdir.
   if (conv.awaitingField === 'editSaved') {
     return routeSavedEdit(ctx, conv, text, priorHistory);
@@ -463,9 +463,10 @@ async function routeSavedEntry(ctx, conv, text, priorHistory) {
   // Qiymatli gap — NLU hal qiladi: saqlangan yozuv tahririmi yoki yangi buyruqmi.
   const understanding = await understandText(text, priorHistory || []);
   const savedIntent = conv.collected?.savedIntent;
-  if (classifyPostSaveMessage(understanding, savedIntent) === 'new') {
+  if (classifyPostSaveMessage(understanding, savedIntent, text) === 'new') {
     await conv.reset();
-    return routeUnderstanding(ctx, understanding, text);
+    // sourceMeta uzatiladi — yangi yozuv ovozli kiritilgan bo'lsa, ovoz unga biriktiriladi.
+    return routeUnderstanding(ctx, understanding, text, sourceMeta);
   }
   const res = await editSavedEntry({ conversation: conv, understanding, rawText: text });
   await syncSessionFromConversation(ctx, conv);

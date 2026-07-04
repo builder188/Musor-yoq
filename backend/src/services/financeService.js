@@ -1,14 +1,17 @@
-import Transaction, { TX_TYPES, EXPENSE_CATEGORIES, MATERIAL_CATEGORY, USEFUL_ITEM_CATEGORY } from '../models/Transaction.js';
+import Transaction, { TX_TYPES, MATERIAL_CATEGORY, USEFUL_ITEM_CATEGORY } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { periodRange } from '../utils/dates.js';
 import { resolveMaterialName, buildMaterialDescription } from './materialService.js';
-import { ensureMaterialCategory } from './categoryService.js';
+import { ensureMaterialCategory, ensureExpenseCategory } from './categoryService.js';
+import { normalizeExpenseCategory } from '../bot/flow.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
+// Toifa AYTILMAGANDA izohdan taxmin qilish uchun zaxira kalit so'zlar. MUHIM: \b bilan —
+// avval oddiy includes() ishlatilardi va "telefon" ichidan "non" topilib xato toifa chiqardi.
 const CATEGORY_KEYWORDS = {
-  yoqilgi: ['benzin', 'dizel', 'gaz', 'yoqilgi', 'yakit'],
-  tamirlash: ['tamir', 'shina', 'moy', 'ehtiyot', 'zapchast', 'remont'],
-  'oziq-ovqat': ['ovqat', 'non', 'tushlik', 'choy', 'kafe'],
+  yoqilgi: [/\bbenzin/, /\bdizel/, /\bgaz\b/, /\byoqilg/, /\byakit/, /\bsalyarka/, /\bzapravka/],
+  tamirlash: [/\btamir/, /\bta'mir/, /\bshina/, /\bmoy\b/, /\behtiyot/, /\bzapchast/, /\bremont/],
+  'oziq-ovqat': [/\bovqat/, /\bnon\b/, /\btushlik/, /\bchoy\b/, /\bkafe/, /\bsomsa/, /\boziq/],
 };
 
 function badRequest(message) {
@@ -32,25 +35,25 @@ function parseOptionalDate(value) {
 
 function detectExpenseCategory(text = '') {
   const value = String(text || '').toLowerCase();
-  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-    if (keywords.some((keyword) => value.includes(keyword))) return category;
+  for (const [category, patterns] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (patterns.some((re) => re.test(value))) return category;
   }
   return 'boshqa_chiqim';
 }
 
+// Toifani DB qiymatiga keltiradi. Kirim: tanilgan manbalar yoki 'boshqa_kirim'.
+// Chiqim: legacy slug YOKI dinamik erkin nom ("Benzin", "Svalka" — flow.js normallashtiradi);
+// bo'sh bo'lsa 'boshqa_chiqim' ("Boshqa kirim-chiqimlar" bo'limiga tushadi).
 function normalizeCategory(type, category) {
   if (type === TX_TYPES.INCOME) {
     const value = String(category || '').trim().toLowerCase();
     if (value === MATERIAL_CATEGORY) return MATERIAL_CATEGORY;
     if (value === USEFUL_ITEM_CATEGORY) return USEFUL_ITEM_CATEGORY;
-    return category === 'xizmat' ? 'xizmat' : 'boshqa_kirim';
+    if (value === 'qarz') return 'qarz';
+    return value === 'xizmat' ? 'xizmat' : 'boshqa_kirim';
   }
-  const value = String(category || '').trim().toLowerCase();
-  if (EXPENSE_CATEGORIES.includes(value)) return value;
-  if (["yoqilg'i", 'yoqilg’i', 'fuel'].includes(value)) return 'yoqilgi';
-  if (["ta'mirlash", 'ta’mirlash', 'tamir', 'remont'].includes(value)) return 'tamirlash';
-  if (['boshqa', 'other'].includes(value)) return 'boshqa_chiqim';
-  return 'boshqa_chiqim';
+  if (String(category || '').trim().toLowerCase() === 'qarz') return 'qarz';
+  return normalizeExpenseCategory(category) || 'boshqa_chiqim';
 }
 
 export async function getSummary(period = 'all') {
@@ -173,10 +176,16 @@ export async function createTransaction(data) {
     ? 0
     : parsePositiveAmount(data.amount);
   const date = parseOptionalDate(data.date) || new Date();
-  const category = normalizeCategory(
+  let category = normalizeCategory(
     type,
     data.category || (type === TX_TYPES.EXPENSE ? detectExpenseCategory(data.description || data.note || '') : null)
   );
+  // Dinamik xarajat toifasi: ro'yxatda yo'q bo'lsa avtomatik yaratiladi (bot xabar beradi)
+  // va kanonik nom saqlanadi ("benzin" ham "Benzin" ham bitta kategoriya bo'lib qoladi).
+  if (type === TX_TYPES.EXPENSE && category && category !== 'qarz') {
+    const ensured = await ensureExpenseCategory(category, { source: 'bot', notify: true });
+    if (ensured.value) category = ensured.value;
+  }
 
   const tx = {
     type,
@@ -189,8 +198,20 @@ export async function createTransaction(data) {
     exchangeRateUsed: data.exchangeRateUsed ?? null,
   };
 
+  // Ovozli kiritilgan bo'lsa — asl ovoz va matn HAR QANDAY tranzaksiyaga biriktiriladi
+  // (Mini App'da o'sha kategoriya ichida qayta eshitish/o'qish uchun).
+  if (data.voiceTelegramFileId) {
+    tx.voice = {
+      telegramFileId: data.voiceTelegramFileId,
+      mimeType: data.voiceMimeType || null,
+      duration: data.voiceDuration || null,
+      messageId: data.voiceMessageId || null,
+    };
+  }
+  if (data.sourceText) tx.sourceText = String(data.sourceText).slice(0, 1000);
+
   // Material sotuvi: nomni kanonik shaklga keltiramiz (dublikat kategoriyaning oldini olish),
-  // kategoriyani kafolatlaymiz (yangi bo'lsa bot xabar beradi), miqdor/kilo narxi/ovozni
+  // kategoriyani kafolatlaymiz (yangi bo'lsa bot xabar beradi), miqdor/kilo narxini
   // saqlaymiz va izohni toza quramiz ("Paxta · 30 kg").
   if (category === MATERIAL_CATEGORY) {
     const resolved = (await resolveMaterialName(data.materialName)) || 'Boshqa';
@@ -200,15 +221,6 @@ export async function createTransaction(data) {
     tx.quantityKg = optionalPositiveNumber(data.quantityKg);
     tx.pricePerKg = optionalPositiveNumber(data.pricePerKg);
     tx.description = buildMaterialDescription(finalName, tx.quantityKg);
-    if (data.voiceTelegramFileId) {
-      tx.voice = {
-        telegramFileId: data.voiceTelegramFileId,
-        mimeType: data.voiceMimeType || null,
-        duration: data.voiceDuration || null,
-        messageId: data.voiceMessageId || null,
-      };
-    }
-    if (data.sourceText) tx.sourceText = String(data.sourceText).slice(0, 1000);
   }
   if (category === USEFUL_ITEM_CATEGORY) {
     tx.itemName = data.itemName || data.description || 'Buyum';
@@ -267,7 +279,13 @@ export async function updateTransaction(id, data) {
     allowed.date = date;
   }
   if (data.category !== undefined) {
-    allowed.category = normalizeCategory(current.type, data.category);
+    let category = normalizeCategory(current.type, data.category);
+    // Dinamik xarajat toifasi tahrirda ham kafolatlanadi (yangi bo'lsa yaratiladi).
+    if (current.type === TX_TYPES.EXPENSE && category && category !== 'qarz') {
+      const ensured = await ensureExpenseCategory(category, { source: 'bot', notify: true });
+      if (ensured.value) category = ensured.value;
+    }
+    allowed.category = category;
   }
 
   // Material sotuvi maydonlari (bot post-save tahriri uchun): nom kanonik shaklga

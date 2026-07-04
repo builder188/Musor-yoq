@@ -458,10 +458,12 @@ async function currencyFallback({ conversation, intent, collected, usdAmount }) 
   };
 }
 
+// Manba (ovoz/matn) biriktiriladigan yozuv turlari: buyum, material sotuvi VA xarajat/kirim —
+// Mini App'da tegishli kategoriya ichida asl ovozni qayta eshitish/matnini o'qish uchun.
+const SOURCE_ATTACH_INTENTS = new Set(['ITEM_ENTRY', 'MATERIAL_SALE', 'EXPENSE_ENTRY', 'INCOME_ENTRY']);
+
 function attachEntrySource(intent, fields, rawText, sourceMeta) {
-  // Ovoz/manba ITEM_ENTRY (buyum qo'shish) va MATERIAL_SALE (material sotuvi) ga biriktiriladi —
-  // Mini App'da o'sha kategoriyada asl ovozni qayta eshitish/matnini o'qish uchun.
-  if (intent !== 'ITEM_ENTRY' && intent !== 'MATERIAL_SALE') return fields;
+  if (!SOURCE_ATTACH_INTENTS.has(intent)) return fields;
   const out = { ...fields };
   out.sourceText = out.sourceText || rawText || '';
   if (sourceMeta?.type === 'voice') {
@@ -1088,20 +1090,38 @@ async function undoSavedEntry(saved) {
   }
 }
 
+// Tahrir/tuzatish ohangini bildiradigan so'zlar — bular bo'lsa xabar SAQLANGAN yozuv
+// tuzatishi, yangi yozuv emas ("650 emas 700 edi", "narxini o'zgartir", "xato yozibsan").
+const CORRECTION_RE = /(\bemas\b|xato|noto'?g'?ri|to'?g'?irla|to'?g'?rila|o'?zgartir|almashtir|tahrir|aslida|adash|\bqil\b)/i;
+
+// Shu intentning o'zi bilan kelgan xabar O'ZI TO'LIQ yangi yozuvmi? (summa bor — bu
+// hasConcreteSignal'da tekshirilgan; xarajat/kirimda qo'shimcha ravishda o'z mazmuni —
+// toifa yoki izoh — ham bo'lishi shart, aks holda "700 ming" kabi yalang'och summa
+// saqlangan yozuv tuzatishi deb qoladi.)
+function isSelfContainedEntry(action, f = {}) {
+  if (action === 'EXPENSE_ENTRY') return Boolean(f.category || f.description);
+  if (action === 'INCOME_ENTRY') return Boolean(f.description);
+  return true;
+}
+
 // Post-save holatda kelgan yangi xabar TAHRIRMI yoki YANGI BUYRUQMI?
 //  - SUXBAT (qidiruv/tahlil savoli) — yangi buyruq.
 //  - Boshqa aniq WRITE amal (konkret maydonlari bilan) — yangi buyruq.
-//  - SERVICE_EDIT/CLIENT_EDIT yoki shu intentning o'zi / qiymat maydonlari — tahrir.
-export function classifyPostSaveMessage(understanding, savedIntent) {
+//  - XUDDI SHU intent, lekin o'zi to'liq yangi gap (summa + mazmun, tuzatish so'zisiz) —
+//    yangi buyruq. (Avval bu holat tahrir deb olinib, ketma-ket aytilgan har bir xarajat
+//    bitta yozuvni qayta-qayta yangilab yuborardi — foydalanuvchi ko'rgan asosiy bug.)
+//  - SERVICE_EDIT/CLIENT_EDIT yoki qiymat maydonlari — tahrir.
+export function classifyPostSaveMessage(understanding, savedIntent, rawText = '') {
   const action = resolveAction(understanding);
   const conf = understanding?.confidence ?? 0;
+  const fields = understanding?.fields || {};
   if (PIVOT_SUBS.has(action) && conf >= CONFIDENCE_THRESHOLD) return 'new';
   // Shartnoma saqlangach darhol "X ga bordim/boraman" deyilishi tabiiy — bu tahrir emas,
   // YANGI tashrif (hasConcreteSignal talab qiladigan narx/sana/tel bu iborada bo'lmaydi).
   if (
     savedIntent === 'PARTNER_CONTRACT' &&
     action === 'SERVICE_ENTRY' &&
-    understanding?.fields?.clientName &&
+    fields.clientName &&
     conf >= CONFIDENCE_THRESHOLD
   ) {
     return 'new';
@@ -1111,7 +1131,17 @@ export function classifyPostSaveMessage(understanding, savedIntent) {
     WRITE_ACTIONS.has(action) &&
     action !== savedIntent &&
     conf >= CONFIDENCE_THRESHOLD &&
-    hasConcreteSignal(action, understanding?.fields || {})
+    hasConcreteSignal(action, fields)
+  ) {
+    return 'new';
+  }
+  if (
+    action === savedIntent &&
+    conf >= CONFIDENCE_THRESHOLD &&
+    !fields.editField &&
+    !CORRECTION_RE.test(String(rawText || '')) &&
+    hasConcreteSignal(action, fields) &&
+    isSelfContainedEntry(action, fields)
   ) {
     return 'new';
   }
@@ -1537,10 +1567,12 @@ async function findServiceByIdentifier(identifier) {
 async function createAgentTransaction(args) {
   const type = args.type === 'income' ? TX_TYPES.INCOME : TX_TYPES.EXPENSE;
   const isMaterial = type === TX_TYPES.INCOME && args.category === 'material';
+  // Faqat aniq berilgan toifa normallashtiriladi — izohni toifaga aylantirmaymiz
+  // (bo'sh bo'lsa createTransaction izoh kalit so'zlaridan taxmin qiladi yoki 'boshqa_chiqim').
   const category = isMaterial
     ? 'material'
-    : type === TX_TYPES.EXPENSE
-    ? normalizeCategoryForDb(args.category || args.description)
+    : type === TX_TYPES.EXPENSE && args.category
+    ? normalizeCategoryForDb(args.category)
     : null;
   const tx = await createTransaction({
     type,
@@ -1551,11 +1583,12 @@ async function createAgentTransaction(args) {
     materialName: isMaterial ? args.materialName : null,
     quantityKg: isMaterial ? args.quantityKg : null,
     pricePerKg: isMaterial ? args.pricePerKg : null,
-    voiceTelegramFileId: isMaterial ? args.voiceTelegramFileId : null,
-    voiceMimeType: isMaterial ? args.voiceMimeType : null,
-    voiceDuration: isMaterial ? args.voiceDuration : null,
-    voiceMessageId: isMaterial ? args.voiceMessageId : null,
-    sourceText: isMaterial ? args.sourceText : null,
+    // Ovoz/manba har qanday tranzaksiyaga biriktiriladi (kategoriya ichida qayta eshitiladi).
+    voiceTelegramFileId: args.voiceTelegramFileId || null,
+    voiceMimeType: args.voiceMimeType || null,
+    voiceDuration: args.voiceDuration || null,
+    voiceMessageId: args.voiceMessageId || null,
+    sourceText: args.sourceText || null,
     date: args.date || null,
     serviceId: args.serviceId || null,
     originalAmount: args.originalAmount ?? null,
@@ -1755,12 +1788,12 @@ function fallbackToolCall(intent, fields, rawText) {
           materialName: isMaterial ? fields.materialName || null : null,
           quantityKg: isMaterial ? fields.quantityKg ?? null : null,
           pricePerKg: isMaterial ? fields.pricePerKg ?? null : null,
-          // Material sotuvi ovozli aytilgan bo'lsa — asl ovozni kategoriyaga biriktiramiz.
-          voiceTelegramFileId: isMaterial ? fields.voiceTelegramFileId || null : null,
-          voiceMimeType: isMaterial ? fields.voiceMimeType || null : null,
-          voiceDuration: isMaterial ? fields.voiceDuration || null : null,
-          voiceMessageId: isMaterial ? fields.voiceMessageId || null : null,
-          sourceText: isMaterial ? fields.sourceText || rawText || '' : null,
+          // Ovozli aytilgan bo'lsa — asl ovozni yozuvga biriktiramiz (material, xarajat, kirim).
+          voiceTelegramFileId: fields.voiceTelegramFileId || null,
+          voiceMimeType: fields.voiceMimeType || null,
+          voiceDuration: fields.voiceDuration || null,
+          voiceMessageId: fields.voiceMessageId || null,
+          sourceText: fields.sourceText || rawText || '',
           date: fields.date || null,
           serviceId: fields.serviceId || null,
           originalAmount: fields.originalAmount ?? null,
@@ -1980,7 +2013,7 @@ function fallbackResponse(toolName, result) {
       if (result.type === 'income') {
         return `Boldi oka, ${formatMoney(result.amount)} kirim qo'shdim ✅`;
       }
-      return `Boldi oka, ${formatMoney(result.amount)} chiqim qo'shdim ✅\nToifa: ${CATEGORY_LABEL[result.category] || 'Boshqa'}`;
+      return `Boldi oka, ${formatMoney(result.amount)} chiqim qo'shdim ✅\nToifa: ${CATEGORY_LABEL[result.category] || result.category || 'Boshqa'}`;
     case 'record_payment':
       return `Boldi oka, ${formatMoney(result.amountApplied)} to'lovni yozib qo'ydim ✅`;
     case 'create_debt_reminder':

@@ -11,9 +11,14 @@ export const TX_TYPES = {
 // boshqa_kirim (qolgan har qanday daromad).
 // 'qarz' — egasi bergan/olgan shaxsiy qarz (Reminder bilan bog'liq). Ham chiqim (berdim),
 // ham kirim (oldim) tomonida bo'lishi mumkin; qaytarilganda tranzaksiya soft-delete qilinadi.
+// XARAJAT toifalari endi DINAMIK: quyidagi EXPENSE_CATEGORIES faqat eski (legacy) slug'lar —
+// yangi xarajatlar erkin nom bilan ham saqlanadi ("Benzin", "Svalka", ...), shu sabab
+// schema'da enum YO'Q. Nomlar ExpenseCategory modelida ro'yxatga olinadi.
 export const TX_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim', 'qarz'];
 export const INCOME_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim'];
 export const EXPENSE_CATEGORIES = ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'];
+export const OTHER_EXPENSE_CATEGORY = 'boshqa_chiqim';
+export const OTHER_INCOME_CATEGORY = 'boshqa_kirim';
 // Material sotuvi toifasi — daromad, lekin alohida kategoriya statistikasi bor.
 export const MATERIAL_CATEGORY = 'material';
 export const USEFUL_ITEM_CATEGORY = 'buyum';
@@ -27,7 +32,8 @@ const transactionSchema = new mongoose.Schema(
     originalCurrency: { type: String, default: null },
     exchangeRateUsed: { type: Number, default: null },
 
-    category: { type: String, enum: TX_CATEGORIES, default: null },
+    // Enum emas — xarajat toifasi dinamik nom bo'lishi mumkin (yuqoridagi izoh).
+    category: { type: String, default: null },
     description: { type: String, default: '' },
 
     // Material sotuvi (category='material') uchun: aniq material nomi (Paxta, Mis, "chyorniy
@@ -38,7 +44,8 @@ const transactionSchema = new mongoose.Schema(
     pricePerKg: { type: Number, default: null, min: 0 },
 
     // Ovozli xabar orqali kiritilgan bo'lsa — asl ovoz (Mini App'da qayta eshitish uchun)
-    // va uning matni. Material sotuvi ovozli aytilsa, o'sha ovoz kategoriyaga biriktiriladi.
+    // va uning matni. HAR QANDAY tranzaksiya (material, xarajat, kirim) ovozli kiritilsa,
+    // o'sha ovoz tegishli kategoriya yozuviga biriktiriladi.
     voice: {
       type: new mongoose.Schema(
         {

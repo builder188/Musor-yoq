@@ -215,11 +215,15 @@ export default {
     title: 'Категории',
     materials: 'Материалы',
     usefulItems: 'Полезные вещи',
+    expenses: 'Категории расходов',
+    other: 'Прочие доходы и расходы',
     create: 'Новая категория',
     name: 'Название категории',
     namePlaceholder: 'например: Хлопок, Медь...',
     salesCount: 'продаж',
     noSales: 'Продаж пока нет',
+    recordsCount: 'записей',
+    noRecords: 'Записей пока нет',
     addSale: 'Добавить продажу',
     kg: 'Количество (кг)',
     perKg: 'Цена за 1 кг',
@@ -289,6 +293,7 @@ export default {
     buyum: 'Предмет',
     xizmat: 'Услуга',
     boshqa_kirim: 'Прочий доход',
+    qarz: 'Долг',
   },
 
   paymentStatus: {

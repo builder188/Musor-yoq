@@ -176,11 +176,15 @@ export default {
     title: 'Kategoriyalar',
     materials: 'Materiallar',
     usefulItems: 'Kerakli buyumlar',
+    expenses: 'Xarajat kategoriyalari',
+    other: 'Boshqa kirim-chiqimlar',
     create: 'Yangi kategoriya',
     name: 'Kategoriya nomi',
     namePlaceholder: 'masalan: Paxta, Mis...',
     salesCount: 'ta sotuv',
     noSales: 'Hali sotuv yo\'q',
+    recordsCount: 'ta yozuv',
+    noRecords: 'Hali yozuv yo\'q',
     addSale: 'Sotuv qo\'shish',
     kg: 'Miqdori (kg)',
     perKg: '1 kg narxi',
@@ -317,6 +321,7 @@ export default {
     buyum: 'Buyum',
     xizmat: 'Xizmat',
     boshqa_kirim: 'Boshqa kirim',
+    qarz: 'Qarz',
   },
 
   paymentStatus: {

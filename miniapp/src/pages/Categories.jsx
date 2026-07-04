@@ -7,15 +7,18 @@ import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import Items from './Items.jsx';
 
-// "Kategoriyalar" bo'limi: material kategoriyalari (Paxta, Taxta, ...) + "Kerakli buyumlar".
-// Har bir material kategoriyasiga kirilganda — sotuv yozuvlari (sana, kg, narx, balans
-// bayrog'i va asl ovoz). "Kerakli buyumlar" → buyumlar inventari (Items).
+// "Kategoriyalar" bo'limi: material kategoriyalari (Paxta, Taxta, ...) + "Kerakli buyumlar" +
+// XARAJAT kategoriyalari (dinamik: Yoqilg'i, Benzin, Svalka, ...) + "Boshqa kirim-chiqimlar".
+// Har bir kategoriyaga kirilganda — yozuvlar (sana, summa, izoh va asl ovoz — qayta
+// eshitish mumkin). "Kerakli buyumlar" → buyumlar inventari (Items).
 export default function Categories() {
   const { t, lang } = useApp();
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState(null);
+  const [selectedExpense, setSelectedExpense] = useState(null);
+  const [showOther, setShowOther] = useState(false);
   const [showItems, setShowItems] = useState(false);
 
   const load = async () => {
@@ -39,9 +42,17 @@ export default function Categories() {
   if (selectedMaterial) {
     return <MaterialDetail name={selectedMaterial} lang={lang} onBack={() => { setSelectedMaterial(null); load(); }} />;
   }
+  if (selectedExpense) {
+    return <ExpenseDetail category={selectedExpense} lang={lang} onBack={() => { setSelectedExpense(null); load(); }} />;
+  }
+  if (showOther) {
+    return <OtherDetail lang={lang} onBack={() => { setShowOther(false); load(); }} />;
+  }
 
   const materials = overview?.materials || [];
   const items = overview?.items || { available: 0, total: 0 };
+  const expenses = overview?.expenses || [];
+  const other = overview?.other || { count: 0, totalIncome: 0, totalExpense: 0 };
 
   return (
     <div>
@@ -94,6 +105,45 @@ export default function Categories() {
               </button>
             ))
           )}
+
+          {/* Xarajat kategoriyalari — dinamik: bot/Mini App'da uchragan har bir nom */}
+          <div className="section-title">{t('categories.expenses')}</div>
+          {expenses.length === 0 ? (
+            <div className="empty">{t('common.noData')}</div>
+          ) : (
+            expenses.map((c) => (
+              <button key={c.name} className="list-item" type="button" onClick={() => setSelectedExpense(c)} style={{ width: '100%', textAlign: 'left' }}>
+                <div className="job-card">
+                  <div className="avatar">💸</div>
+                  <div className="job-main">
+                    <div className="job-name">{c.name}</div>
+                    <div className="job-sub">
+                      {c.count > 0 ? `${c.count} ${t('categories.recordsCount')}` : t('categories.noRecords')}
+                    </div>
+                  </div>
+                  {c.total > 0 && <span className="text-expense">−{formatNumber(c.total)}</span>}
+                </div>
+              </button>
+            ))
+          )}
+
+          {/* Boshqa kirim-chiqimlar — toifasiz kirim va chiqimlar shu bo'limda saqlanadi */}
+          <div className="section-title">{t('categories.other')}</div>
+          <button className="list-item" type="button" onClick={() => setShowOther(true)} style={{ width: '100%', textAlign: 'left' }}>
+            <div className="job-card">
+              <div className="avatar">🗂</div>
+              <div className="job-main">
+                <div className="job-name">{t('categories.other')}</div>
+                <div className="job-sub">
+                  {other.count > 0 ? `${other.count} ${t('categories.recordsCount')}` : t('categories.noRecords')}
+                </div>
+              </div>
+              <span style={{ textAlign: 'right' }}>
+                {other.totalIncome > 0 && <div className="text-income">+{formatNumber(other.totalIncome)}</div>}
+                {other.totalExpense > 0 && <div className="text-expense">−{formatNumber(other.totalExpense)}</div>}
+              </span>
+            </div>
+          </button>
         </>
       )}
 
@@ -210,6 +260,144 @@ function MaterialDetail({ name, lang, onBack }) {
             load();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+// Bitta XARAJAT kategoriyasi: yozuvlar (sana, summa, izoh, asl ovoz — qayta eshitiladi).
+function ExpenseDetail({ category, lang, onBack }) {
+  const { t } = useApp();
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await api.get(`/categories/expense/${encodeURIComponent(category.value || category.name)}/records`);
+        if (alive) setRecords(Array.isArray(res?.records) ? res.records : []);
+      } catch {
+        if (alive) setRecords([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [category]);
+
+  const total = records.reduce((sum, r) => sum + (r.amount || 0), 0);
+
+  return (
+    <div>
+      <div className="row-between" style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="btn btn-sm" onClick={onBack}>← {t('common.back')}</button>
+          <h1 className="page-title" style={{ marginBottom: 0 }}>{category.name}</h1>
+        </div>
+      </div>
+
+      <div className="summary-card" style={{ marginBottom: 12 }}>
+        <div className="summary-col">
+          <div className="summary-label">{t('categories.recordsCount')}</div>
+          <div className="summary-value">{records.length}</div>
+        </div>
+        <div className="summary-divider" />
+        <div className="summary-col wide">
+          <div className="summary-label">{t('finance.expense')}</div>
+          <div className="summary-value">−{formatNumber(total)}<span className="unit"> {t('common.soum')}</span></div>
+        </div>
+      </div>
+
+      {loading ? (
+        <Spinner />
+      ) : records.length === 0 ? (
+        <div className="empty">{t('categories.noRecords')}</div>
+      ) : (
+        records.map((r) => <TxRecordCard key={r.id} record={r} t={t} lang={lang} />)
+      )}
+    </div>
+  );
+}
+
+// "Boshqa kirim-chiqimlar": toifasiz kirim va chiqimlar bitta ro'yxatda (ovoz bilan).
+function OtherDetail({ lang, onBack }) {
+  const { t } = useApp();
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await api.get('/categories/other/records');
+        if (alive) setRecords(Array.isArray(res?.records) ? res.records : []);
+      } catch {
+        if (alive) setRecords([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const totalIncome = records.filter((r) => r.type === 'income').reduce((s, r) => s + (r.amount || 0), 0);
+  const totalExpense = records.filter((r) => r.type === 'expense').reduce((s, r) => s + (r.amount || 0), 0);
+
+  return (
+    <div>
+      <div className="row-between" style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="btn btn-sm" onClick={onBack}>← {t('common.back')}</button>
+          <h1 className="page-title" style={{ marginBottom: 0 }}>{t('categories.other')}</h1>
+        </div>
+      </div>
+
+      <div className="summary-card" style={{ marginBottom: 12 }}>
+        <div className="summary-col">
+          <div className="summary-label">{t('finance.income')}</div>
+          <div className="summary-value accent">+{formatNumber(totalIncome)}</div>
+        </div>
+        <div className="summary-divider" />
+        <div className="summary-col">
+          <div className="summary-label">{t('finance.expense')}</div>
+          <div className="summary-value">−{formatNumber(totalExpense)}</div>
+        </div>
+      </div>
+
+      {loading ? (
+        <Spinner />
+      ) : records.length === 0 ? (
+        <div className="empty">{t('categories.noRecords')}</div>
+      ) : (
+        records.map((r) => <TxRecordCard key={r.id} record={r} t={t} lang={lang} />)
+      )}
+    </div>
+  );
+}
+
+// Kirim/chiqim yozuvi kartasi: summa (+/-), sana, izoh, asl ovoz (bo'lsa) va matn.
+function TxRecordCard({ record, t, lang }) {
+  const audioUrl = record.voiceFileId
+    ? `${api.baseUrl}/api/items/audio/${encodeURIComponent(record.voiceFileId)}?initData=${encodeURIComponent(getInitData())}`
+    : null;
+  const isIncome = record.type === 'income';
+  return (
+    <div className="card" style={{ marginBottom: 10 }}>
+      <div className="row-between">
+        <div style={{ fontWeight: 600 }} className={isIncome ? 'text-income' : 'text-expense'}>
+          {isIncome ? '+' : '−'}{formatMoney(record.amount)}
+        </div>
+        <span className="muted" style={{ fontSize: 13 }}>{formatDateTime(record.date, lang)}</span>
+      </div>
+      {record.description && (
+        <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>{record.description}</div>
+      )}
+      {audioUrl && <audio controls src={audioUrl} style={{ width: '100%', marginTop: 8 }} />}
+      {record.sourceText && record.sourceText !== record.description && (
+        <div className="muted" style={{ fontSize: 13, marginTop: 6, whiteSpace: 'pre-wrap' }}>🎙 {record.sourceText}</div>
       )}
     </div>
   );

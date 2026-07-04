@@ -108,12 +108,12 @@ async function buildBalanceReport(period) {
   ];
   if (r.biggestExpense) {
     lines.push(
-      `🔺 Eng katta xarajat: ${formatMoney(r.biggestExpense.amount)} (${CATEGORY_LABEL[r.biggestExpense.category] || 'Boshqa'}, ${formatDateTime(r.biggestExpense.date)})`
+      `🔺 Eng katta xarajat: ${formatMoney(r.biggestExpense.amount)} (${CATEGORY_LABEL[r.biggestExpense.category] || r.biggestExpense.category || 'Boshqa'}, ${formatDateTime(r.biggestExpense.date)})`
     );
   }
   if (r.smallestExpense) {
     lines.push(
-      `🔻 Eng kichik xarajat: ${formatMoney(r.smallestExpense.amount)} (${CATEGORY_LABEL[r.smallestExpense.category] || 'Boshqa'}, ${formatDateTime(r.smallestExpense.date)})`
+      `🔻 Eng kichik xarajat: ${formatMoney(r.smallestExpense.amount)} (${CATEGORY_LABEL[r.smallestExpense.category] || r.smallestExpense.category || 'Boshqa'}, ${formatDateTime(r.smallestExpense.date)})`
     );
   }
   if (r.topService) {

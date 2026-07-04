@@ -110,12 +110,17 @@ export function editConfirmKeyboard() {
 }
 
 // Xarajat toifasi -> ko'rsatiladigan o'zbekcha nom (saqlash xulosasi uchun).
+// Dinamik kategoriya (ro'yxatda yo'q nom) o'z nomi bilan ko'rsatiladi.
 const ENTRY_CATEGORY_LABEL = {
   yoqilgi: "Yoqilg'i",
   tamirlash: "Ta'mirlash",
   'oziq-ovqat': 'Oziq-ovqat',
   boshqa_chiqim: 'Boshqa',
 };
+
+function entryCategoryLabel(category) {
+  return ENTRY_CATEGORY_LABEL[category] || category || 'Boshqa';
+}
 
 function hasNumber(value) {
   return typeof value === 'number' && value > 0;
@@ -189,7 +194,7 @@ function savedFieldLines(intent, fields) {
     return lines;
   }
   // EXPENSE_ENTRY
-  lines.push(`💸 ${hasNumber(fields.amount) ? formatMoney(fields.amount) : 'Summa aytilmagan'} | ${ENTRY_CATEGORY_LABEL[fields.category] || 'Boshqa'}`);
+  lines.push(`💸 ${hasNumber(fields.amount) ? formatMoney(fields.amount) : 'Summa aytilmagan'} | ${entryCategoryLabel(fields.category)}`);
   const desc = fields.description || fields.notes;
   if (desc) lines.push(`📝 ${desc}`);
   return lines;

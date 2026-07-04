@@ -193,7 +193,7 @@ NORMALIZATION:
 DATA EXTRACTION CONTRACT:
 - SERVICE_ENTRY: clientName, clientPhone, location, serviceDateTime, price, currency, paymentMethod, notes, isHistorical.
 - PARTNER_CONTRACT: clientName (required), price (standard per-visit price), location (standard address), clientPhone, currency.
-- EXPENSE_ENTRY: amount, currency, category, description, date (default today if absent; default category "boshqa_chiqim").
+- EXPENSE_ENTRY: amount, currency, category (free-form, see EXPENSE CATEGORY below), description, date (default today if absent).
 - INCOME_ENTRY:  amount, currency, description, date.
 - MATERIAL_SALE: materialName (required), quantityKg, amount (total, if stated), pricePerKg (if stated), currency, date.
 - ITEM_ENTRY: itemName (required), estimatedPrice (optional), notes, date.
@@ -208,23 +208,32 @@ DATA EXTRACTION CONTRACT:
 - SEARCH_QUERY:  searchText, dateFrom, dateTo.
 - ANALYTICS_QUERY: analyticsPeriod, analyticsMetric.
 
-EXPENSE CATEGORIES — choose by MEANING, not only by keywords. The words below are hints,
-not a closed list. Reason from what was actually bought / what the money was for:
-- "yoqilgi" (fuel): benzin, dizel, gaz, yoqilg'i, yakit, salyarka, propan, metan, "moshinaga quyduk".
-- "tamirlash" (repair/parts): tamir, remont, shina, balon, moy almashtirish, ehtiyot qism, zapchast, akkumulyator.
-- "oziq-ovqat" (food/groceries): ovqat, non, tushlik, choy, kafe, osh, somsa, suv — also concrete grocery
-  items even without the word "ovqat" (e.g. "yog' va guruch oldim", "kartoshka, go'sht oldim" => oziq-ovqat).
-- "boshqa_chiqim" (other): anything whose purpose is unclear or doesn't fit above
+EXPENSE CATEGORY — categories are FREE-FORM and DYNAMIC. Set fields.category to WHAT the
+money went to, as a short base-form noun EXACTLY as the owner named it. The server keeps a
+per-owner category list and AUTO-CREATES any new name, so never force a concrete purpose
+into a generic bucket:
+- "benzinga 100 ming sarfladim" => category "benzin"
+- "svalkaga 50 ming to'ladim" / "svalkaga berdim" => category "svalka"
+- "zapravkaga 200 berdim" => category "zapravka"
+- "ishchilarga oylik berdim" => category "oylik"
+- "mashina tamiriga 300 ketdi" => category "tamirlash"
+- Groceries by meaning => "oziq-ovqat": ovqat, non, tushlik, choy, kafe, somsa — also concrete
+  grocery items even without the word "ovqat" ("yog' va guruch oldim", "kartoshka, go'sht oldim").
+- "boshqa_chiqim" (other): ONLY when the purpose is truly unclear
   ("magazinga 400 ming ishlatdim", "kerakli narsa oldim", "pul berdim").
-NEVER ask the owner for the category or the product detail — both are optional. Put any product/purpose
-detail you heard into "description"; if none was said, leave description empty and just pick the best category.
+Strip Uzbek case endings from the category noun ("benzinga" -> "benzin", "svalkaga" -> "svalka").
+NEVER ask the owner for the category or the product detail — both are optional. Put the fuller
+purpose/detail you heard into "description"; if none was said, leave description empty.
 
 EXAMPLES:
 Input: "Sardor aka 901234567 Chilonzor ertaga soat 10da 400 ming naqd"
 Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.95,"reason":"new job with full details","fields":{"clientName":"Sardor aka","clientPhone":"+998901234567","location":"Chilonzor","serviceDateTime":"<tomorrow 10:00 ISO>","price":400000,"paymentMethod":"naqd","isHistorical":false}}
 
 Input: "kecha benzinga 80 ming ketdi"
-Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.95,"reason":"fuel expense","fields":{"amount":80000,"category":"yoqilgi","description":"benzin","date":"<yesterday ISO>"}}
+Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.95,"reason":"fuel expense named 'benzin'","fields":{"amount":80000,"category":"benzin","description":"benzin","date":"<yesterday ISO>"}}
+
+Input: "svalkaga 50 ming berdim, zapravkaga 200 berdim"
+Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.9,"reason":"expense to the dump; category is what the owner named","fields":{"amount":50000,"category":"svalka","description":"svalkaga berdim, zapravkaga berdim"}}
 
 Input: "Kamol akaga ertaga soat 10da 100$ naqd, Yunusobod"
 Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.92,"reason":"new job priced in USD; server converts to som","fields":{"clientName":"Kamol aka","location":"Yunusobod","serviceDateTime":"<tomorrow 10:00 ISO>","price":100,"currency":"USD","paymentMethod":"naqd"}}

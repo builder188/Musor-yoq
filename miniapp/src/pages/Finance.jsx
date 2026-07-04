@@ -527,7 +527,7 @@ function transactionConfirmRows(payload, t, lang) {
   return [
     { label: t('finance.type'), value: t(`finance.${payload.type === 'income' ? 'income' : 'expense'}`) },
     { label: t('common.amount'), value: formatMoney(payload.amount) },
-    payload.type === 'expense' ? { label: t('finance.category'), value: t(`category.${payload.category}`) } : null,
+    payload.type === 'expense' ? { label: t('finance.category'), value: categoryLabel(t, payload.category) } : null,
     { label: t('common.notes'), value: payload.description },
     { label: t('common.date'), value: formatDateTime(payload.date, lang) },
   ].filter(Boolean);
@@ -575,7 +575,35 @@ function EditTransactionModal({ tx, onClose, onDelete, onDone }) {
   );
 }
 
+// Kategoriya yorlig'i: tanilgan slug tarjima qilinadi, DINAMIK nom o'z holicha ko'rsatiladi
+// (t() kaliti topilmasa kalitni o'zini qaytaradi — uni ko'rsatmaymiz).
+function categoryLabel(t, category) {
+  if (!category) return t('category.boshqa');
+  const translated = t(`category.${category}`);
+  return translated === `category.${category}` ? category : translated;
+}
+
+// Xarajat toifasi tanlovi: 3 asosiy + bot/Mini App'da yaratilgan dinamik kategoriyalar
+// (serverdagi /categories ro'yxatidan) + "Boshqa".
 function CategorySelect({ t, value, onChange }) {
+  const [dynamic, setDynamic] = useState([]);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .get('/categories')
+      .then((res) => {
+        if (alive) setDynamic(Array.isArray(res?.expenses) ? res.expenses : []);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const staticValues = new Set(['yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim']);
+  const extra = dynamic.filter((c) => !staticValues.has(c.value));
+  // Tahrirlanayotgan yozuvning toifasi ro'yxatda bo'lmasa ham ko'rsatilsin.
+  const hasValue = staticValues.has(value) || extra.some((c) => c.value === value);
+
   return (
     <>
       <label className="label">{t('finance.category')}</label>
@@ -583,6 +611,10 @@ function CategorySelect({ t, value, onChange }) {
         <option value="yoqilgi">{t('category.yoqilgi')}</option>
         <option value="tamirlash">{t('category.tamirlash')}</option>
         <option value="oziq-ovqat">{t('category.oziq-ovqat')}</option>
+        {extra.map((c) => (
+          <option key={c.value} value={c.value}>{c.name}</option>
+        ))}
+        {!hasValue && value && <option value={value}>{categoryLabel(t, value)}</option>}
         <option value="boshqa_chiqim">{t('category.boshqa_chiqim')}</option>
       </select>
     </>
@@ -595,7 +627,7 @@ function transactionTitle(tx, t) {
     if (tx.serviceId) return `Xizmat: ${tx.serviceId}`;
     return t('finance.income');
   }
-  return `${tx.category ? t(`category.${tx.category}`) : t('category.boshqa')} ${tx.description ? `- ${tx.description}` : ''}`;
+  return `${categoryLabel(t, tx.category)} ${tx.description ? `- ${tx.description}` : ''}`;
 }
 
 function groupTransactions(items, lang) {

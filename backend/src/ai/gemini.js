@@ -18,7 +18,7 @@ import {
 } from './intents.js';
 import { parseMoney } from '../utils/money.js';
 import { normalizePhone } from '../utils/phone.js';
-import { normalizePaymentMethod } from '../bot/flow.js';
+import { normalizePaymentMethod, normalizeExpenseCategory } from '../bot/flow.js';
 
 const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
 
@@ -91,7 +91,8 @@ const classifyTool = {
               amount: { type: SchemaType.NUMBER },
               category: {
                 type: SchemaType.STRING,
-                enum: ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'],
+                description:
+                  'EXPENSE_ENTRY: WHAT the money went to, a short base-form noun exactly as the owner named it ("benzin", "svalka", "oziq-ovqat", "ishchi oyligi"). New names are fine — the server auto-creates the category. Use "boshqa_chiqim" ONLY when the purpose is truly unclear.',
               },
               description: { type: SchemaType.STRING },
               date: { type: SchemaType.STRING },
@@ -248,7 +249,7 @@ const agentTools = {
           amount: { type: SchemaType.NUMBER },
           category: {
             type: SchemaType.STRING,
-            enum: ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'],
+            description: 'Expense purpose as the owner named it (free-form, e.g. "benzin", "svalka"); "boshqa_chiqim" only when unclear.',
           },
           description: { type: SchemaType.STRING },
           date: { type: SchemaType.STRING },
@@ -558,15 +559,12 @@ function isoOrNull(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+// Xarajat toifasi endi ERKIN nom (dinamik kategoriya) — faqat eski slug'lar
+// normallashtiriladi (flow.js dagi yagona manba). Bo'sh bo'lsa null: financeService
+// izohdan taxmin qiladi yoki "boshqa_chiqim"ga tushiradi. Avvalgi regex yondashuv
+// "boshqa_chiqim" ichidan "osh"ni topib hammasini "oziq-ovqat" qilib yuborardi (bug).
 function normalizeExpenseCategoryForExtraction(value) {
-  if (!value) return 'boshqa_chiqim';
-  const v = String(value).toLowerCase().replace(/[`'‘’]/g, '');
-  if (/(yoqilgi|yoqilg|benzin|dizel|gaz|yakit|salyarka|propan|metan)/.test(v)) return 'yoqilgi';
-  if (/(tamir|tamirlash|remont|shina|balon|moy|maslo|ehtiyot|zapchast|akkumulyator)/.test(v)) {
-    return 'tamirlash';
-  }
-  if (/(oziq|ovqat|non|tushlik|choy|kafe|osh|somsa|suv)/.test(v)) return 'oziq-ovqat';
-  return 'boshqa_chiqim';
+  return normalizeExpenseCategory(value);
 }
 
 // Valyutani aniqlaydi: Gemini 'currency' yoki eski 'hasDollar' belgisidan.
@@ -631,7 +629,9 @@ function normalizeExtractedFieldsByIntent(intent, clean) {
   if (intent === 'EXPENSE_ENTRY') {
     return {
       amount: numberOrNull(clean.amount),
-      category: normalizeExpenseCategoryForExtraction(clean.category || clean.description),
+      // Faqat modelning o'zi bergan toifa — izohni toifa deb olmaymiz (uzun gap
+      // kategoriya nomiga aylanib qolmasin). Bo'sh bo'lsa financeService hal qiladi.
+      category: normalizeExpenseCategoryForExtraction(clean.category),
       description: textOrNull(clean.description || clean.notes),
       date: isoOrNull(clean.date) || new Date().toISOString(),
       currency: resolveCurrency(clean),
@@ -862,7 +862,7 @@ Rules:
 - SEARCH_QUERY => search_data.
 - ANALYTICS_QUERY => get_analytics.
 - Preserve normalized values from extracted fields. Do not invent missing required data.
-- If category is yoqilgi/tamirlash/boshqa_chiqim, keep that value; the server will map it to DB enums.`);
+- Keep the expense category exactly as extracted (free-form names allowed); the server stores it as a dynamic category.`);
 
   return namedFunctionCall(res.response, AGENT_TOOL_NAMES);
 }
