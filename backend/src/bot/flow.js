@@ -144,6 +144,10 @@ const LEGACY_EXPENSE_CATEGORY = {
   ovqat: 'oziq-ovqat',
   svalka: 'svalka',
   svarka: 'svalka',
+  poligon: 'svalka',
+  musorxona: 'svalka',
+  axlatxona: 'svalka',
+  'chiqindi poligoni': 'svalka',
   boshqa: 'boshqa_chiqim',
   boshqa_chiqim: 'boshqa_chiqim',
   'boshqa chiqim': 'boshqa_chiqim',
@@ -151,9 +155,23 @@ const LEGACY_EXPENSE_CATEGORY = {
   other: 'boshqa_chiqim',
 };
 
+function cleanCategoryName(value) {
+  return String(value || '').replace(/[`'‘’ʻʼ]/g, "'").replace(/\s+/g, ' ').trim();
+}
+
+function stripCategorySuffix(name) {
+  const lower = String(name || '').toLowerCase();
+  for (const suffix of ['ning', 'dan', 'ga', 'ni', 'da']) {
+    if (lower.endsWith(suffix) && lower.length > suffix.length + 2) {
+      return name.slice(0, -suffix.length).trim();
+    }
+  }
+  return name;
+}
+
 export function normalizeExpenseCategory(value) {
   if (!value) return null;
-  const name = String(value).replace(/[`‘’ʻʼ]/g, "'").replace(/\s+/g, ' ').trim();
+  const name = stripCategorySuffix(cleanCategoryName(value));
   if (!name) return null;
   const key = name.toLowerCase().replace(/'/g, '');
   const slug = LEGACY_EXPENSE_CATEGORY[key];
@@ -183,7 +201,7 @@ const LEGACY_INCOME_CATEGORY = {
 
 export function normalizeIncomeCategory(value) {
   if (!value) return null;
-  const name = String(value).replace(/[`вЂвЂ™К»Кј]/g, "'").replace(/\s+/g, ' ').trim();
+  const name = stripCategorySuffix(cleanCategoryName(value));
   if (!name) return null;
   const key = name.toLowerCase().replace(/'/g, '');
   const slug = LEGACY_INCOME_CATEGORY[key];
@@ -193,7 +211,7 @@ export function normalizeIncomeCategory(value) {
 }
 
 function normalizeFinanceCategory(value) {
-  const name = String(value || '').replace(/[`вЂвЂ™К»Кј]/g, "'").replace(/\s+/g, ' ').trim();
+  const name = stripCategorySuffix(cleanCategoryName(value));
   if (!name) return null;
   const key = name.toLowerCase().replace(/'/g, '');
   const explicitIncomeKeys = new Set([

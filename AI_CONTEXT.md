@@ -1,5 +1,11 @@
 # AI_CONTEXT.md
 
+## 2026-07-05 Davom: kirim/chiqim kategoriya fallback mustahkamlandi
+- **Qo'shimcha talab:** aniq aytilgan kirim/chiqim hech qachon behuda `boshqa_*`ga tushmasin. Avvalgi dinamik kategoriya oqimi bor edi, lekin income category bo'sh kelib, izohda "ijaradan tushdi" kabi manba bo'lsa fallback yo'q edi.
+- **Backend:** `flow.js` kategoriya normalizatsiyasi o'zbekcha kelishik qo'shimchalarini (`-ga`, `-dan`, `-da`, `-ni`, `-ning`) olib tashlaydi: `svalkaga` -> `svalka`, `ijaradan` -> `Ijara`. `svalka` default xarajatiga `poligon`, `musorxona`, `axlatxona`, `chiqindi poligoni` sinonimlari qo'shildi.
+- **Finance fallback:** `financeService.createTransaction` income uchun ham izohdan aniq manbani ajratadi (`ijaradan tushdi` -> `Ijara`, `bonus oldim` -> `Bonus`, `boshqa ishdan tushdi` -> `Boshqa ish`); haqiqatan noaniq "pul/kirim" holati `boshqa_kirim` bo'lib qoladi. Expense fallback money wordsni tozalab, `poligonga to'ladim`ni `svalka`ga map qiladi.
+- **Self-check:** `node --check` 3 fayl OK; `npm run test:write-read --workspace musir-yoq-backend` 41/41 PASS; `npm run build --workspace musir-yoq-miniapp` OK.
+
 ## 2026-07-05 Kirim/chiqim uchun erkin kategoriya + Svalka default
 - **Maqsad:** kirim/chiqim aniq mavjud kategoriyaga mos kelmasa `boshqa_*`ga tashlanmasin; foydalanuvchi aytgan qisqa nom/ibora asosida DARHOL yangi kategoriya yaratiladi. "Svalka" musor tashlash to'lovi uchun oldindan tanilgan xarajat kategoriyasi bo'ldi.
 - **Backend:** YANGI `models/IncomeCategory.js` (ExpenseCategory/MaterialCategory naqshi: tenant+soft-delete, name/normalizedName/source). `categoryService`: `ensureIncomeCategory`, `listKnownIncomeCategories`, `getIncomeCategoryRecords`; `getCategoryOverview` endi `incomes` ham qaytaradi; yangi route `GET /api/categories/income/:name/records`. `DEFAULT_EXPENSE_CATEGORIES`ga `{slug:'svalka', name:'Svalka'}` qo'shildi.

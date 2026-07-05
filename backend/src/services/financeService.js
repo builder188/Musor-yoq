@@ -12,10 +12,12 @@ const CATEGORY_KEYWORDS = {
   yoqilgi: [/\bbenzin/, /\bdizel/, /\bgaz\b/, /\byoqilg/, /\byakit/, /\bsalyarka/, /\bzapravka/],
   tamirlash: [/\btamir/, /\bta'mir/, /\bshina/, /\bmoy\b/, /\behtiyot/, /\bzapchast/, /\bremont/],
   'oziq-ovqat': [/\bovqat/, /\bnon\b/, /\btushlik/, /\bchoy\b/, /\bkafe/, /\bsomsa/, /\boziq/],
-  svalka: [/\bsvalka/, /\bsvarka/, /\bpoligon/],
+  svalka: [/\bsvalka/, /\bsvarka/, /\bpoligon/, /\bmusorxona/, /\baxlatxona/, /\bchiqindi\s+poligoni/],
 };
 
 const GENERIC_EXPENSE_WORDS = new Set(['pul', 'narsa', 'nimadir', 'kerakli narsa', 'xarajat', 'chiqim']);
+const GENERIC_INCOME_WORDS = new Set(['pul', 'kirim', 'daromad', 'tushum', 'boshqa']);
+const MONEY_WORD_RE = /\b(ming|mln|million|milli?on|so'm|som|sum|dollar|dollor|usd)\b/gi;
 
 function badRequest(message) {
   const error = new Error(message);
@@ -49,6 +51,7 @@ function detectExpenseCategory(text = '') {
 function extractSpokenExpenseCategory(text = '') {
   const value = String(text || '')
     .replace(/[0-9.,]+/g, ' ')
+    .replace(MONEY_WORD_RE, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (!value || value.length > 60) return null;
@@ -61,6 +64,29 @@ function extractSpokenExpenseCategory(text = '') {
   const normalized = normalizeExpenseCategory(candidate);
   if (!normalized || GENERIC_EXPENSE_WORDS.has(String(normalized).toLowerCase())) return null;
   return normalized;
+}
+
+function detectIncomeCategory(text = '') {
+  const value = String(text || '')
+    .toLowerCase()
+    .replace(/[0-9.,]+/g, ' ')
+    .replace(MONEY_WORD_RE, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!value || value.length > 80) return 'boshqa_kirim';
+
+  const beforeVerb = value.match(/^(.{2,40}?)\s+(?:tushdi|keldi|oldim|berdi|qaytdi|qaytardi|bo'?ldi)\b/i);
+  const candidate = beforeVerb ? beforeVerb[1].trim() : null;
+  const normalized = normalizeIncomeCategory(candidate);
+  if (normalized && !GENERIC_INCOME_WORDS.has(String(normalized).toLowerCase())) return normalized;
+
+  const fromMatch = value.match(/\b([\p{L}'`’ʻʼ-]{3,}?)(?:dan)\b/iu);
+  if (fromMatch) {
+    const fromNormalized = normalizeIncomeCategory(fromMatch[1]);
+    if (fromNormalized && !GENERIC_INCOME_WORDS.has(String(fromNormalized).toLowerCase())) return fromNormalized;
+  }
+
+  return 'boshqa_kirim';
 }
 
 // Toifani DB qiymatiga keltiradi. Kirim: tanilgan manbalar yoki 'boshqa_kirim'.
@@ -199,9 +225,10 @@ export async function createTransaction(data) {
     ? 0
     : parsePositiveAmount(data.amount);
   const date = parseOptionalDate(data.date) || new Date();
+  const textForCategory = data.description || data.note || '';
   let category = normalizeCategory(
     type,
-    data.category || (type === TX_TYPES.EXPENSE ? detectExpenseCategory(data.description || data.note || '') : null)
+    data.category || (type === TX_TYPES.EXPENSE ? detectExpenseCategory(textForCategory) : detectIncomeCategory(textForCategory))
   );
   // Dinamik xarajat toifasi: ro'yxatda yo'q bo'lsa avtomatik yaratiladi (bot xabar beradi)
   // va kanonik nom saqlanadi ("benzin" ham "Benzin" ham bitta kategoriya bo'lib qoladi).

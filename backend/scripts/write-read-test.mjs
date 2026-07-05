@@ -99,6 +99,9 @@ async function main() {
     const rentRecords = await getIncomeCategoryRecords('Ijara');
     check('kirim kategoriyasi sahifasida o\'qiladi', rentRecords.records.some((r) => r.id === String(rent._id)));
 
+    const rentFromDescription = await createTransaction({ type: 'income', amount: 750000, description: 'ijaradan tushdi' });
+    check('izohdan kirim kategoriyasi avtomatik yaratildi', rentFromDescription.category === 'Ijara', rentFromDescription.category);
+
     // ── 4. CHIQIM (kalit so'zdan toifa) ──────────────────────────────────
     console.log('4) CHIQIM:');
     const exp = await createTransaction({ type: 'expense', amount: 30000, description: 'benzin quydim' });
@@ -107,6 +110,12 @@ async function main() {
 
     const dump = await createTransaction({ type: 'expense', amount: 50000, description: 'svalkaga ishlatdim' });
     check('svalka oldindan tanilgan toifa', dump.category === 'svalka', dump.category);
+
+    const dumpCategory = await createTransaction({ type: 'expense', amount: 60000, category: 'svalkaga', description: 'svalkaga toladim' });
+    check('svalka kelishik bilan ham taniladi', dumpCategory.category === 'svalka', dumpCategory.category);
+
+    const dumpSynonym = await createTransaction({ type: 'expense', amount: 70000, description: 'poligonga toladim' });
+    check('poligon xarajati svalka toifasiga tushadi', dumpSynonym.category === 'svalka', dumpSynonym.category);
 
     const shop = await createTransaction({ type: 'expense', amount: 400000, description: 'magazinga ishlatdim' });
     check('noaniq bo\'lmagan yangi xarajat toifasi yaratiladi', shop.category === 'Magazin', shop.category);

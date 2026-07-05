@@ -1,5 +1,11 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-05 Kategoriya fallback mustahkamlash
+- **Maqsad:** erkin kirim/chiqim kategoriyasi mavjud bo'lsa ham, category bo'sh kelgan yoki kelishik qo'shimchasi bilan kelgan holatlarda yozuv `boshqa_*`ga tushib ketmasin.
+- **O'zgardi:** `flow.js` category normalizeri `-ga/-dan/-da/-ni/-ning` qo'shimchalarini strip qiladi (`svalkaga` -> `svalka`, `ijaradan` -> `Ijara`) va `svalka` uchun `poligon/musorxona/axlatxona/chiqindi poligoni` sinonimlarini tanidi.
+- **O'zgardi:** `financeService` income category bo'sh bo'lsa izohdan manba ajratadi (`ijaradan tushdi` -> `Ijara`, `bonus oldim` -> `Bonus`, `boshqa ishdan tushdi` -> `Boshqa ish`); noaniq income `boshqa_kirim` bo'lib qoladi.
+- **Self-check:** backend write/read testi 41/41 PASS; Mini App build OK; node syntax checks OK.
+
 ## 2026-07-05 Erkin kirim/chiqim kategoriyalari + Svalka
 - **Maqsad (foydalanuvchi):** kirim/chiqim faqat oldindan belgilangan toifalarga tiqilmasin. Agar aytilgan narsa mavjud kategoriyaga aniq mos kelmasa, "boshqa"ga tushmay, foydalanuvchi aytgan nom/ibora bilan yangi kategoriya avtomatik yaralsin. "Svalka" musor tashlash joyi to'lovi uchun oldindan tanilgan xarajat kategoriyasi bo'lsin.
 - **Backend:** YANGI `backend/src/models/IncomeCategory.js`; `categoryService`ga `ensureIncomeCategory`, `listKnownIncomeCategories`, `getIncomeCategoryRecords`, overview `incomes`; `routes/categories.js`ga `/income/:name/records`; `Transaction` legacy ro'yxatlariga `svalka`; `DEFAULT_EXPENSE_CATEGORIES`ga Svalka.
