@@ -10,6 +10,7 @@ import {
 import { upsertPartnerContract } from '../services/partnerService.js';
 import { softDeleteOne, restoreClientWithServices } from '../services/deleteService.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
+import { notifyMiniAppCreated, notifyMiniAppUpdated, notifyMiniAppDeleted } from '../services/miniAppNotifyService.js';
 import Client from '../models/Client.js';
 import Service from '../models/Service.js';
 
@@ -64,9 +65,11 @@ router.post(
         price: req.body.partnerPrice ?? req.body.price ?? null,
         location: req.body.partnerLocation || req.body.location || null,
       });
+      notifyMiniAppCreated('client', client, { input: req.body });
       return res.status(201).json(client);
     }
     const client = await findOrCreateClient(req.body);
+    notifyMiniAppCreated('client', client, { input: req.body });
     res.status(201).json(client);
   })
 );
@@ -75,8 +78,10 @@ router.post(
 router.put(
   '/:id',
   asyncHandler(async (req, res) => {
+    const before = await Client.findOne({ _id: req.params.id }).lean();
     const client = await updateClient(req.params.id, req.body);
     if (!client) return res.status(404).json({ error: 'Mijoz topilmadi' });
+    notifyMiniAppUpdated('client', before, client);
     res.json(client);
   })
 );
@@ -88,6 +93,7 @@ router.delete(
   asyncHandler(async (req, res) => {
     const code = req.body?.code ?? req.body?.confirmationCode ?? req.query.code;
     const client = await softDeleteOne('client', req.params.id, code);
+    notifyMiniAppDeleted('client', client);
     res.json({ ok: true, client });
   })
 );

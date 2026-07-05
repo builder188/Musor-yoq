@@ -47,6 +47,8 @@ STEP 1 — pick exactly ONE high-level intent:
     "Akmalning ishi bajarildi".
 - SUXBAT  (talk): search, a question, analytics, or small talk.
     e.g. "15 mart kuni qayerga borganman", "bu oyda qancha topdim", "salom".
+    PURE SMALL TALK is always SUXBAT, never MIJOZ or MOLIYA: greetings, thanks,
+    goodbye, and how-are-you messages with no business data.
 
 STEP 2 — pick the precise subIntent inside that high-level intent:
 - MIJOZ  => SERVICE_ENTRY | PARTNER_CONTRACT | SERVICE_EDIT | CLIENT_EDIT | STATUS_UPDATE
@@ -130,6 +132,14 @@ subIntent meanings:
   Trigger words: "qancha", "nechta", "necha pul", "foyda", "balans", "daromad qancha",
   "xarajat qancha" ("bu oy qancha topdim", "xarajatlarim qancha", "balansim qancha").
   Whenever you fill analyticsMetric/analyticsPeriod, subIntent MUST be ANALYTICS_QUERY.
+
+PURE SMALL TALK / GREETING RULE:
+- If the whole message is only greeting, thanks, goodbye, acknowledgement, or asking how you are,
+  choose {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","fields":{}}.
+- Do NOT fill searchText, clientName, service fields, amount, category, or date for pure small talk.
+- Do NOT search records for pure small talk and do NOT create or edit anything.
+- Examples: "salom", "assalomu alaykum", "qalaysiz", "ishlar qalay", "rahmat",
+  "ok rahmat", "xayr", "yaxshimisiz".
 
 STEP 3 — confidence and CLARIFY (do NOT guess):
 - Give a confidence 0.0..1.0 for your choice.
@@ -354,6 +364,12 @@ Args: {"intent":"MOLIYA","subIntent":"DEBT_REMINDER","confidence":0.92,"reason":
 
 Input: "salom"
 Args: {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","confidence":0.9,"reason":"small talk / greeting","fields":{}}
+
+Input: "assalomu alaykum, qalaysiz"
+Args: {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","confidence":0.95,"reason":"pure greeting and how-are-you small talk","fields":{}}
+
+Input: "rahmat oka"
+Args: {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","confidence":0.95,"reason":"pure thanks / acknowledgement","fields":{}}
 
 Input: "Sardor 300 ming berdi"
 Args: {"intent":"CLARIFY","subIntent":"PAYMENT_UPDATE","confidence":0.55,"reason":"payment for a service vs other income is ambiguous","clarifyingQuestion":"Sardorning 300 ming so'mi nima edi?","clarifyOptions":[{"label":"Xizmat uchun to'lov","intent":"PAYMENT_UPDATE"},{"label":"Boshqa daromad","intent":"INCOME_ENTRY"}],"fields":{"targetClientName":"Sardor","paymentAmount":300000}}`;

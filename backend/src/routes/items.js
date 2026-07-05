@@ -11,6 +11,7 @@ import {
   giveAwayUsefulItem,
   discardUsefulItem,
 } from '../services/usefulItemService.js';
+import { notifyMiniAppCreated, notifyMiniAppUpdated, notifyMiniAppDeleted } from '../services/miniAppNotifyService.js';
 
 const router = Router();
 
@@ -58,7 +59,9 @@ router.get(
 router.post(
   '/',
   asyncHandler(async (req, res) => {
-    res.status(201).json(await createUsefulItem({ ...req.body, sourceType: 'miniapp' }));
+    const item = await createUsefulItem({ ...req.body, sourceType: 'miniapp' });
+    notifyMiniAppCreated('item', item, { input: req.body });
+    res.status(201).json(item);
   })
 );
 
@@ -67,7 +70,14 @@ router.patch(
   asyncHandler(async (req, res) => {
     const item = await getUsefulItemById(req.params.id);
     if (!item) return res.status(404).json({ error: 'Buyum topilmadi' });
-    res.json(await sellUsefulItem({ ...req.body, itemName: item.name }, { confirmedItemId: req.params.id }));
+    const result = await sellUsefulItem({ ...req.body, itemName: item.name }, { confirmedItemId: req.params.id });
+    notifyMiniAppUpdated('item', item, result?.item);
+    if (result?.transaction) {
+      notifyMiniAppCreated('transaction', result.transaction, {
+        input: { type: 'income', category: 'buyum', amount: result.transaction.amount, itemName: result.transaction.itemName },
+      });
+    }
+    res.json(result);
   })
 );
 
@@ -76,7 +86,9 @@ router.patch(
   asyncHandler(async (req, res) => {
     const item = await getUsefulItemById(req.params.id);
     if (!item) return res.status(404).json({ error: 'Buyum topilmadi' });
-    res.json(await giveAwayUsefulItem({ ...req.body, itemName: item.name }, { confirmedItemId: req.params.id }));
+    const result = await giveAwayUsefulItem({ ...req.body, itemName: item.name }, { confirmedItemId: req.params.id });
+    notifyMiniAppUpdated('item', item, result?.item);
+    res.json(result);
   })
 );
 
@@ -84,7 +96,9 @@ router.delete(
   '/:id',
   requireDeleteCode,
   asyncHandler(async (req, res) => {
-    res.json({ ok: true, item: await discardUsefulItem(req.params.id) });
+    const item = await discardUsefulItem(req.params.id);
+    notifyMiniAppDeleted('item', item);
+    res.json({ ok: true, item });
   })
 );
 

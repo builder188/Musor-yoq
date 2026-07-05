@@ -14,6 +14,7 @@ import {
 } from '../services/serviceService.js';
 import { formatMoney } from '../utils/money.js';
 import { formatDateTime, formatTime } from '../utils/dates.js';
+import { smallTalkReply as sharedSmallTalkReply } from './smallTalk.js';
 
 // Xarajat toifasi -> ko'rsatiladigan o'zbekcha nom (balans hisobotidagi xarajat satrlari uchun).
 const CATEGORY_LABEL = {
@@ -233,7 +234,7 @@ export async function answerReadQuery({ rawText = '', fields = {}, isAnalytics =
   if (looksLikeTodayClients(rawText, fields)) return buildTodayClientsReport();
   if (looksLikeTodayServices(rawText, fields)) return buildTodayServicesReport();
   // Data shabloniga mos kelmadi — oddiy salom/rahmat/xayr bo'lsa qidiruv emas, iliq javob.
-  const chat = smallTalkReply(rawText);
+  const chat = sharedSmallTalkReply(rawText);
   if (chat) return chat;
   return null;
 }

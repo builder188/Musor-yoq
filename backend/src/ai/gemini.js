@@ -19,6 +19,7 @@ import {
 import { parseMoney } from '../utils/money.js';
 import { normalizePhone } from '../utils/phone.js';
 import { normalizePaymentMethod, normalizeExpenseCategory, normalizeIncomeCategory } from '../bot/flow.js';
+import { isPureSmallTalk } from './smallTalk.js';
 
 const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
 
@@ -912,10 +913,24 @@ export function correctSaleClassification(understanding, rawText) {
   return out;
 }
 
+function smallTalkUnderstanding() {
+  return {
+    intent: 'SUXBAT',
+    subIntent: 'SEARCH_QUERY',
+    fields: {},
+    confidence: 0.99,
+    reason: 'pure small talk / greeting',
+    reply: '',
+    clarifyingQuestion: '',
+    clarifyOptions: [],
+  };
+}
+
 // STEP 2: intent classification with Gemini function calling enabled.
 // `history` — oxirgi ~10 xabar ([{role, text}]); qisqa javoblarni botning oldingi
 // savoli kontekstida talqin qilish uchun prompt'ga qo'shiladi (ixtiyoriy).
 export async function classifyIntent(text, history = []) {
+  if (isPureSmallTalk(text)) return smallTalkUnderstanding();
   const prompt = buildClassificationPrompt(text, history);
   const res = await generate(functionCallingModel, prompt);
   const args = functionArgs(res.response);
@@ -925,7 +940,7 @@ export async function classifyIntent(text, history = []) {
     : normalizeUnderstanding(safeParseJson(res.response.text()));
 
   // Determinstik xavfsizlik to'ri — sotuvni xarajat deb tasniflashni tuzatadi.
-  return correctSaleClassification(understanding, text);
+  return isPureSmallTalk(text) ? smallTalkUnderstanding() : correctSaleClassification(understanding, text);
 }
 
 export async function chooseAgentTool({ intent, fields = {}, rawText = '', mode = 'bot' }) {

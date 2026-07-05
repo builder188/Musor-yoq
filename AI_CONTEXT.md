@@ -1,5 +1,12 @@
 # AI_CONTEXT.md
 
+## 2026-07-05 Niyat klassifikatori small-talk guard + Mini App teskari bildirishnomalar
+- **Maqsad:** "Salom/qalaysiz/rahmat" kabi sof suhbat xabarlari hech qachon qidiruv/xizmat deb ketmasin; Mini App orqali bot ishtirokisiz qo'lda yaratilgan/tahrirlangan/o'chirilgan yozuvlar haqida Telegram bot darhol qisqa xabar bersin.
+- **AI:** yangi `backend/src/ai/smallTalk.js` shared guard. `classifyIntent()` Gemini chaqirishdan OLDIN `isPureSmallTalk()`ni tekshiradi va darhol `{intent:'SUXBAT', subIntent:'SEARCH_QUERY', fields:{}}` qaytaradi; shu sabab "hech narsa topilmadi" qidiruv fallbackiga tushmaydi. `queries.js` ham shu helperdan javob matnini oladi. `prompts.js`ga PURE SMALL TALK / GREETING rule va "salom", "assalomu alaykum, qalaysiz", "rahmat oka" misollari qo'shildi.
+- **Mini App notify:** yangi `backend/src/services/miniAppNotifyService.js`. Create xabari faqat requestda yuborilgan maydonlarni, update xabari faqat old/new diff bo'lgan maydonlarni, delete xabari faqat nom/identifikatorni ko'rsatadi. Ohang: "Mini App orqali ... oka", qisqa va iliq.
+- **Qamrov:** `services`, `clients`, `transactions`, `finance/transactions`, `items`, `categories` (material category), `reminders`, `data/delete`, `system/bulk-delete/reset` route'lari ulandi. Buyum sotilganda item update xabari bilan birga yaratilgan `buyum` kirim tranzaksiyasi ham xabar qilinadi. Material category route'da eski ichki notify suppress qilinib, yangi Mini App xabari yuboriladi.
+- **Self-check:** node --check (AI, notify service, route fayllari) OK; small-talk smoke OK; `classifyIntent('Salom')` Gemini chaqirmasdan SUXBAT qaytardi; notification builder smoke OK; `npm run test:write-read --workspace musir-yoq-backend` 41/41 PASS; `npm run build --workspace musir-yoq-miniapp` OK.
+
 ## 2026-07-05 Davom: kirim/chiqim kategoriya fallback mustahkamlandi
 - **Qo'shimcha talab:** aniq aytilgan kirim/chiqim hech qachon behuda `boshqa_*`ga tushmasin. Avvalgi dinamik kategoriya oqimi bor edi, lekin income category bo'sh kelib, izohda "ijaradan tushdi" kabi manba bo'lsa fallback yo'q edi.
 - **Backend:** `flow.js` kategoriya normalizatsiyasi o'zbekcha kelishik qo'shimchalarini (`-ga`, `-dan`, `-da`, `-ni`, `-ning`) olib tashlaydi: `svalkaga` -> `svalka`, `ijaradan` -> `Ijara`. `svalka` default xarajatiga `poligon`, `musorxona`, `axlatxona`, `chiqindi poligoni` sinonimlari qo'shildi.

@@ -98,14 +98,14 @@ export async function ensureMaterialCategory(rawName, { source = 'bot', notify =
 }
 
 // Mini App'dan qo'lda kategoriya yaratish (har doim xabar beradi).
-export async function createMaterialCategory(rawName) {
+export async function createMaterialCategory(rawName, { notify = true } = {}) {
   const name = String(rawName || '').replace(/\s+/g, ' ').trim();
   if (!name) {
     const err = new Error('Kategoriya nomini kiriting');
     err.status = 400;
     throw err;
   }
-  return ensureMaterialCategory(name, { source: 'miniapp', notify: true });
+  return ensureMaterialCategory(name, { source: 'miniapp', notify });
 }
 
 // Xarajat kategoriyasini kafolatlaydi: default/legacy bo'lmasa va hali yo'q bo'lsa —

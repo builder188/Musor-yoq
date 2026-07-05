@@ -10,6 +10,7 @@ import {
   getOtherCategoryRecords,
   createMaterialCategory,
 } from '../services/categoryService.js';
+import { notifyMiniAppCreated } from '../services/miniAppNotifyService.js';
 
 const router = Router();
 
@@ -25,7 +26,9 @@ router.get(
 router.post(
   '/',
   asyncHandler(async (req, res) => {
-    res.status(201).json(await createMaterialCategory(req.body?.name));
+    const category = await createMaterialCategory(req.body?.name, { notify: false });
+    notifyMiniAppCreated('materialCategory', category, { input: { name: req.body?.name } });
+    res.status(201).json(category);
   })
 );
 

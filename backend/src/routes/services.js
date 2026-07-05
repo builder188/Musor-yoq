@@ -13,8 +13,7 @@ import {
 } from '../services/serviceService.js';
 import { softDeleteOne } from '../services/deleteService.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
-import { notifyOwner } from '../bot/notify.js';
-import { formatMoney } from '../utils/money.js';
+import { notifyMiniAppCreated, notifyMiniAppUpdated, notifyMiniAppDeleted } from '../services/miniAppNotifyService.js';
 import env from '../config/env.js';
 import Service from '../models/Service.js';
 
@@ -79,6 +78,7 @@ router.post(
   '/',
   asyncHandler(async (req, res) => {
     const service = await createService(req.body);
+    notifyMiniAppCreated('service', service, { input: req.body });
     res.status(201).json(service);
   })
 );
@@ -87,7 +87,9 @@ router.post(
 router.put(
   '/:id',
   asyncHandler(async (req, res) => {
+    const before = await Service.findOne({ _id: req.params.id }).lean();
     const service = await editService(req.params.id, req.body);
+    notifyMiniAppUpdated('service', before, service);
     res.json(service);
   })
 );
@@ -97,17 +99,13 @@ router.put(
 router.patch(
   '/:id/complete',
   asyncHandler(async (req, res) => {
+    const before = await Service.findOne({ _id: req.params.id }).lean();
     const result = await completeService(req.params.id, {
       newPrice: req.body?.newPrice ?? null,
       markPaid: req.body?.markPaid !== false, // standart: to'langan
       includeTransaction: true,
     });
-    // Mini App orqali bajarildi belgilandi — egaga Telegram'da ham xabar beramiz va
-    // daromad balansga yozilganini bildiramiz. Faqat shu chaqiruvda yangi yozilgan bo'lsa
-    // (cron "bajarildimi?" so'rashidan oldin ham — status DONE bo'lgani uchun so'ramaydi).
-    if (result?.created && result?.service) {
-      notifyOwner(serviceCompletedNotice(result.service)).catch(() => {});
-    }
+    notifyMiniAppUpdated('service', before, result?.service);
     res.json(result);
   })
 );
@@ -116,7 +114,9 @@ router.patch(
 router.patch(
   '/:id/cancel',
   asyncHandler(async (req, res) => {
+    const before = await Service.findOne({ _id: req.params.id }).lean();
     const service = await cancelService(req.params.id, req.body?.reason || req.body?.cancellationReason || null);
+    notifyMiniAppUpdated('service', before, service);
     res.json(service);
   })
 );
@@ -124,7 +124,9 @@ router.patch(
 router.patch(
   '/:id/reschedule',
   asyncHandler(async (req, res) => {
+    const before = await Service.findOne({ _id: req.params.id }).lean();
     const service = await rescheduleService(req.params.id, req.body?.newDateTime);
+    notifyMiniAppUpdated('service', before, service);
     res.json(service);
   })
 );
@@ -136,16 +138,9 @@ router.delete(
   asyncHandler(async (req, res) => {
     const code = req.body?.code ?? req.body?.confirmationCode ?? req.query.code;
     const service = await softDeleteOne('service', req.params.id, code);
+    notifyMiniAppDeleted('service', service);
     res.json({ ok: true, service });
   })
 );
-
-// Mini App'dan bajarildi belgilanganda egaga yuboriladigan Telegram xabari.
-function serviceCompletedNotice(service) {
-  return [
-    `✅ Oka, ${service.clientName || 'mijoz'} xizmatini bajarildi deb belgiladingiz.`,
-    `💰 ${formatMoney(service.price)} balansga yozildi.`,
-  ].join('\n');
-}
 
 export default router;

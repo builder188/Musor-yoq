@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
 import { bulkDelete, listDeleted, restore, restoreByIds, restoreClientWithServices } from '../services/deleteService.js';
+import { notifyMiniAppBulkDelete } from '../services/miniAppNotifyService.js';
 
 const router = Router();
 
@@ -11,6 +12,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const target = req.body?.target || 'all';
     const result = await bulkDelete(target, req.body?.code ?? req.body?.confirmationCode);
+    notifyMiniAppBulkDelete(target, result);
     res.json({ ok: true, result });
   })
 );

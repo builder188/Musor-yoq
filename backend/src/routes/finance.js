@@ -12,6 +12,8 @@ import { softDeleteOne } from '../services/deleteService.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
 import { getMaterialStats, listKnownMaterials } from '../services/materialService.js';
 import { getIncomeBySource } from '../services/incomeSourceService.js';
+import { notifyMiniAppCreated, notifyMiniAppUpdated, notifyMiniAppDeleted } from '../services/miniAppNotifyService.js';
+import Transaction from '../models/Transaction.js';
 
 const router = Router();
 
@@ -94,14 +96,19 @@ router.get(
 router.post(
   '/transactions',
   asyncHandler(async (req, res) => {
-    res.status(201).json(await createTransaction(req.body));
+    const tx = await createTransaction(req.body);
+    notifyMiniAppCreated('transaction', tx, { input: req.body });
+    res.status(201).json(tx);
   })
 );
 
 router.put(
   '/transactions/:id',
   asyncHandler(async (req, res) => {
-    res.json(await updateTransaction(req.params.id, req.body));
+    const before = await Transaction.findOne({ _id: req.params.id }).lean();
+    const tx = await updateTransaction(req.params.id, req.body);
+    notifyMiniAppUpdated('transaction', before, tx);
+    res.json(tx);
   })
 );
 // DELETE /api/finance/transactions/:id - tasdiqlash kodi kerak.
@@ -111,6 +118,7 @@ router.delete(
   asyncHandler(async (req, res) => {
     const code = req.body?.code ?? req.body?.confirmationCode ?? req.query.code;
     const tx = await softDeleteOne('transaction', req.params.id, code);
+    notifyMiniAppDeleted('transaction', tx);
     res.json({ ok: true, transaction: tx });
   })
 );
