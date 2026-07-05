@@ -48,10 +48,14 @@ function isRecentConfirm(at) {
   return Number.isFinite(t) && Date.now() - t <= CONFIRM_REPLY_WINDOW_MS;
 }
 
+// Atomar upsert — avval findOne+create edi: ikki xabar parallel kelsa ikkalasi ham
+// "yo'q" deb topib, biri unique index (telegramId) xatosi bilan yiqilardi.
 async function getConversation(telegramId) {
-  let conv = await Conversation.findOne({ telegramId });
-  if (!conv) conv = await Conversation.create({ telegramId });
-  return conv;
+  return Conversation.findOneAndUpdate(
+    { telegramId },
+    { $setOnInsert: { telegramId } },
+    { upsert: true, new: true }
+  );
 }
 
 // Gemini kalit/auth/kvota xatosini aniqlaydi. Bot faqat egasi uchun, shuning uchun
@@ -85,33 +89,40 @@ async function replyAiError(ctx, err, genericText) {
 
 export function registerMessageHandler(bot) {
   bot.on('message:location', async (ctx) => {
-    const conv = await getConversation(ctx.from.id);
-    const { latitude, longitude } = ctx.message.location;
-    const address = await reverseGeocode(latitude, longitude);
-    const coords = { lat: latitude, lng: longitude };
-    const location = normalizeLocationData(address, coords);
+    // Boshqa turlar kabi himoyalangan — aks holda xato jim bot.catch'ga tushib,
+    // egasi lokatsiya qabul qilindi-qilinmadi bilmay qolardi.
+    try {
+      const conv = await getConversation(ctx.from.id);
+      const { latitude, longitude } = ctx.message.location;
+      const address = await reverseGeocode(latitude, longitude);
+      const coords = { lat: latitude, lng: longitude };
+      const location = normalizeLocationData(address, coords);
 
-    if (!(conv.pendingIntent && conv.awaitingField === 'location')) {
-      conv.pendingIntent = 'LOCATION_QUESTION';
-      conv.collected = { location };
-      conv.awaitingField = null;
-    } else {
-      conv.collected = { ...conv.collected, pendingLocation: location };
+      if (!(conv.pendingIntent && conv.awaitingField === 'location')) {
+        conv.pendingIntent = 'LOCATION_QUESTION';
+        conv.collected = { location };
+        conv.awaitingField = null;
+      } else {
+        conv.collected = { ...conv.collected, pendingLocation: location };
+      }
+      conv.markModified('collected');
+      await conv.save();
+      if (ctx.session) {
+        ctx.session.intent = conv.pendingIntent;
+        ctx.session.collectedData = conv.collected || {};
+        ctx.session.pendingLocation = location;
+        ctx.session.pendingLocationRename = false;
+        ctx.session.pendingLocationCoords = null;
+        ctx.session.awaitingConfirmation = true;
+        ctx.session.pendingField = conv.awaitingField;
+      }
+      await ctx.reply(`Manzilni topdim oka:\n${address}\n\nShu nom bilan saqlaymizmi?`, {
+        reply_markup: locationReviewKeyboard(coords),
+      });
+    } catch (err) {
+      console.error('Lokatsiya xatosi:', err?.stack || err?.message || err);
+      await ctx.reply("Lokatsiyani saqlay olmadim oka, qaytadan yuborib ko'ring.").catch(() => {});
     }
-    conv.markModified('collected');
-    await conv.save();
-    if (ctx.session) {
-      ctx.session.intent = conv.pendingIntent;
-      ctx.session.collectedData = conv.collected || {};
-      ctx.session.pendingLocation = location;
-      ctx.session.pendingLocationRename = false;
-      ctx.session.pendingLocationCoords = null;
-      ctx.session.awaitingConfirmation = true;
-      ctx.session.pendingField = conv.awaitingField;
-    }
-    await ctx.reply(`Manzilni topdim oka:\n${address}\n\nShu nom bilan saqlaymizmi?`, {
-      reply_markup: locationReviewKeyboard(coords),
-    });
   });
 
   bot.on('message:voice', async (ctx) => {

@@ -6,11 +6,13 @@ import Spinner from '../components/Spinner.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
 import { useNavigationView } from '../components/useNavigationView.js';
+import LoadError from '../components/LoadError.jsx';
 
 export default function Home({ onOpenClient, goToTab, onAddClient }) {
   const { t, lang } = useApp();
   const [stats, setStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(true);
+  const [statsError, setStatsError] = useState(false);
   const [search, setSearch] = useState('');
   const [clients, setClients] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -21,8 +23,12 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
   const loadStats = () => {
     return api
       .get('/stats/home')
-      .then(setStats)
-      .catch(() => {})
+      .then((s) => {
+        setStats(s);
+        setStatsError(false);
+      })
+      // Xato jim yutilmasin — banner ko'rsatamiz (ma'lumot bazada turibdi).
+      .catch(() => setStatsError(true))
       .finally(() => setLoadingStats(false));
   };
 
@@ -65,6 +71,7 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
 
   return (
     <div>
+      {statsError && <LoadError onRetry={loadStats} />}
       <div className="greeting">
         <div>
           <div className="greet-date">{formatWeekdayDate(new Date(), lang)}</div>

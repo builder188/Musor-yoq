@@ -10,12 +10,14 @@ import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
 import MapQuickLinks from '../components/MapQuickLinks.jsx';
 import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
+import LoadError from '../components/LoadError.jsx';
 
 export default function Clients({ focusClientId, openAddClient, onAddClientHandled, onFocusHandled }) {
   const { t } = useApp();
   const [clients, setClients] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [detail, setDetail] = useState(null);
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -26,7 +28,10 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
     setLoading(true);
     try {
       setClients(normalizeClients(await api.get(`/clients${q ? `?search=${encodeURIComponent(q)}` : ''}`)));
+      setLoadError(false);
     } catch {
+      // Xato = bo'sh ro'yxat EMAS — banner ko'rsatamiz (yozuvlar bazada turibdi).
+      setLoadError(true);
       setClients([]);
     } finally {
       setLoading(false);
@@ -54,6 +59,7 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
 
   return (
     <div>
+      {loadError && <LoadError onRetry={() => load(search)} />}
       <div className="row-between">
         <h1 className="page-title">{t('clients.title')}</h1>
         <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>

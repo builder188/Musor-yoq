@@ -107,8 +107,9 @@ subIntent meanings:
   Creates income and marks the inventory item sold if it exists.
 - ITEM_GIVEAWAY  - a useful item was given away for free ("Yangi divanni opamga tekinga berib yubordim").
   Extract itemName, recipient if stated, notes/date. Do NOT create income.
-- INCOME_ENTRY   - extra non-service, non-material income ("boshqa ishdan pul tushdi"). A loan that
-  was RETURNED to the owner right now with NO future date ("qarz qaytdi", "qarzimni qaytardi") is income.
+- INCOME_ENTRY   - extra non-service, non-material income ("ijaradan pul tushdi", "boshqa ishdan pul tushdi").
+  Extract category/source as a short base-form noun. A loan that was RETURNED to the owner right now
+  with NO future date ("qarz qaytdi", "qarzimni qaytardi") is income.
 - PAYMENT_UPDATE - a client paid for an existing service; updates only that service's
   payment state, never a new balance income.
 - DEBT_REMINDER  - the owner LENT money to someone, or BORROWED money, and wants to be reminded to
@@ -194,7 +195,7 @@ DATA EXTRACTION CONTRACT:
 - SERVICE_ENTRY: clientName, clientPhone, location, serviceDateTime, price, currency, paymentMethod, notes, isHistorical.
 - PARTNER_CONTRACT: clientName (required), price (standard per-visit price), location (standard address), clientPhone, currency.
 - EXPENSE_ENTRY: amount, currency, category (free-form, see EXPENSE CATEGORY below), description, date (default today if absent).
-- INCOME_ENTRY:  amount, currency, description, date.
+- INCOME_ENTRY:  amount, currency, category (free-form, see INCOME CATEGORY below), description, date.
 - MATERIAL_SALE: materialName (required), quantityKg, amount (total, if stated), pricePerKg (if stated), currency, date.
 - ITEM_ENTRY: itemName (required), estimatedPrice (optional), notes, date.
 - ITEM_SALE: itemName (required), amount (sale total, if stated), recipient, currency, date.
@@ -219,11 +220,24 @@ into a generic bucket:
 - "mashina tamiriga 300 ketdi" => category "tamirlash"
 - Groceries by meaning => "oziq-ovqat": ovqat, non, tushlik, choy, kafe, somsa — also concrete
   grocery items even without the word "ovqat" ("yog' va guruch oldim", "kartoshka, go'sht oldim").
+- "magazinga 400 ming ishlatdim" => category "magazin"
+- "bozorga 200 ming ketdi" => category "bozor"
 - "boshqa_chiqim" (other): ONLY when the purpose is truly unclear
-  ("magazinga 400 ming ishlatdim", "kerakli narsa oldim", "pul berdim").
+  ("pul berdim", "nimagadir ishlatdim", "kerakli narsa oldim").
 Strip Uzbek case endings from the category noun ("benzinga" -> "benzin", "svalkaga" -> "svalka").
 NEVER ask the owner for the category or the product detail — both are optional. Put the fuller
 purpose/detail you heard into "description"; if none was said, leave description empty.
+
+INCOME CATEGORY — manual income categories are also FREE-FORM and DYNAMIC. Set fields.category
+to the income source as a short base-form noun exactly as the owner named it. The server
+AUTO-CREATES new income categories; never force a clear income source into "boshqa_kirim":
+- "ijaradan 1 mln tushdi" => category "ijara"
+- "bonus oldim 500 ming" => category "bonus"
+- "boshqa ishdan 500 ming tushdi" => category "boshqa ish"
+- "qarzimni qaytardi" with no future reminder date => category "qarz"
+- "boshqa_kirim" (other): ONLY when the source is truly unclear ("pul tushdi", "kirim bo'ldi").
+Service/job income, material sale, and useful item sale are NOT manual income categories; use
+SERVICE_ENTRY, MATERIAL_SALE, or ITEM_SALE for those.
 
 MULTI-ENTRY (several separate records in ONE message) — the owner often lists SEVERAL
 things in one voice message, possibly of DIFFERENT types: "ovqatga 60 ming, benzinga 100 ming
@@ -232,7 +246,7 @@ ishlatdim" (two expenses), "Sardorga bordim 200 ming oldim, keyin benzinga 50 mi
 1 mln ga sotib yubordim" (a material sale + an item sale). NEVER drop any of them. Then:
 - Fill fields.entries with EVERY record in spoken order. Each entry has its own kind:
   "expense" (money out: amount, category free-form rule, description, date),
-  "income" (plain money in: amount, description, date),
+  "income" (plain money in: amount, category free-form rule, description, date),
   "service" (a job/visit: clientName base form, clientPhone/location if said, serviceDateTime,
     price = money taken for the job, isHistorical for past tense),
   "material_sale" (materialName, quantityKg, amount total, pricePerKg, date),
@@ -258,7 +272,10 @@ Input: "ovqatga 60 ming, benzinga 100 ming ishlatdim"
 Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.95,"reason":"two expenses listed in one message","fields":{"amount":60000,"category":"oziq-ovqat","description":"ovqat","entries":[{"kind":"expense","amount":60000,"category":"oziq-ovqat","description":"ovqat"},{"kind":"expense","amount":100000,"category":"benzin","description":"benzin"}]}}
 
 Input: "bugun boshqa ishdan 500 ming tushdi, benzinga 80 ming ketdi"
-Args: {"intent":"MOLIYA","subIntent":"INCOME_ENTRY","confidence":0.9,"reason":"one income and one expense in the same message","fields":{"amount":500000,"description":"boshqa ishdan tushdi","entries":[{"kind":"income","amount":500000,"description":"boshqa ishdan tushdi"},{"kind":"expense","amount":80000,"category":"benzin","description":"benzin"}]}}
+Args: {"intent":"MOLIYA","subIntent":"INCOME_ENTRY","confidence":0.9,"reason":"one income and one expense in the same message","fields":{"amount":500000,"category":"boshqa ish","description":"boshqa ishdan tushdi","entries":[{"kind":"income","amount":500000,"category":"boshqa ish","description":"boshqa ishdan tushdi"},{"kind":"expense","amount":80000,"category":"benzin","description":"benzin"}]}}
+
+Input: "ijaradan 1 mln tushdi"
+Args: {"intent":"MOLIYA","subIntent":"INCOME_ENTRY","confidence":0.93,"reason":"plain income with a named source; create dynamic income category","fields":{"amount":1000000,"category":"ijara","description":"ijaradan tushdi"}}
 
 Input: "bugun Sardorga bordim 200 ming oldim, keyin benzinga 50 ming ketdi"
 Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.92,"reason":"historical service plus an expense in one message","fields":{"clientName":"Sardor","price":200000,"isHistorical":true,"entries":[{"kind":"service","clientName":"Sardor","price":200000,"isHistorical":true},{"kind":"expense","amount":50000,"category":"benzin","description":"benzin"}]}}
@@ -273,7 +290,7 @@ Input: "yog' va guruch oldim 90 ming"
 Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.9,"reason":"groceries by meaning","fields":{"amount":90000,"category":"oziq-ovqat","description":"yog' va guruch"}}
 
 Input: "magazinga 400 ming ishlatdim"
-Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.85,"reason":"unclear shop spending","fields":{"amount":400000,"category":"boshqa_chiqim","description":"magazin"}}
+Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.85,"reason":"shop spending with a named place; create dynamic category","fields":{"amount":400000,"category":"magazin","description":"magazin"}}
 
 Input: "30 kg paxtani 300 mingga sotdim"
 Args: {"intent":"MOLIYA","subIntent":"MATERIAL_SALE","confidence":0.95,"reason":"sold cotton by weight, total stated","fields":{"materialName":"Paxta","quantityKg":30,"amount":300000}}

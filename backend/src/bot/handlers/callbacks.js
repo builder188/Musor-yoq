@@ -562,10 +562,13 @@ export function registerCallbacks(bot) {
   });
 }
 
+// Atomar upsert — findOne+create poygasida unique index xatosi chiqmasin.
 async function getOrCreateConversation(telegramId) {
-  let conv = await Conversation.findOne({ telegramId });
-  if (!conv) conv = await Conversation.create({ telegramId });
-  return conv;
+  return Conversation.findOneAndUpdate(
+    { telegramId },
+    { $setOnInsert: { telegramId } },
+    { upsert: true, new: true }
+  );
 }
 
 function findPendingLocation(ctx, conv, coords) {

@@ -6,6 +6,7 @@ import { formatDateTime, formatMoney } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
+import LoadError from '../components/LoadError.jsx';
 
 export default function Items({ onBack = null }) {
   const { t, lang } = useApp();
@@ -13,6 +14,7 @@ export default function Items({ onBack = null }) {
   const [status, setStatus] = useState('available');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState(null);
   const [selling, setSelling] = useState(null);
@@ -25,7 +27,10 @@ export default function Items({ onBack = null }) {
       const params = new URLSearchParams({ status });
       if (search.trim()) params.set('search', search.trim());
       setItems(await api.get(`/items?${params.toString()}`));
+      setLoadError(false);
     } catch {
+      // Xato = bo'sh ro'yxat EMAS — banner ko'rsatamiz (yozuvlar bazada turibdi).
+      setLoadError(true);
       setItems([]);
     } finally {
       setLoading(false);
@@ -41,6 +46,7 @@ export default function Items({ onBack = null }) {
 
   return (
     <div>
+      {loadError && <LoadError onRetry={load} />}
       <div className="row-between" style={{ marginBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {onBack && (

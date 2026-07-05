@@ -15,6 +15,7 @@ import {
   QUESTIONS,
   PARTNER_QUESTIONS,
   normalizeExpenseCategory,
+  normalizeIncomeCategory,
 } from '../bot/flow.js';
 import {
   SUB_INTENTS,
@@ -510,7 +511,7 @@ function buildMultiRecord({ kind, intent, ref, collected, result }) {
   const rec = { kind, intent, ref, amount: 0, category: null, name: null, description: '', quantityKg: null };
   if (intent === 'EXPENSE_ENTRY' || intent === 'INCOME_ENTRY') {
     rec.amount = result?.amount ?? collected.amount ?? 0;
-    rec.category = intent === 'EXPENSE_ENTRY' ? result?.category || collected.category || null : null;
+    rec.category = result?.category || collected.category || null;
     rec.description = result?.description || collected.description || '';
   } else if (intent === 'SERVICE_ENTRY') {
     rec.amount = result?.price ?? collected.price ?? 0;
@@ -616,18 +617,25 @@ async function handleMultiEntry({ conversation, entries, fields, rawText, mode, 
   }
 
   // Post-save holati: Bekor — hammasi/bittasi; Tahrirlash — raqami/nomi bilan bittasi.
+  // Yozuvlar ALLAQACHON bazada — holat saqlanmasa ham xulosa "saqlandi" bo'lib qaytadi
+  // (faqat tugmalarsiz); sabab serverda loglanadi.
   if (conversation && mode === 'bot' && saved.length) {
-    conversation.pendingIntent = 'ENTRY_SAVED';
-    conversation.collected = {
-      savedIntent: 'MULTI_ENTRY',
-      saved: { type: 'multi', refs: saved.map((s) => s.ref).filter(Boolean) },
-      entries: saved,
-      rawText,
-    };
-    conversation.awaitingField = 'postSave';
-    conversation.markModified('collected');
-    await conversation.save();
-    return { text: summary, keyboard: savedEntryKeyboard('EXPENSE_ENTRY'), tool: 'multi_entry', result: saved };
+    try {
+      conversation.pendingIntent = 'ENTRY_SAVED';
+      conversation.collected = {
+        savedIntent: 'MULTI_ENTRY',
+        saved: { type: 'multi', refs: saved.map((s) => s.ref).filter(Boolean) },
+        entries: saved,
+        rawText,
+      };
+      conversation.awaitingField = 'postSave';
+      conversation.markModified('collected');
+      await conversation.save();
+      return { text: summary, keyboard: savedEntryKeyboard('EXPENSE_ENTRY'), tool: 'multi_entry', result: saved };
+    } catch (err) {
+      console.error('Multi-entry post-save holatida xato (yozuvlar saqlangan):', err?.stack || err?.message || err);
+      return { text: summary, tool: 'multi_entry', result: saved };
+    }
   }
 
   return { text: summary, tool: 'multi_entry', result: saved };
@@ -945,11 +953,20 @@ async function finalizeEntry({ conversation, intent, collected, rawText, mode, s
 
 // Saqlangan yozuv uchun post-save holatini yozadi va xulosa + 3 tugma javobini quradi.
 async function enterPostSaveState({ conversation, intent, collected, saved, rawText, stopped = false, edited = false, toolResult = null }) {
-  conversation.pendingIntent = 'ENTRY_SAVED';
-  conversation.collected = { savedIntent: intent, fields: collected, saved, rawText, stopped };
-  conversation.awaitingField = 'postSave';
-  conversation.markModified('collected');
-  await conversation.save();
+  // MUHIM: yozuv ALLAQACHON MongoDB'da. Post-save holatini saqlash yiqilsa ham
+  // egaga "xatolik" demaymiz (yozuv saqlangan!) — faqat tahrir/bekor tugmalari
+  // ishlamasligi mumkin; sababi serverda loglanadi.
+  let stateSaved = true;
+  try {
+    conversation.pendingIntent = 'ENTRY_SAVED';
+    conversation.collected = { savedIntent: intent, fields: collected, saved, rawText, stopped };
+    conversation.awaitingField = 'postSave';
+    conversation.markModified('collected');
+    await conversation.save();
+  } catch (err) {
+    stateSaved = false;
+    console.error('Post-save holatini saqlashda xato (yozuv o\'zi saqlangan):', err?.stack || err?.message || err);
+  }
 
   let text = savedSummaryText(intent, collected, { stopped, edited });
   // Xizmat saqlanganda eslatma/tasdiq jadvali haqidagi ma'lumot xulosaga qo'shiladi.
@@ -964,6 +981,10 @@ async function enterPostSaveState({ conversation, intent, collected, saved, rawT
     text = `${text}\n${collected.direction === 'taken' ? '💰' : '💸'} Joriy balans: ${formatMoney(toolResult.result.balanceAfter)}`;
   }
 
+  // Holat saqlanmagan bo'lsa tugmalar ishlamaydi — tugmasiz, lekin "saqlandi" xulosasi bilan.
+  if (!stateSaved) {
+    return { text, tool: toolResult?.tool || null, result: toolResult?.result || null };
+  }
   return { text, keyboard: savedEntryKeyboard(intent), tool: toolResult?.tool || null, result: toolResult?.result || null };
 }
 
@@ -1237,7 +1258,11 @@ async function editMultiSavedEntry({ conversation, understanding, rawText }) {
   if (newAmount > 0 && newAmount !== rec.amount) data[moneyKey] = newAmount;
   // Toifa faqat MAQSADLI yozuvdan farq qilsa yangilanadi (toifa nomi ko'pincha yozuvni
   // TOPISH uchun aytiladi — uni o'zgartirish deb tushunmaymiz).
-  if (rec.intent === 'EXPENSE_ENTRY' && u.category && expenseKey(u.category) !== expenseKey(rec.category || '')) {
+  if (
+    (rec.intent === 'EXPENSE_ENTRY' || rec.intent === 'INCOME_ENTRY') &&
+    u.category &&
+    expenseKey(u.category) !== expenseKey(rec.category || '')
+  ) {
     data.category = u.category;
   }
   if (u.description && u.description !== rec.description) data.description = u.description;
@@ -1257,7 +1282,11 @@ async function editMultiSavedEntry({ conversation, understanding, rawText }) {
   records[target.index] = {
     ...rec,
     amount: data[moneyKey] ?? rec.amount,
-    category: data.category ? normalizeExpenseCategory(data.category) : rec.category,
+    category: data.category
+      ? rec.intent === 'INCOME_ENTRY'
+        ? normalizeIncomeCategory(data.category)
+        : normalizeExpenseCategory(data.category)
+      : rec.category,
     description: data.description ?? rec.description,
     quantityKg: data.quantityKg ?? rec.quantityKg,
   };
@@ -1347,7 +1376,7 @@ async function applySavedEntryUpdate(intent, saved, fields, prevFields = {}) {
     const data = {};
     if (hasValue('amount', fields)) data.amount = fields.amount;
     if (fields.date) data.date = fields.date;
-    if (intent === 'EXPENSE_ENTRY' && fields.category) data.category = fields.category;
+    if ((intent === 'EXPENSE_ENTRY' || intent === 'INCOME_ENTRY') && fields.category) data.category = fields.category;
     const desc = fields.description ?? fields.notes;
     if (desc !== undefined && desc !== (prevFields.description ?? prevFields.notes)) data.description = desc;
     if (intent === 'MATERIAL_SALE') {
@@ -1470,7 +1499,7 @@ const CORRECTION_RE = /(\bemas\b|xato|noto'?g'?ri|to'?g'?irla|to'?g'?rila|o'?zga
 // saqlangan yozuv tuzatishi deb qoladi.)
 function isSelfContainedEntry(action, f = {}) {
   if (action === 'EXPENSE_ENTRY') return Boolean(f.category || f.description);
-  if (action === 'INCOME_ENTRY') return Boolean(f.description);
+  if (action === 'INCOME_ENTRY') return Boolean(f.category || f.description);
   return true;
 }
 
@@ -1726,8 +1755,10 @@ async function executeToolFlow({ intent, fields, rawText, mode, conversation = n
   try {
     toolResult = await executeAgentTool(toolCall.name, toolCall.args);
   } catch (err) {
-    // Biznes xatosi (mas. "xizmat topilmadi") — bu AI/ulanish xatosi emas. Egaga aniq,
-    // samimiy xabar qaytaramiz (umumiy "AI xato" o'rniga).
+    // Sabab serverda DOIM loglanadi (stack bilan) — "nega saqlanmadi" izsiz qolmasin.
+    // Biznes xatosi (mas. "xizmat topilmadi") uchun status bor; texnik xatoda (DB uzildi,
+    // validatsiya) ham egaga aniq xabar qaytadi.
+    console.error(`Agent tool xatosi [${toolCall.name}]:`, err?.stack || err?.message || err);
     return { text: err?.message || "Voy oka, bir narsa chappa ketdi. Qaytadan urinib ko'ring.", tool: toolCall.name, error: true };
   }
 
@@ -1946,7 +1977,9 @@ async function createAgentTransaction(args) {
   const category = isMaterial
     ? 'material'
     : type === TX_TYPES.EXPENSE && args.category
-    ? normalizeCategoryForDb(args.category)
+    ? normalizeExpenseCategoryForDb(args.category)
+    : type === TX_TYPES.INCOME && args.category
+    ? normalizeIncomeCategoryForDb(args.category)
     : null;
   const tx = await createTransaction({
     type,
@@ -2250,7 +2283,11 @@ function applyEntryDefaults(intent, fields) {
   const out = { ...fields };
   if (intent === 'EXPENSE_ENTRY') {
     if (!out.date) out.date = new Date().toISOString();
-    if (out.category) out.category = normalizeCategoryForDb(out.category);
+    if (out.category) out.category = normalizeExpenseCategoryForDb(out.category);
+  }
+  if (intent === 'INCOME_ENTRY') {
+    if (!out.date) out.date = new Date().toISOString();
+    if (out.category) out.category = normalizeIncomeCategoryForDb(out.category);
   }
   if (intent === 'MATERIAL_SALE') {
     if (!out.date) out.date = new Date().toISOString();
@@ -2279,10 +2316,16 @@ function applyEntryDefaults(intent, fields) {
   return out;
 }
 
-function normalizeCategoryForDb(value) {
+function normalizeExpenseCategoryForDb(value) {
   const normalized = normalizeExpenseCategory(value);
   if (normalized) return normalized;
   return 'boshqa_chiqim';
+}
+
+function normalizeIncomeCategoryForDb(value) {
+  const normalized = normalizeIncomeCategory(value);
+  if (normalized) return normalized;
+  return 'boshqa_kirim';
 }
 
 function normalizePeriod(period) {
@@ -2324,7 +2367,9 @@ const CATEGORY_LABEL = {
   yoqilgi: "Yoqilg'i",
   tamirlash: "Ta'mirlash",
   'oziq-ovqat': 'Oziq-ovqat',
+  svalka: 'Svalka',
   boshqa_chiqim: 'Boshqa',
+  boshqa_kirim: 'Boshqa kirim',
 };
 
 function itemMatchQuestion(candidates = []) {
@@ -2385,7 +2430,7 @@ function fallbackResponse(toolName, result) {
         return `Bo'ldi oka, ${qty}${result.materialName || 'material'} — ${formatMoney(result.amount)}ga sotilgani yozildi ✅`;
       }
       if (result.type === 'income') {
-        return `Boldi oka, ${formatMoney(result.amount)} kirim qo'shdim ✅`;
+        return `Boldi oka, ${formatMoney(result.amount)} kirim qo'shdim ✅\nToifa: ${CATEGORY_LABEL[result.category] || result.category || 'Boshqa kirim'}`;
       }
       return `Boldi oka, ${formatMoney(result.amount)} chiqim qo'shdim ✅\nToifa: ${CATEGORY_LABEL[result.category] || result.category || 'Boshqa'}`;
     case 'record_payment':

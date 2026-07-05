@@ -9,6 +9,7 @@ import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
 import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
 import MapQuickLinks from '../components/MapQuickLinks.jsx';
+import LoadError from '../components/LoadError.jsx';
 
 const STATUSES = ['kutilmoqda', 'bajarildi', 'bekor_qilindi'];
 
@@ -17,6 +18,7 @@ export default function Services() {
   const [view, setView] = useState('today');
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [filterStatus, setFilterStatus] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -36,7 +38,10 @@ export default function Services() {
       const params = serviceParamsForView(view);
       const data = await api.get(`/services${params.toString() ? `?${params.toString()}` : ''}`);
       setServices(sortServicesForView(normalizeServices(data), view));
+      setLoadError(false);
     } catch {
+      // Xato = bo'sh ro'yxat EMAS — banner ko'rsatamiz (yozuvlar bazada turibdi).
+      setLoadError(true);
       setServices([]);
     } finally {
       setLoading(false);
@@ -50,6 +55,7 @@ export default function Services() {
 
   return (
     <div>
+      {loadError && <LoadError onRetry={load} />}
       <div className="row-between" style={{ marginBottom: 4 }}>
         <h1 className="page-title" style={{ marginBottom: 0 }}>{t('services.title')}</h1>
         <button

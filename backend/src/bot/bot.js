@@ -29,6 +29,27 @@ bot.api.config.use(async (prev, method, payload, signal) => {
   return result;
 });
 
+// BIR FOYDALANUVCHI UCHUN KETMA-KETLIK. Webhook rejimida Telegram bir foydalanuvchining
+// ikki xabarini PARALLEL yetkazishi mumkin (ayniqsa tez ketma-ket yozilganda). Ikkala
+// handler bir vaqtda Conversation/session holatini o'qib-yozsa, slot-filling ma'lumoti
+// bir-birini ustidan yozib yuboradi — yozuv "tasodifiy" yo'qoladi. Shu navbat har bir
+// foydalanuvchi update'larini birin-ketin bajaradi (poyga yo'qoladi).
+// Istisno: rasm-albom (media_group_id) — u o'z settle-timeri bilan yig'iladi; navbatga
+// qo'yilsa 1-rasm handler'i albom yakunini kutib, 2-rasm navbatda qolib albom bo'linadi.
+const userUpdateQueues = new Map();
+bot.use(async (ctx, next) => {
+  const key = String(ctx.from?.id ?? ctx.chat?.id ?? '');
+  if (!key || ctx.message?.media_group_id) return next();
+  const prev = userUpdateQueues.get(key) || Promise.resolve();
+  // Oldingi update xato bilan tugasa ham navbat davom etadi (xato o'z joyida loglanadi).
+  const run = prev.catch(() => {}).then(() => next());
+  const cleanup = run.catch(() => {}).finally(() => {
+    if (userUpdateQueues.get(key) === cleanup) userUpdateQueues.delete(key);
+  });
+  userUpdateQueues.set(key, cleanup);
+  return run;
+});
+
 // Owner-only guard + tenant konteksti. Ruxsat berilgan foydalanuvchining BUTUN keyingi
 // oqimi (session, handlerlar, AI agent, DB so'rovlari) runWithUser ichida bajariladi —
 // shu sabab har bir DB so'rovi avtomatik shu foydalanuvchiga scope qilinadi (boshqalarning
@@ -74,8 +95,20 @@ registerCommands(bot);
 registerCallbacks(bot);
 registerMessageHandler(bot);
 
-bot.catch((err) => {
-  console.error('Bot xatosi:', err.error?.message || err.message || err);
+// So'nggi himoya: handler'dan qochib chiqqan har qanday xato. JIM QOLMAYMIZ —
+// sabab to'liq (stack bilan) serverda loglanadi va egasiga aniq xabar yuboriladi
+// (aks holda "yozdim, lekin bot javob bermadi, saqlanganmi yo'qmi" holati bo'ladi).
+bot.catch(async (err) => {
+  const cause = err.error ?? err;
+  console.error('Bot xatosi (handler):', cause?.stack || cause?.message || cause);
+  try {
+    await err.ctx?.reply(
+      "Voy oka, xatolik yuz berdi — oxirgi xabar to'liq qayta ishlanmagan bo'lishi mumkin.\n" +
+        "Mini App'da tekshiring; yozuv ko'rinmasa qaytadan yuboring."
+    );
+  } catch {
+    /* javob ham ketmadi (ulanish yo'q) — log yetarli */
+  }
 });
 
 export async function downloadFile(fileId, api = bot.api) {

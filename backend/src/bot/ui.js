@@ -115,7 +115,9 @@ const ENTRY_CATEGORY_LABEL = {
   yoqilgi: "Yoqilg'i",
   tamirlash: "Ta'mirlash",
   'oziq-ovqat': 'Oziq-ovqat',
+  svalka: 'Svalka',
   boshqa_chiqim: 'Boshqa',
+  boshqa_kirim: 'Boshqa kirim',
 };
 
 function entryCategoryLabel(category) {
@@ -131,7 +133,7 @@ function multiRecordLine(r) {
   const sum = typeof r.amount === 'number' && r.amount > 0 ? formatMoney(r.amount) : 'Summa aytilmagan';
   switch (r.kind) {
     case 'income':
-      return `💰 ${sum} | Kirim${r.description ? ` — ${r.description}` : ''}`;
+      return `💰 ${sum} | ${entryCategoryLabel(r.category) || 'Kirim'}${r.description ? ` — ${r.description}` : ''}`;
     case 'service':
       return `👤 Xizmat: ${r.name || '-'} — ${sum}`;
     case 'material_sale':
@@ -228,7 +230,7 @@ function savedFieldLines(intent, fields) {
     return lines;
   }
   if (intent === 'INCOME_ENTRY') {
-    lines.push(`💰 ${hasNumber(fields.amount) ? formatMoney(fields.amount) : 'Summa aytilmagan'} | Kirim`);
+    lines.push(`💰 ${hasNumber(fields.amount) ? formatMoney(fields.amount) : 'Summa aytilmagan'} | ${entryCategoryLabel(fields.category) || 'Kirim'}`);
     const desc = fields.description || fields.notes || fields.incomeSource;
     if (desc) lines.push(`📝 ${desc}`);
     return lines;

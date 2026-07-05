@@ -8,15 +8,16 @@ export const TX_TYPES = {
 };
 
 // Kirim toifalari: xizmat (mijoz ishi), material (musordan chiqqan xom-ashyo sotuvi),
-// boshqa_kirim (qolgan har qanday daromad).
+// buyum (kerakli buyum sotuvi), boshqa_kirim (toifasiz daromad) va dinamik erkin nomlar
+// ("Ijara", "Bonus", ...).
 // 'qarz' — egasi bergan/olgan shaxsiy qarz (Reminder bilan bog'liq). Ham chiqim (berdim),
 // ham kirim (oldim) tomonida bo'lishi mumkin; qaytarilganda tranzaksiya soft-delete qilinadi.
-// XARAJAT toifalari endi DINAMIK: quyidagi EXPENSE_CATEGORIES faqat eski (legacy) slug'lar —
-// yangi xarajatlar erkin nom bilan ham saqlanadi ("Benzin", "Svalka", ...), shu sabab
-// schema'da enum YO'Q. Nomlar ExpenseCategory modelida ro'yxatga olinadi.
-export const TX_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim', 'qarz'];
+// Kirim va xarajat toifalari endi DINAMIK: quyidagi ro'yxatlar legacy/tizim slug'lari xolos —
+// yangi nomlar erkin string bo'lib saqlanadi. Nomlar IncomeCategory/ExpenseCategory modelida
+// ro'yxatga olinadi, shu sabab schema'da enum YO'Q.
+export const TX_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'svalka', 'boshqa_chiqim', 'qarz'];
 export const INCOME_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim'];
-export const EXPENSE_CATEGORIES = ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'boshqa_chiqim'];
+export const EXPENSE_CATEGORIES = ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'svalka', 'boshqa_chiqim'];
 export const OTHER_EXPENSE_CATEGORY = 'boshqa_chiqim';
 export const OTHER_INCOME_CATEGORY = 'boshqa_kirim';
 // Material sotuvi toifasi — daromad, lekin alohida kategoriya statistikasi bor.

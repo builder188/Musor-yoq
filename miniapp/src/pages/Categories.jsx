@@ -6,6 +6,7 @@ import { formatMoney, formatDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import Items from './Items.jsx';
+import LoadError from '../components/LoadError.jsx';
 
 // "Kategoriyalar" bo'limi: material kategoriyalari (Paxta, Taxta, ...) + "Kerakli buyumlar" +
 // XARAJAT kategoriyalari (dinamik: Yoqilg'i, Benzin, Svalka, ...) + "Boshqa kirim-chiqimlar".
@@ -15,8 +16,10 @@ export default function Categories() {
   const { t, lang } = useApp();
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState(null);
+  const [selectedIncome, setSelectedIncome] = useState(null);
   const [selectedExpense, setSelectedExpense] = useState(null);
   const [showOther, setShowOther] = useState(false);
   const [showItems, setShowItems] = useState(false);
@@ -25,7 +28,10 @@ export default function Categories() {
     setLoading(true);
     try {
       setOverview(await api.get('/categories'));
+      setLoadError(false);
     } catch {
+      // Xato = bo'sh sahifa EMAS — banner ko'rsatamiz (yozuvlar bazada turibdi).
+      setLoadError(true);
       setOverview(null);
     } finally {
       setLoading(false);
@@ -42,6 +48,9 @@ export default function Categories() {
   if (selectedMaterial) {
     return <MaterialDetail name={selectedMaterial} lang={lang} onBack={() => { setSelectedMaterial(null); load(); }} />;
   }
+  if (selectedIncome) {
+    return <IncomeDetail category={selectedIncome} lang={lang} onBack={() => { setSelectedIncome(null); load(); }} />;
+  }
   if (selectedExpense) {
     return <ExpenseDetail category={selectedExpense} lang={lang} onBack={() => { setSelectedExpense(null); load(); }} />;
   }
@@ -51,11 +60,13 @@ export default function Categories() {
 
   const materials = overview?.materials || [];
   const items = overview?.items || { available: 0, total: 0 };
+  const incomes = overview?.incomes || [];
   const expenses = overview?.expenses || [];
   const other = overview?.other || { count: 0, totalIncome: 0, totalExpense: 0 };
 
   return (
     <div>
+      {loadError && <LoadError onRetry={load} />}
       <div className="row-between" style={{ marginBottom: 10 }}>
         <h1 className="page-title" style={{ marginBottom: 0 }}>{t('categories.title')}</h1>
         <button
@@ -101,6 +112,27 @@ export default function Categories() {
                     </div>
                   </div>
                   {m.total > 0 && <span className="text-income">+{formatNumber(m.total)}</span>}
+                </div>
+              </button>
+            ))
+          )}
+
+          {/* Kirim kategoriyalari — bot/Mini App'da uchragan erkin daromad manbalari */}
+          <div className="section-title">{t('categories.incomes')}</div>
+          {incomes.length === 0 ? (
+            <div className="empty">{t('common.noData')}</div>
+          ) : (
+            incomes.map((c) => (
+              <button key={c.name} className="list-item" type="button" onClick={() => setSelectedIncome(c)} style={{ width: '100%', textAlign: 'left' }}>
+                <div className="job-card">
+                  <div className="avatar">💰</div>
+                  <div className="job-main">
+                    <div className="job-name">{c.name}</div>
+                    <div className="job-sub">
+                      {c.count > 0 ? `${c.count} ${t('categories.recordsCount')}` : t('categories.noRecords')}
+                    </div>
+                  </div>
+                  {c.total > 0 && <span className="text-income">+{formatNumber(c.total)}</span>}
                 </div>
               </button>
             ))
@@ -260,6 +292,62 @@ function MaterialDetail({ name, lang, onBack }) {
             load();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+// Bitta KIRIM kategoriyasi: yozuvlar (sana, summa, izoh, asl ovoz).
+function IncomeDetail({ category, lang, onBack }) {
+  const { t } = useApp();
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await api.get(`/categories/income/${encodeURIComponent(category.value || category.name)}/records`);
+        if (alive) setRecords(Array.isArray(res?.records) ? res.records : []);
+      } catch {
+        if (alive) setRecords([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [category]);
+
+  const total = records.reduce((sum, r) => sum + (r.amount || 0), 0);
+
+  return (
+    <div>
+      <div className="row-between" style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="btn btn-sm" onClick={onBack}>← {t('common.back')}</button>
+          <h1 className="page-title" style={{ marginBottom: 0 }}>{category.name}</h1>
+        </div>
+      </div>
+
+      <div className="summary-card" style={{ marginBottom: 12 }}>
+        <div className="summary-col">
+          <div className="summary-label">{t('categories.recordsCount')}</div>
+          <div className="summary-value">{records.length}</div>
+        </div>
+        <div className="summary-divider" />
+        <div className="summary-col wide">
+          <div className="summary-label">{t('finance.income')}</div>
+          <div className="summary-value accent">+{formatNumber(total)}<span className="unit"> {t('common.soum')}</span></div>
+        </div>
+      </div>
+
+      {loading ? (
+        <Spinner />
+      ) : records.length === 0 ? (
+        <div className="empty">{t('categories.noRecords')}</div>
+      ) : (
+        records.map((r) => <TxRecordCard key={r.id} record={r} t={t} lang={lang} />)
       )}
     </div>
   );

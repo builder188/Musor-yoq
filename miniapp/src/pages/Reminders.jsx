@@ -5,6 +5,7 @@ import { formatDateTime, formatMoney } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
+import LoadError from '../components/LoadError.jsx';
 
 const todayInput = () => new Date().toISOString().slice(0, 10);
 
@@ -13,6 +14,7 @@ export default function Reminders() {
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState('pending');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -21,7 +23,10 @@ export default function Reminders() {
     setLoading(true);
     try {
       setItems(await api.get(`/reminders?status=${status}`));
+      setLoadError(false);
     } catch {
+      // Xato = bo'sh ro'yxat EMAS — banner ko'rsatamiz (yozuvlar bazada turibdi).
+      setLoadError(true);
       setItems([]);
     } finally {
       setLoading(false);
@@ -53,6 +58,7 @@ export default function Reminders() {
 
   return (
     <div>
+      {loadError && <LoadError onRetry={load} />}
       <div className="row-between" style={{ marginBottom: 4 }}>
         <h1 className="page-title" style={{ marginBottom: 0 }}>{t('reminders.title')}</h1>
         <button

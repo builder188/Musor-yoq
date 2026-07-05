@@ -32,7 +32,7 @@ export const ENTRY_MINIMUM = {
   SERVICE_ENTRY: ['clientName', 'clientPhone'],
   PARTNER_CONTRACT: ['clientName'],
   EXPENSE_ENTRY: ['amount', 'description', 'category'],
-  INCOME_ENTRY: ['amount', 'description'],
+  INCOME_ENTRY: ['amount', 'description', 'category'],
   MATERIAL_SALE: ['materialName'],
   ITEM_ENTRY: ['itemName'],
   ITEM_SALE: ['itemName'],
@@ -142,6 +142,8 @@ const LEGACY_EXPENSE_CATEGORY = {
   'oziq ovqat': 'oziq-ovqat',
   oziqovqat: 'oziq-ovqat',
   ovqat: 'oziq-ovqat',
+  svalka: 'svalka',
+  svarka: 'svalka',
   boshqa: 'boshqa_chiqim',
   boshqa_chiqim: 'boshqa_chiqim',
   'boshqa chiqim': 'boshqa_chiqim',
@@ -160,6 +162,56 @@ export function normalizeExpenseCategory(value) {
   if (name.length > 40) return null;
   // Dinamik kategoriya nomi — bosh harf bilan, qolgani egasi aytganidek.
   return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+// Kirim toifalari ham erkin/dinamik. Tizim manbalari (xizmat/material/buyum) slug bo'lib
+// qoladi, boshqa aniq nomlar esa egasi aytgan nom bilan saqlanadi ("ijara" -> "Ijara").
+const LEGACY_INCOME_CATEGORY = {
+  xizmat: 'xizmat',
+  service: 'xizmat',
+  material: 'material',
+  buyum: 'buyum',
+  item: 'buyum',
+  qarz: 'qarz',
+  boshqa_kirim: 'boshqa_kirim',
+  'boshqa kirim': 'boshqa_kirim',
+  boshqa: 'boshqa_kirim',
+  kirim: 'boshqa_kirim',
+  income: 'boshqa_kirim',
+  other: 'boshqa_kirim',
+};
+
+export function normalizeIncomeCategory(value) {
+  if (!value) return null;
+  const name = String(value).replace(/[`вЂвЂ™К»Кј]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!name) return null;
+  const key = name.toLowerCase().replace(/'/g, '');
+  const slug = LEGACY_INCOME_CATEGORY[key];
+  if (slug) return slug;
+  if (name.length > 40) return null;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function normalizeFinanceCategory(value) {
+  const name = String(value || '').replace(/[`вЂвЂ™К»Кј]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!name) return null;
+  const key = name.toLowerCase().replace(/'/g, '');
+  const explicitIncomeKeys = new Set([
+    'xizmat',
+    'service',
+    'material',
+    'buyum',
+    'item',
+    'qarz',
+    'boshqa_kirim',
+    'boshqa kirim',
+    'kirim',
+    'income',
+  ]);
+  if (explicitIncomeKeys.has(key)) {
+    return LEGACY_INCOME_CATEGORY[key];
+  }
+  return normalizeExpenseCategory(name);
 }
 
 export function hasValue(field, collected) {
@@ -198,7 +250,7 @@ export function mergeFields(collected, incoming = {}, { overwrite = false } = {}
     else if (key === 'price' || key === 'amount' || key === 'paymentAmount' || key === 'quantityKg' || key === 'pricePerKg' || key === 'estimatedPrice') value = parseMoney(raw);
     else if (key === 'paymentMethod') value = normalizePaymentMethod(raw) || raw;
     // Normallashmagan (juda uzun/bo'sh) toifa tashlanadi — xom jumla toifa bo'lib qolmasin.
-    else if (key === 'category') value = normalizeExpenseCategory(raw);
+    else if (key === 'category') value = normalizeFinanceCategory(raw);
     else if (key === 'materialName' || key === 'itemName' || key === 'recipient' || key === 'person') value = String(raw).replace(/\s+/g, ' ').trim();
     else if (key === 'dueDate' || key === 'eventDate') {
       // AI odatda ISO beradi (YYYY-MM-DD...). Sof matn ("30 iyun", "5-may") new Date() da
@@ -254,7 +306,7 @@ export function applyRawValue(field, rawText, collected) {
       break;
     }
     case 'category': {
-      out[field] = normalizeExpenseCategory(text);
+      out[field] = normalizeFinanceCategory(text);
       break;
     }
     case 'serviceDateTime': {

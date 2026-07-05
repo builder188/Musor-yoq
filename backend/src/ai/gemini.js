@@ -18,7 +18,7 @@ import {
 } from './intents.js';
 import { parseMoney } from '../utils/money.js';
 import { normalizePhone } from '../utils/phone.js';
-import { normalizePaymentMethod, normalizeExpenseCategory } from '../bot/flow.js';
+import { normalizePaymentMethod, normalizeExpenseCategory, normalizeIncomeCategory } from '../bot/flow.js';
 
 const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
 
@@ -92,7 +92,7 @@ const classifyTool = {
               category: {
                 type: SchemaType.STRING,
                 description:
-                  'EXPENSE_ENTRY: WHAT the money went to, a short base-form noun exactly as the owner named it ("benzin", "svalka", "oziq-ovqat", "ishchi oyligi"). New names are fine — the server auto-creates the category. Use "boshqa_chiqim" ONLY when the purpose is truly unclear.',
+                  'EXPENSE_ENTRY/INCOME_ENTRY: short base-form category exactly as the owner named it ("benzin", "svalka", "ijara", "bonus", "ishchi oyligi"). New names are fine — the server auto-creates the category. Use "boshqa_chiqim"/"boshqa_kirim" ONLY when the purpose/source is truly unclear.',
               },
               description: { type: SchemaType.STRING },
               date: { type: SchemaType.STRING },
@@ -109,7 +109,7 @@ const classifyTool = {
                       description: 'expense = money out; income = plain money in; service = a trash-collection job/visit; material_sale = recyclable material sold by weight; item_sale = useful piece item sold; item_giveaway = item given away free.',
                     },
                     amount: { type: SchemaType.NUMBER, description: 'Money amount for this record (expense/income/material total/item sale total).' },
-                    category: { type: SchemaType.STRING, description: 'EXPENSE only: purpose as the owner named it, base form ("benzin", "oziq-ovqat", "svalka").' },
+                    category: { type: SchemaType.STRING, description: 'EXPENSE/INCOME: category as the owner named it, base form ("benzin", "svalka", "ijara", "bonus").' },
                     description: { type: SchemaType.STRING, description: 'Short detail for this record.' },
                     date: { type: SchemaType.STRING, description: 'ISO date if THIS record names its own day; omit otherwise.' },
                     clientName: { type: SchemaType.STRING, description: 'SERVICE: client name, base form ("Sardorga bordim" -> "Sardor").' },
@@ -281,7 +281,7 @@ const agentTools = {
           amount: { type: SchemaType.NUMBER },
           category: {
             type: SchemaType.STRING,
-            description: 'Expense purpose as the owner named it (free-form, e.g. "benzin", "svalka"); "boshqa_chiqim" only when unclear.',
+            description: 'Expense purpose or income source as the owner named it (free-form, e.g. "benzin", "svalka", "ijara", "bonus"); use other only when unclear.',
           },
           description: { type: SchemaType.STRING },
           date: { type: SchemaType.STRING },
@@ -593,10 +593,14 @@ function isoOrNull(value) {
 
 // Xarajat toifasi endi ERKIN nom (dinamik kategoriya) — faqat eski slug'lar
 // normallashtiriladi (flow.js dagi yagona manba). Bo'sh bo'lsa null: financeService
-// izohdan taxmin qiladi yoki "boshqa_chiqim"ga tushiradi. Avvalgi regex yondashuv
+// izohdan qisqa toifa ajratadi yoki haqiqatan noaniq bo'lsa "boshqa_chiqim"ga tushiradi. Avvalgi regex yondashuv
 // "boshqa_chiqim" ichidan "osh"ni topib hammasini "oziq-ovqat" qilib yuborardi (bug).
 function normalizeExpenseCategoryForExtraction(value) {
   return normalizeExpenseCategory(value);
+}
+
+function normalizeIncomeCategoryForExtraction(value) {
+  return normalizeIncomeCategory(value);
 }
 
 // Valyutani aniqlaydi: Gemini 'currency' yoki eski 'hasDollar' belgisidan.
@@ -632,7 +636,7 @@ function multiEntryHasIdentity(entry) {
     case 'item_giveaway':
       return Boolean(entry.itemName);
     case 'income':
-      return Boolean(entry.amount || entry.description);
+      return Boolean(entry.amount || entry.description || entry.category);
     default: // expense
       return Boolean(entry.amount || entry.description || entry.category);
   }
@@ -723,6 +727,7 @@ function normalizeExtractedFieldsByIntent(intent, clean) {
   if (intent === 'INCOME_ENTRY') {
     return {
       amount: numberOrNull(clean.amount),
+      category: normalizeIncomeCategoryForExtraction(clean.category || clean.incomeSource),
       description: textOrNull(clean.description || clean.notes || clean.incomeSource),
       date: isoOrNull(clean.date) || new Date().toISOString(),
       currency: resolveCurrency(clean),
@@ -944,7 +949,7 @@ Rules:
 - SEARCH_QUERY => search_data.
 - ANALYTICS_QUERY => get_analytics.
 - Preserve normalized values from extracted fields. Do not invent missing required data.
-- Keep the expense category exactly as extracted (free-form names allowed); the server stores it as a dynamic category.`);
+- Keep expense/income category exactly as extracted (free-form names allowed); the server stores new names as dynamic categories.`);
 
   return namedFunctionCall(res.response, AGENT_TOOL_NAMES);
 }

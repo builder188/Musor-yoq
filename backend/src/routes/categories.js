@@ -5,6 +5,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import {
   getCategoryOverview,
   getMaterialCategoryRecords,
+  getIncomeCategoryRecords,
   getExpenseCategoryRecords,
   getOtherCategoryRecords,
   createMaterialCategory,
@@ -33,6 +34,14 @@ router.get(
   '/material/:name/records',
   asyncHandler(async (req, res) => {
     res.json(await getMaterialCategoryRecords(req.params.name));
+  })
+);
+
+// GET /api/categories/income/:name/records — bitta kirim kategoriyasining yozuvlari.
+router.get(
+  '/income/:name/records',
+  asyncHandler(async (req, res) => {
+    res.json(await getIncomeCategoryRecords(req.params.name));
   })
 );
 

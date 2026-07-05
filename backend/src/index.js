@@ -93,7 +93,11 @@ async function startRuntime(app) {
       webhookCallback(bot, 'express', { onTimeout: 'return', timeoutMilliseconds: 25_000 })
     );
     const url = `https://${env.RAILWAY_STATIC_URL}${WEBHOOK_PATH}`;
-    await bot.api.setWebhook(url, { drop_pending_updates: true });
+    // MUHIM: drop_pending_updates QO'YMAYMIZ. Avval true edi — har deploy/restart
+    // oynasida yozilgan xabarlar (Telegram navbatida turganlar) jimgina tashlanardi,
+    // ya'ni egasining yozuvi bazaga tushmay yo'qolardi. Endi navbatdagi xabarlar
+    // server ko'tarilgach qayta ishlanadi (Telegram ularni 24 soatgacha saqlaydi).
+    await bot.api.setWebhook(url);
     runtime.bot = true;
     console.log(`Bot webhook rejimida: ${url}`);
   } else {
@@ -150,7 +154,8 @@ async function startPollingResilient(bot) {
 
   for (;;) {
     try {
-      await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+      // drop_pending_updates YO'Q — restart paytida kelgan xabarlar yo'qolmasin.
+      await bot.api.deleteWebhook().catch(() => {});
       await bot.start({
         onStart: (info) => {
           conflictRetries = 0;
@@ -220,7 +225,12 @@ async function main() {
       status = 409;
       message = 'Bu ma\'lumot allaqachon mavjud';
     }
-    console.error('API xatosi:', message);
+    // 5xx (kutilmagan) xatoda to'liq stack — "nega yozilmadi" savoli logdan aniq javob topsin.
+    if (status >= 500) {
+      console.error(`API xatosi [${req.method} ${req.originalUrl}]:`, err?.stack || message);
+    } else {
+      console.error(`API xatosi [${req.method} ${req.originalUrl}] (${status}):`, message);
+    }
     res.status(status).json({ error: message });
   });
 
@@ -245,11 +255,22 @@ process.on('uncaughtException', (err) => {
   console.error('Ushlanmagan istisno (process tirik qoldirildi):', err?.stack || err?.message || err);
 });
 
-process.on('SIGINT', () => {
-  console.log('\nTo\'xtatilmoqda...');
-  process.exit(0);
-});
-process.on('SIGTERM', () => process.exit(0));
+// Yumshoq to'xtash: Railway redeploy'da SIGTERM keladi. Avval darhol process.exit(0)
+// edi — yarim yozilgan amallar (masalan Gemini'dan qaytib endi MongoDB'ga yozilayotgan
+// yozuv) o'lib, ma'lumot jimgina yo'qolardi. Endi yangi so'rov qabul qilinmaydi,
+// boshlangan ishlarga bir necha soniya beriladi, keyin chiqiladi.
+const SHUTDOWN_GRACE_MS = 8000;
+let shuttingDown = false;
+function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  runtime.ready = false;
+  console.log(`\n${signal} qabul qilindi — ${SHUTDOWN_GRACE_MS / 1000}s ichida boshlangan ishlar yakunlanadi...`);
+  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS).unref();
+  // Event loop bo'shasa (hamma ish tugasa) undan oldin ham chiqib ketadi — .unref() shu uchun.
+}
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 main().catch((err) => {
   console.error('Ishga tushirishda xato:', err);

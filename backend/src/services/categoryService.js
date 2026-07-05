@@ -13,6 +13,7 @@ import Transaction, {
 import UsefulItem, { USEFUL_ITEM_STATUS } from '../models/UsefulItem.js';
 import MaterialCategory from '../models/MaterialCategory.js';
 import ExpenseCategory from '../models/ExpenseCategory.js';
+import IncomeCategory from '../models/IncomeCategory.js';
 import { DEFAULT_MATERIALS, materialKey, getMaterialStats, listUsedMaterialNames } from './materialService.js';
 import { notifyOwner } from '../bot/notify.js';
 import { formatDateTime } from '../utils/dates.js';
@@ -26,6 +27,13 @@ export const DEFAULT_EXPENSE_CATEGORIES = [
   { slug: 'yoqilgi', name: "Yoqilg'i" },
   { slug: 'tamirlash', name: "Ta'mirlash" },
   { slug: 'oziq-ovqat', name: 'Oziq-ovqat' },
+  { slug: 'svalka', name: 'Svalka' },
+];
+
+export const SYSTEM_INCOME_CATEGORIES = [
+  { slug: 'xizmat', name: 'Xizmat' },
+  { slug: MATERIAL_CATEGORY, name: 'Material' },
+  { slug: 'buyum', name: 'Buyum' },
 ];
 
 // Kategoriya nomini solishtirish kaliti: kichik harf, apostrof/ortiqcha bo'shliqsiz.
@@ -40,6 +48,11 @@ export function expenseKey(name) {
 function defaultExpenseBySlugOrKey(value) {
   const key = expenseKey(value);
   return DEFAULT_EXPENSE_CATEGORIES.find((d) => d.slug === value || expenseKey(d.name) === key) || null;
+}
+
+function defaultIncomeBySlugOrKey(value) {
+  const key = expenseKey(value);
+  return SYSTEM_INCOME_CATEGORIES.find((d) => d.slug === value || expenseKey(d.name) === key) || null;
 }
 
 // Saqlangan (default bo'lmagan) kategoriyalar.
@@ -107,7 +120,7 @@ export async function ensureExpenseCategory(rawName, { source = 'bot', notify = 
     return { value: OTHER_EXPENSE_CATEGORY, created: false };
   }
 
-  // Asosiy 3 ta — doim mavjud, DB'da eski slug bilan yoziladi.
+  // Asosiy toifalar doim mavjud, DB'da eski/tizim slug bilan yoziladi.
   const def = defaultExpenseBySlugOrKey(name);
   if (def) return { value: def.slug, created: false };
 
@@ -123,7 +136,35 @@ export async function ensureExpenseCategory(rawName, { source = 'bot', notify = 
   return { value: category.name, created: true };
 }
 
-// Barcha tanilgan xarajat kategoriyalari: 3 asosiy + saqlangan + tranzaksiyalarda uchragan
+// Kirim kategoriyasini kafolatlaydi. Xizmat/material/buyum/qarz va boshqa_kirim tizim
+// qiymatlari yaratilmaydi; aniq yangi daromad nomlari esa IncomeCategory'ga yoziladi.
+export async function ensureIncomeCategory(rawName, { source = 'bot', notify = true } = {}) {
+  const name = String(rawName || '').replace(/[`вЂвЂ™К»Кј]/g, "'").replace(/\s+/g, ' ').trim();
+  if (!name) return { value: null, created: false };
+
+  if (expenseKey(name) === expenseKey(OTHER_INCOME_CATEGORY) || name === OTHER_INCOME_CATEGORY) {
+    return { value: OTHER_INCOME_CATEGORY, created: false };
+  }
+  if (expenseKey(name) === 'qarz' || name === 'qarz') {
+    return { value: 'qarz', created: false };
+  }
+
+  const def = defaultIncomeBySlugOrKey(name);
+  if (def) return { value: def.slug, created: false };
+
+  const key = expenseKey(name);
+  const existing = await IncomeCategory.findOne({ ...notDeleted, normalizedName: key });
+  if (existing) return { value: existing.name, created: false };
+
+  const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+  const category = await IncomeCategory.create({ name: displayName, normalizedName: key, source });
+  if (notify) {
+    await notifyOwner(`рџ†• Yangi kirim kategoriyasi yaratildi: "${displayName}"\nрџ“… ${formatDateTime(new Date())} вњ…`);
+  }
+  return { value: category.name, created: true };
+}
+
+// Barcha tanilgan xarajat kategoriyalari: asosiy + saqlangan + tranzaksiyalarda uchragan
 // (dublikatsiz). Har biri { value (DB qiymati), name (ko'rsatiladigan nom) }.
 export async function listKnownExpenseCategories() {
   const [stored, used] = await Promise.all([
@@ -152,16 +193,57 @@ export async function listKnownExpenseCategories() {
   return out;
 }
 
+// Barcha tanilgan erkin kirim kategoriyalari: saqlangan + tranzaksiyalarda uchragan dinamik
+// nomlar. Xizmat/material/buyum alohida maxsus bo'limlarda yurgani uchun bu ro'yxatga kirmaydi.
+export async function listKnownIncomeCategories() {
+  const system = SYSTEM_INCOME_CATEGORIES.map((c) => c.slug);
+  const [stored, used] = await Promise.all([
+    IncomeCategory.find(notDeleted).sort({ createdAt: 1 }).lean(),
+    Transaction.distinct('category', {
+      ...notDeleted,
+      type: TX_TYPES.INCOME,
+      category: { $nin: [null, '', OTHER_INCOME_CATEGORY, 'qarz', ...system] },
+    }),
+  ]);
+  const seen = new Set();
+  const out = [];
+  const add = (value, name) => {
+    const key = expenseKey(name);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push({ value, name });
+  };
+  stored.forEach((c) => add(c.name, c.name));
+  used.forEach((c) => {
+    const def = defaultIncomeBySlugOrKey(c);
+    if (def) add(def.slug, def.name);
+    else add(c, c);
+  });
+  return out;
+}
+
 // Mini App "Kategoriyalar" ro'yxati: har bir material kategoriyasi (statistikasi bilan) +
 // "Kerakli buyumlar" bo'limi (dona buyumlar soni) + XARAJAT kategoriyalari (statistikasi
 // bilan) + "Boshqa kirim-chiqimlar" bo'limi (toifasiz kirim va chiqimlar).
 export async function getCategoryOverview() {
-  const [names, stats, itemAgg, expenseCats, expenseAgg, otherAgg] = await Promise.all([
+  const incomeSystem = SYSTEM_INCOME_CATEGORIES.map((c) => c.slug);
+  const [names, stats, itemAgg, incomeCats, incomeAgg, expenseCats, expenseAgg, otherAgg] = await Promise.all([
     listKnownMaterialNames(),
     getMaterialStats('all'),
     UsefulItem.aggregate([
       { $match: notDeleted },
       { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]),
+    listKnownIncomeCategories(),
+    Transaction.aggregate([
+      {
+        $match: {
+          ...notDeleted,
+          type: TX_TYPES.INCOME,
+          category: { $nin: [null, '', OTHER_INCOME_CATEGORY, 'qarz', ...incomeSystem] },
+        },
+      },
+      { $group: { _id: '$category', count: { $sum: 1 }, total: { $sum: '$amount' } } },
     ]),
     listKnownExpenseCategories(),
     Transaction.aggregate([
@@ -221,6 +303,17 @@ export async function getCategoryOverview() {
     return { name: c.name, value: c.value, kind: 'expense', count: s.count, total: s.total };
   });
 
+  const incStatByKey = new Map();
+  for (const row of incomeAgg) {
+    const key = expenseKey(row._id);
+    const prev = incStatByKey.get(key) || { count: 0, total: 0 };
+    incStatByKey.set(key, { count: prev.count + row.count, total: prev.total + row.total });
+  }
+  const incomes = incomeCats.map((c) => {
+    const s = incStatByKey.get(expenseKey(c.name)) || { count: 0, total: 0 };
+    return { name: c.name, value: c.value, kind: 'income', count: s.count, total: s.total };
+  });
+
   // "Boshqa kirim-chiqimlar": toifasiz kirim + chiqim yig'indisi.
   const otherByType = Object.fromEntries(otherAgg.map((r) => [r._id, r]));
   const other = {
@@ -230,7 +323,7 @@ export async function getCategoryOverview() {
     totalExpense: otherByType.expense?.total || 0,
   };
 
-  return { materials, items, expenses, other };
+  return { materials, items, incomes, expenses, other };
 }
 
 // Tranzaksiyani Mini App kategoriya yozuviga aylantiradi (ovoz + asl matn bilan).
@@ -263,6 +356,29 @@ export async function getExpenseCategoryRecords(name) {
   const records = txs
     .filter((tx) => {
       const txDef = defaultExpenseBySlugOrKey(tx.category);
+      if (def) return txDef && txDef.slug === def.slug;
+      return !txDef && expenseKey(tx.category) === key;
+    })
+    .map(toCategoryRecord);
+  return { name: def ? def.name : name, records };
+}
+
+// Bitta KIRIM kategoriyasining yozuvlari. Xizmat/material/buyum tizim manbalari boshqa
+// maxsus bo'limlarda yurgani uchun odatda bu route erkin daromad toifalari uchun ishlatiladi.
+export async function getIncomeCategoryRecords(name) {
+  const key = expenseKey(name);
+  if (!key) return { name, records: [] };
+  const def = defaultIncomeBySlugOrKey(name);
+  const txs = await Transaction.find({
+    ...notDeleted,
+    type: TX_TYPES.INCOME,
+    category: { $nin: [null, ''] },
+  })
+    .sort({ date: -1 })
+    .lean();
+  const records = txs
+    .filter((tx) => {
+      const txDef = defaultIncomeBySlugOrKey(tx.category);
       if (def) return txDef && txDef.slug === def.slug;
       return !txDef && expenseKey(tx.category) === key;
     })
@@ -313,10 +429,13 @@ export default {
   listKnownMaterialNames,
   ensureMaterialCategory,
   createMaterialCategory,
+  ensureIncomeCategory,
+  listKnownIncomeCategories,
   ensureExpenseCategory,
   listKnownExpenseCategories,
   getCategoryOverview,
   getMaterialCategoryRecords,
+  getIncomeCategoryRecords,
   getExpenseCategoryRecords,
   getOtherCategoryRecords,
 };

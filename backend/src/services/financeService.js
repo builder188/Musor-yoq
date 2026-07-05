@@ -2,8 +2,8 @@ import Transaction, { TX_TYPES, MATERIAL_CATEGORY, USEFUL_ITEM_CATEGORY } from '
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import { periodRange } from '../utils/dates.js';
 import { resolveMaterialName, buildMaterialDescription } from './materialService.js';
-import { ensureMaterialCategory, ensureExpenseCategory } from './categoryService.js';
-import { normalizeExpenseCategory } from '../bot/flow.js';
+import { ensureMaterialCategory, ensureExpenseCategory, ensureIncomeCategory } from './categoryService.js';
+import { normalizeExpenseCategory, normalizeIncomeCategory } from '../bot/flow.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 // Toifa AYTILMAGANDA izohdan taxmin qilish uchun zaxira kalit so'zlar. MUHIM: \b bilan —
@@ -12,7 +12,10 @@ const CATEGORY_KEYWORDS = {
   yoqilgi: [/\bbenzin/, /\bdizel/, /\bgaz\b/, /\byoqilg/, /\byakit/, /\bsalyarka/, /\bzapravka/],
   tamirlash: [/\btamir/, /\bta'mir/, /\bshina/, /\bmoy\b/, /\behtiyot/, /\bzapchast/, /\bremont/],
   'oziq-ovqat': [/\bovqat/, /\bnon\b/, /\btushlik/, /\bchoy\b/, /\bkafe/, /\bsomsa/, /\boziq/],
+  svalka: [/\bsvalka/, /\bsvarka/, /\bpoligon/],
 };
+
+const GENERIC_EXPENSE_WORDS = new Set(['pul', 'narsa', 'nimadir', 'kerakli narsa', 'xarajat', 'chiqim']);
 
 function badRequest(message) {
   const error = new Error(message);
@@ -38,7 +41,26 @@ function detectExpenseCategory(text = '') {
   for (const [category, patterns] of Object.entries(CATEGORY_KEYWORDS)) {
     if (patterns.some((re) => re.test(value))) return category;
   }
+  const spoken = extractSpokenExpenseCategory(value);
+  if (spoken) return spoken;
   return 'boshqa_chiqim';
+}
+
+function extractSpokenExpenseCategory(text = '') {
+  const value = String(text || '')
+    .replace(/[0-9.,]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!value || value.length > 60) return null;
+
+  const caseMatch = value.match(/\b([\p{L}'`’ʻʼ-]{3,}?)(?:ga|qa|ka)\b/iu);
+  if (caseMatch) return normalizeExpenseCategory(caseMatch[1]);
+
+  const beforeVerb = value.match(/^(.{2,40}?)\s+(?:oldim|berdim|ketdi|ishlatdim|sarfladim|to'?ladim|tuladim|qildim)\b/i);
+  const candidate = beforeVerb ? beforeVerb[1].trim() : value.length <= 24 ? value : null;
+  const normalized = normalizeExpenseCategory(candidate);
+  if (!normalized || GENERIC_EXPENSE_WORDS.has(String(normalized).toLowerCase())) return null;
+  return normalized;
 }
 
 // Toifani DB qiymatiga keltiradi. Kirim: tanilgan manbalar yoki 'boshqa_kirim'.
@@ -50,7 +72,8 @@ function normalizeCategory(type, category) {
     if (value === MATERIAL_CATEGORY) return MATERIAL_CATEGORY;
     if (value === USEFUL_ITEM_CATEGORY) return USEFUL_ITEM_CATEGORY;
     if (value === 'qarz') return 'qarz';
-    return value === 'xizmat' ? 'xizmat' : 'boshqa_kirim';
+    if (value === 'xizmat') return 'xizmat';
+    return normalizeIncomeCategory(category) || 'boshqa_kirim';
   }
   if (String(category || '').trim().toLowerCase() === 'qarz') return 'qarz';
   return normalizeExpenseCategory(category) || 'boshqa_chiqim';
@@ -186,6 +209,10 @@ export async function createTransaction(data) {
     const ensured = await ensureExpenseCategory(category, { source: 'bot', notify: true });
     if (ensured.value) category = ensured.value;
   }
+  if (type === TX_TYPES.INCOME && category && category !== 'qarz') {
+    const ensured = await ensureIncomeCategory(category, { source: 'bot', notify: true });
+    if (ensured.value) category = ensured.value;
+  }
 
   const tx = {
     type,
@@ -283,6 +310,10 @@ export async function updateTransaction(id, data) {
     // Dinamik xarajat toifasi tahrirda ham kafolatlanadi (yangi bo'lsa yaratiladi).
     if (current.type === TX_TYPES.EXPENSE && category && category !== 'qarz') {
       const ensured = await ensureExpenseCategory(category, { source: 'bot', notify: true });
+      if (ensured.value) category = ensured.value;
+    }
+    if (current.type === TX_TYPES.INCOME && category && category !== 'qarz') {
+      const ensured = await ensureIncomeCategory(category, { source: 'bot', notify: true });
       if (ensured.value) category = ensured.value;
     }
     allowed.category = category;
