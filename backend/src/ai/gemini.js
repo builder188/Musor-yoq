@@ -96,6 +96,38 @@ const classifyTool = {
               },
               description: { type: SchemaType.STRING },
               date: { type: SchemaType.STRING },
+              entries: {
+                type: SchemaType.ARRAY,
+                description:
+                  'MULTI-ENTRY: when ONE message states TWO OR MORE separate records (any mix of expenses, incomes, services/jobs, material sales, item sales/giveaways — e.g. "ovqatga 60 ming, benzinga 100 ming" or "Sardorga bordim 200 ming oldim, benzinga 50 ketdi"), list ALL of them here in spoken order, each with its own kind and fields. Also fill the flat fields with the FIRST entry. Do NOT use for a single record or for debts/client payments.',
+                items: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    kind: {
+                      type: SchemaType.STRING,
+                      enum: ['expense', 'income', 'service', 'material_sale', 'item_sale', 'item_giveaway'],
+                      description: 'expense = money out; income = plain money in; service = a trash-collection job/visit; material_sale = recyclable material sold by weight; item_sale = useful piece item sold; item_giveaway = item given away free.',
+                    },
+                    amount: { type: SchemaType.NUMBER, description: 'Money amount for this record (expense/income/material total/item sale total).' },
+                    category: { type: SchemaType.STRING, description: 'EXPENSE only: purpose as the owner named it, base form ("benzin", "oziq-ovqat", "svalka").' },
+                    description: { type: SchemaType.STRING, description: 'Short detail for this record.' },
+                    date: { type: SchemaType.STRING, description: 'ISO date if THIS record names its own day; omit otherwise.' },
+                    clientName: { type: SchemaType.STRING, description: 'SERVICE: client name, base form ("Sardorga bordim" -> "Sardor").' },
+                    clientPhone: { type: SchemaType.STRING, description: 'SERVICE: phone if said.' },
+                    location: { type: SchemaType.STRING, description: 'SERVICE: address if said.' },
+                    serviceDateTime: { type: SchemaType.STRING, description: 'SERVICE: ISO date/time of the visit (past for historical).' },
+                    price: { type: SchemaType.NUMBER, description: 'SERVICE: price/money received for the job.' },
+                    isHistorical: { type: SchemaType.BOOLEAN, description: 'SERVICE: true if already done ("bordim", "olib chiqdim").' },
+                    notes: { type: SchemaType.STRING },
+                    materialName: { type: SchemaType.STRING, description: 'MATERIAL_SALE: material name, base form.' },
+                    quantityKg: { type: SchemaType.NUMBER, description: 'MATERIAL_SALE: kg if stated.' },
+                    pricePerKg: { type: SchemaType.NUMBER, description: 'MATERIAL_SALE: per-kg price if stated.' },
+                    itemName: { type: SchemaType.STRING, description: 'ITEM_SALE/ITEM_GIVEAWAY: item name, base form.' },
+                    recipient: { type: SchemaType.STRING, description: 'ITEM_SALE/ITEM_GIVEAWAY: who received/bought it.' },
+                  },
+                  required: ['kind'],
+                },
+              },
               incomeSource: { type: SchemaType.STRING },
               materialName: { type: SchemaType.STRING, description: 'MATERIAL_SALE: the sold material, base form (e.g. "Paxta", "Mis", "chyorniy taxta").' },
               quantityKg: { type: SchemaType.NUMBER, description: 'MATERIAL_SALE: quantity in kilograms, if stated.' },
@@ -574,12 +606,62 @@ function resolveCurrency(clean = {}) {
   return undefined;
 }
 
+// MULTI-ENTRY: bitta xabardagi bir nechta ALOHIDA yozuv (kirim/chiqim/xizmat/material/
+// buyum aralash bo'lishi mumkin). Har bo'lak o'z turining odatiy normalizatsiyasidan
+// o'tadi (xuddi yakka kelgandek); identifikatsiyasi yo'q bo'laklar tashlanadi; 10 tagacha.
+export const MULTI_ENTRY_KIND_TO_INTENT = {
+  expense: 'EXPENSE_ENTRY',
+  income: 'INCOME_ENTRY',
+  service: 'SERVICE_ENTRY',
+  material_sale: 'MATERIAL_SALE',
+  item_sale: 'ITEM_SALE',
+  item_giveaway: 'ITEM_GIVEAWAY',
+};
+
+// Multi-entry qabul qilinadigan intentlar — shu turlarning istalgani birinchi bo'lak
+// bo'lib kelishi mumkin (Gemini subIntent'ni birinchi bo'lakdan tanlaydi).
+export const MULTI_ENTRY_INTENTS = new Set(Object.values(MULTI_ENTRY_KIND_TO_INTENT));
+
+function multiEntryHasIdentity(entry) {
+  switch (entry.kind) {
+    case 'service':
+      return Boolean(entry.clientName || entry.clientPhone);
+    case 'material_sale':
+      return Boolean(entry.materialName);
+    case 'item_sale':
+    case 'item_giveaway':
+      return Boolean(entry.itemName);
+    case 'income':
+      return Boolean(entry.amount || entry.description);
+    default: // expense
+      return Boolean(entry.amount || entry.description || entry.category);
+  }
+}
+
+function normalizeMultiEntries(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((e) => e && typeof e === 'object')
+    .map((e) => {
+      const kind = MULTI_ENTRY_KIND_TO_INTENT[e.kind] ? e.kind : 'expense';
+      const norm = normalizeExtractedFieldsByIntent(MULTI_ENTRY_KIND_TO_INTENT[kind], cleanObject(e));
+      return { kind, ...norm };
+    })
+    .filter(multiEntryHasIdentity)
+    .slice(0, 10);
+}
+
 export function normalizeExtractedFields(intent, fields = {}) {
   const clean = cleanObject(fields);
   // stopAsking — "boshqa so'rama" signali: intentdan qat'i nazar saqlanadi (agent
   // slot-filling'ni to'xtatib, bor ma'lumot bilan darhol saqlashi uchun).
   const out = normalizeExtractedFieldsByIntent(intent, clean);
   if (clean.stopAsking === true && out && typeof out === 'object') out.stopAsking = true;
+  // Bitta xabarda 2+ yozuv (multi-entry) — agent har birini alohida saqlaydi.
+  if (MULTI_ENTRY_INTENTS.has(intent)) {
+    const entries = normalizeMultiEntries(clean.entries);
+    if (entries.length >= 2 && out && typeof out === 'object') out.entries = entries;
+  }
   return out;
 }
 

@@ -3,7 +3,7 @@ import Conversation from '../../models/Conversation.js';
 import Client from '../../models/Client.js';
 import Service, { SERVICE_STATUS } from '../../models/Service.js';
 import { extractNotebookRecords, transcribeAudio, understandText } from '../../ai/gemini.js';
-import { runAgent, applyConfirmedEdit, editSavedEntry, cancelSavedEntry, classifyPostSaveMessage, confirmPendingUsefulItemMatch } from '../../ai/agent.js';
+import { runAgent, applyConfirmedEdit, editSavedEntry, cancelSavedEntry, classifyPostSaveMessage, confirmPendingUsefulItemMatch, handleMultiSavedText } from '../../ai/agent.js';
 import { editService, completeService, cancelService } from '../../services/serviceService.js';
 import { mergeFields, nextMissing, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
@@ -431,6 +431,18 @@ async function routeImageRecords(ctx, records, fileId) {
 //  - qiymatli gap ("narxi 200 ming") -> NLU orqali: saqlangan yozuv tahririmi yoki
 //    butunlay YANGI buyruqmi (yangi yozuv/savol) — shunga qarab yo'naltiriladi.
 async function routeSavedEntry(ctx, conv, text, priorHistory, sourceMeta = null) {
+  // Multi-entry to'plamida qisman bekor: "2-sini bekor qil" / "benzinni o'chir" —
+  // faqat o'sha yozuv o'chiriladi ("hammasini bekor qil" — barchasi). Tahrir rejimida
+  // ham ishlaydi (bekor fe'li bo'lmasa null qaytadi va odatiy routing davom etadi).
+  if (conv.collected?.savedIntent === 'MULTI_ENTRY') {
+    const multiRes = await handleMultiSavedText({ conversation: conv, text });
+    if (multiRes) {
+      await syncSessionFromConversation(ctx, conv);
+      await ctx.reply(multiRes.text, multiRes.keyboard ? { reply_markup: multiRes.keyboard } : undefined);
+      return;
+    }
+  }
+
   // Tahrir rejimida — keyingi gap to'g'ridan-to'g'ri maydon tuzatishdir.
   if (conv.awaitingField === 'editSaved') {
     return routeSavedEdit(ctx, conv, text, priorHistory);

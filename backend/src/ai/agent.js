@@ -22,7 +22,7 @@ import {
   HIGH_DEFAULT_SUB,
   CONFIDENCE_THRESHOLD,
 } from './intents.js';
-import { formulateToolResponse } from './gemini.js';
+import { formulateToolResponse, MULTI_ENTRY_KIND_TO_INTENT, MULTI_ENTRY_INTENTS } from './gemini.js';
 import {
   createService,
   completeService,
@@ -68,9 +68,11 @@ import {
   clientPickKeyboard,
   clarifyKeyboard,
   savedSummaryText,
+  multiSavedSummaryText,
   savedEntryKeyboard,
   reminderInfoLine,
 } from '../bot/ui.js';
+import { expenseKey } from '../services/categoryService.js';
 
 // Yetishmayotgan maydonni so'rash — paymentMethod uchun tugmalar bilan.
 // Hamkorlik shartnomasida maydonlar o'ziga xos savol bilan so'raladi ("standart narx").
@@ -236,6 +238,17 @@ const CLIENT_EDIT_FIELD = {
 };
 
 export async function runAgent({ understanding, rawText = '', conversation = null, mode = 'bot', sourceMeta = null }) {
+  // 0) MULTI-ENTRY: bitta xabarda 2+ kirim/chiqim ("ovqatga 60 ming, benzinga 100 ming") —
+  // slot-filling'siz HAR BIRINI alohida tranzaksiya qilib darhol saqlaymiz. Avval faqat
+  // birinchi yozuv saqlanardi (foydalanuvchi shikoyat qilgan bug). Yarim qolgan oqim
+  // bo'lsa ham bu aniq ustun buyruq — eski sessiya tashlanadi.
+  const multiEntries = resolveMultiEntries(understanding);
+  if (multiEntries) {
+    if (mode === 'query') return { text: "Buni bot orqali bajaramiz oka. Bu yer faqat qidiruv va tahlil uchun." };
+    if (conversation?.pendingIntent) await conversation.reset();
+    return handleMultiEntry({ conversation, entries: multiEntries, fields: understanding.fields || {}, rawText, mode, sourceMeta });
+  }
+
   // 1) Davom etayotgan slot-filling ustuvor — SUXBAT pivoti shu ichida hal bo'ladi.
   if (conversation?.pendingIntent && isEntryIntent(conversation.pendingIntent)) {
     return continueEntry({ conversation, understanding, rawText, mode });
@@ -476,6 +489,148 @@ function attachEntrySource(intent, fields, rawText, sourceMeta) {
     out.sourceType = 'text';
   }
   return out;
+}
+
+// ── MULTI-ENTRY: bitta xabarda bir nechta ALOHIDA yozuv ─────────────────────
+// Kirim/chiqim/xizmat/material/buyum ARALASH bo'lishi mumkin ("Sardorga bordim 200 oldim,
+// benzinga 50 ketdi"). Gemini fields.entries (normalizeMultiEntries dan o'tgan) 2+ bo'lak
+// bersa — multi rejim. Ishonch past bo'lsa odatiy CLARIFY oqimi ishlaydi.
+function resolveMultiEntries(understanding) {
+  if (!understanding || understanding.intent === 'CLARIFY') return null;
+  if ((understanding.confidence ?? 0) < CONFIDENCE_THRESHOLD) return null;
+  const action = resolveAction(understanding);
+  if (!MULTI_ENTRY_INTENTS.has(action)) return null;
+  const entries = understanding.fields?.entries;
+  if (!Array.isArray(entries) || entries.length < 2) return null;
+  return entries;
+}
+
+// Bo'lakni ko'rsatish/tahrir/bekor uchun yagona meta shaklga keltiradi.
+function buildMultiRecord({ kind, intent, ref, collected, result }) {
+  const rec = { kind, intent, ref, amount: 0, category: null, name: null, description: '', quantityKg: null };
+  if (intent === 'EXPENSE_ENTRY' || intent === 'INCOME_ENTRY') {
+    rec.amount = result?.amount ?? collected.amount ?? 0;
+    rec.category = intent === 'EXPENSE_ENTRY' ? result?.category || collected.category || null : null;
+    rec.description = result?.description || collected.description || '';
+  } else if (intent === 'SERVICE_ENTRY') {
+    rec.amount = result?.price ?? collected.price ?? 0;
+    rec.name = result?.clientName || collected.clientName || '';
+  } else if (intent === 'MATERIAL_SALE') {
+    rec.amount = result?.amount ?? collected.amount ?? 0;
+    rec.name = result?.materialName || collected.materialName || '';
+    rec.quantityKg = result?.quantityKg ?? collected.quantityKg ?? null;
+  } else if (intent === 'ITEM_SALE') {
+    rec.amount = result?.transaction?.amount ?? collected.amount ?? 0;
+    rec.name = result?.item?.name || collected.itemName || '';
+  } else if (intent === 'ITEM_GIVEAWAY') {
+    rec.name = result?.item?.name || collected.itemName || '';
+  }
+  return rec;
+}
+
+// Har bir bo'lakni XUDDI YAKKA kelgandek tayyorlab (sana korreksiyasi, ovoz-manba,
+// defaults, hamkor standartlari, valyuta), alohida yozuv qilib DARHOL saqlaydi. So'ng
+// bitta umumiy ro'yxat-xulosa + [Tahrirlash/Bekor/Ilova] tugmalari. Bekor — hammasini
+// (yoki "2-sini bekor qil" — bittasini); tahrir — raqami/nomi bilan bittasini.
+// Identifikatsiyasi yetmagan bo'lak boshqalarini TO'XTATMAYDI — saqlangach, birinchi
+// chala bo'lak uchun odatiy so'rash oqimi boshlanadi.
+async function handleMultiEntry({ conversation, entries, fields, rawText, mode, sourceMeta }) {
+  // Dollar signali xabar darajasida — avval BARCHA bo'laklar tayyorlanadi (kurs yo'q
+  // bo'lsa hech narsa saqlanmay so'mda so'raladi), keyin saqlash bosqichi boshlanadi.
+  const usd = signalsUsd(fields, rawText);
+  if (usd && !(await getUsdToUzsRate())) {
+    return { text: "Hozir dollar kursini ololmadim oka 😕\nSummalarni so'mda yozib yuboring." };
+  }
+
+  // 1-bosqich: tayyorlash (hech narsa saqlanmaydi).
+  const prepared = [];
+  const incomplete = [];
+  for (const entry of entries) {
+    const intent = MULTI_ENTRY_KIND_TO_INTENT[entry.kind] || 'EXPENSE_ENTRY';
+    const { kind, ...entryFields } = entry;
+    let collected = applyDateTimeCorrection(intent, entryFields, rawText);
+    collected = attachEntrySource(intent, mergeFields({}, collected), rawText, sourceMeta);
+    collected = applyEntryDefaults(intent, collected);
+    collected = await applyPartnerVisitDefaults(intent, collected);
+    if (usd) {
+      collected.currency = 'USD';
+      const conv = await applyCurrencyConversion(intent, collected);
+      if (conv.needSom) {
+        return { text: "Hozir dollar kursini ololmadim oka 😕\nSummalarni so'mda yozib yuboring." };
+      }
+      collected = conv.collected;
+    }
+    if (!hasMinimumIdentity(intent, collected)) {
+      incomplete.push({ intent, collected, kind });
+      continue;
+    }
+    prepared.push({ intent, collected, kind });
+  }
+
+  // 2-bosqich: saqlash — har bo'lak mavjud deterministik quvur orqali (yakka oqim bilan bir xil).
+  const saved = [];
+  const failed = [];
+  for (const item of prepared) {
+    const res = await executeToolFlow({ intent: item.intent, fields: item.collected, rawText, mode, conversation: null });
+    if (res?.error) {
+      failed.push({ intent: item.intent, message: res.text || 'saqlash xatosi' });
+      continue;
+    }
+    if (res?.result?.needsConfirmation) {
+      // Buyum nomi noaniq (bir nechta nomzod) — multi ichida tanlov oqimini ochmaymiz.
+      failed.push({ intent: item.intent, message: `"${item.collected.itemName || 'buyum'}" nomi noaniq — uni alohida kiritib yuboring` });
+      continue;
+    }
+    const ref = savedRefFromResult(item.intent, res?.result);
+    saved.push(buildMultiRecord({ kind: item.kind, intent: item.intent, ref, collected: item.collected, result: res?.result }));
+  }
+
+  if (!saved.length && !incomplete.length) {
+    if (conversation) await conversation.reset();
+    return {
+      text: failed.length
+        ? `Voy oka, yozuvlarni saqlay olmadim: ${failed.map((f) => f.message).join('; ')}`
+        : "Voy oka, yozuvlarni saqlay olmadim. Qaytadan urinib ko'ring.",
+      error: true,
+    };
+  }
+
+  let summary = saved.length ? multiSavedSummaryText(saved) : '';
+  if (failed.length) {
+    summary += `${summary ? '\n' : ''}⚠️ ${failed.length} ta yozuv saqlanmadi: ${failed.map((f) => f.message).join('; ')}`;
+  }
+
+  // Chala bo'lak — birinchi bo'lak uchun odatiy slot-filling boshlanadi (saqlanganlar
+  // allaqachon bazada; savol faqat chala bo'lakka tegishli).
+  if (incomplete.length && conversation && mode === 'bot') {
+    const first = incomplete[0];
+    const ask = await startEntry({ conversation, intent: first.intent, fields: first.collected, rawText, mode, sourceMeta });
+    const moreNote = incomplete.length > 1
+      ? `❕ Yana ${incomplete.length - 1} ta bo'lak uchun ham ma'lumot yetarli emas — ularni alohida ayting.\n`
+      : '';
+    const text = `${summary ? `${summary}\n\n` : ''}${moreNote}${ask.text}`;
+    return ask.keyboard ? { text, keyboard: ask.keyboard } : { text };
+  }
+  if (incomplete.length) {
+    summary += `\n❕ ${incomplete.length} ta bo'lak uchun ma'lumot yetarli emas — ularni alohida kiritib yuboring.`;
+  }
+
+  // Post-save holati: Bekor — hammasi/bittasi; Tahrirlash — raqami/nomi bilan bittasi.
+  if (conversation && mode === 'bot' && saved.length) {
+    conversation.pendingIntent = 'ENTRY_SAVED';
+    conversation.collected = {
+      savedIntent: 'MULTI_ENTRY',
+      saved: { type: 'multi', refs: saved.map((s) => s.ref).filter(Boolean) },
+      entries: saved,
+      rawText,
+    };
+    conversation.awaitingField = 'postSave';
+    conversation.markModified('collected');
+    await conversation.save();
+    return { text: summary, keyboard: savedEntryKeyboard('EXPENSE_ENTRY'), tool: 'multi_entry', result: saved };
+  }
+
+  return { text: summary, tool: 'multi_entry', result: saved };
 }
 
 // SERVICE_ENTRY vaqtini to'g'rilaydi: model serviceDateTime ni UTC sifatida (xato mintaqada)
@@ -923,6 +1078,11 @@ export async function editSavedEntry({ conversation, understanding, rawText = ''
   if (!conversation || conversation.pendingIntent !== 'ENTRY_SAVED' || !intent || !saved) {
     throw new Error("Tahrirlanadigan yozuv topilmadi");
   }
+  // Multi-entry (bitta xabarda bir nechta kirim/chiqim) — yozuv raqami/toifasi bo'yicha
+  // ANIQ bittasi tahrirlanadi.
+  if (intent === 'MULTI_ENTRY') {
+    return editMultiSavedEntry({ conversation, understanding, rawText });
+  }
   let updated = applyDateTimeCorrection(intent, buildEditedFields(intent, pending.fields || {}, understanding), rawText);
 
   // Summa tahrirlangan bo'lsa — valyutani shu tahrirdan qayta baholaymiz va eski
@@ -957,6 +1117,201 @@ export async function editSavedEntry({ conversation, understanding, rawText = ''
     stopped: false,
     edited: true,
   });
+}
+
+// ── Multi-entry tahriri / qisman bekor ───────────────────────────────────────
+// Qaysi yozuv nazarda tutilganini topadi: (1) tartib raqami ("2-sini", "2-yozuvni",
+// "ikkinchisini"), (2) toifa nomi ("benzinni ..."), (3) nom (mijoz/material/buyum),
+// (4) izoh so'zi. Aniq BITTA moslik bo'lsagina qaytaradi.
+const WORD_ORDINALS = {
+  birinchi: 1, ikkinchi: 2, uchinchi: 3, tortinchi: 4, beshinchi: 5,
+  oltinchi: 6, yettinchi: 7, sakkizinchi: 8, toqqizinchi: 9, oninchi: 10,
+};
+
+export function findMultiEntryTarget(records, understanding, rawText) {
+  const text = String(rawText || '').toLowerCase().replace(/[`‘’ʻʼ]/g, "'");
+  const plain = text.replace(/'/g, '');
+
+  // 1) Tartib raqami: "2-sini", "2-yozuvni", "2 chi", "ikkinchisini".
+  let idx = null;
+  const hyph = text.match(/\b(\d{1,2})\s*[-–]\s*(?:si\w*|chi\w*|inchi\w*|nchi\w*|yozuv\w*)?/);
+  if (hyph) idx = Number(hyph[1]) - 1;
+  if (idx === null) {
+    const spaced = text.match(/\b(\d{1,2})\s+(?:si\w*|chi\w*|yozuv\w*)/);
+    if (spaced) idx = Number(spaced[1]) - 1;
+  }
+  if (idx === null) {
+    for (const [word, n] of Object.entries(WORD_ORDINALS)) {
+      if (plain.includes(word)) {
+        idx = n - 1;
+        break;
+      }
+    }
+  }
+  if (idx !== null) {
+    // Raqam aniq aytilgan — ro'yxatdan tashqarida bo'lsa taxmin qilmaymiz (ro'yxat qayta so'raladi).
+    return records[idx] ? { index: idx, record: records[idx] } : null;
+  }
+
+  // 2) Toifa nomi (chiqim yozuvlari).
+  const uCat = understanding?.fields?.category;
+  const byCategory = [];
+  records.forEach((r, i) => {
+    const key = expenseKey(r.category || '');
+    if (!key) return;
+    if ((uCat && expenseKey(uCat) === key) || (key.length >= 3 && plain.includes(key))) {
+      byCategory.push(i);
+    }
+  });
+  if (byCategory.length === 1) return { index: byCategory[0], record: records[byCategory[0]] };
+
+  // 3) Nom: mijoz / material / buyum ("Sardornikini ...", "televizorni ...").
+  const uName = understanding?.fields?.itemName || understanding?.fields?.materialName
+    || understanding?.fields?.clientName || understanding?.fields?.targetClientName || null;
+  const byName = [];
+  records.forEach((r, i) => {
+    const key = String(r.name || '').toLowerCase().replace(/[`‘’ʻʼ']/g, '');
+    if (!key || key.length < 3) return;
+    const uKey = String(uName || '').toLowerCase().replace(/[`‘’ʻʼ']/g, '');
+    if ((uKey && (uKey.includes(key) || key.includes(uKey))) || plain.includes(key)) byName.push(i);
+  });
+  if (byName.length === 1) return { index: byName[0], record: records[byName[0]] };
+
+  // 4) Izoh so'zi.
+  const byDescription = [];
+  records.forEach((r, i) => {
+    const words = String(r.description || '').toLowerCase().split(/\s+/).filter((w) => w.length >= 4);
+    if (words.some((w) => text.includes(w))) byDescription.push(i);
+  });
+  if (byDescription.length === 1) return { index: byDescription[0], record: records[byDescription[0]] };
+
+  return null;
+}
+
+// Bo'lak turiga mos emoji + qisqa nom (tanlov ro'yxati uchun).
+function multiEntryPickList(records) {
+  return records
+    .map((r, i) => {
+      const emoji = r.kind === 'income' ? '💰' : r.kind === 'service' ? '👤' : r.kind === 'material_sale' ? '♻️' : r.kind === 'item_sale' || r.kind === 'item_giveaway' ? '📦' : '💸';
+      const label = r.name || (r.kind === 'income' ? 'Kirim' : CATEGORY_LABEL[r.category] || r.category || 'Boshqa');
+      return `${i + 1}) ${emoji} ${formatMoney(r.amount || 0)} | ${label}`;
+    })
+    .join('\n');
+}
+
+// Multi-entry post-save tahriri: ko'rsatilgan yozuv ustida summa/toifa/izoh yangilanadi
+// (yozuv turi bo'yicha to'g'ri service funksiyasi orqali — applySavedEntryUpdate), so'ng
+// yangilangan umumiy xulosa qaytadi. Yozuv aniqlanmasa — raqamli ro'yxat bilan so'raydi.
+async function editMultiSavedEntry({ conversation, understanding, rawText }) {
+  const pending = conversation.collected || {};
+  const records = Array.isArray(pending.entries) ? pending.entries : [];
+  if (!records.length) throw new Error('Tahrirlanadigan yozuvlar topilmadi');
+
+  const target = findMultiEntryTarget(records, understanding, rawText);
+  if (!target) {
+    return {
+      text: `Oka, qaysi yozuvni o'zgartirishni aniq ayting (raqami yoki nomi bilan):\n${multiEntryPickList(records)}\nMasalan: "2-sini 120 ming qil" yoki "benzinni 120 ming qil".`,
+      keyboard: savedEntryKeyboard('EXPENSE_ENTRY'),
+    };
+  }
+  const rec = target.record;
+  if (!rec.ref) {
+    return { text: "Bu yozuvni bu yerda tahrirlab bo'lmaydi oka — Mini App orqali o'zgartiring." };
+  }
+
+  const u = understanding?.fields || {};
+  let newAmount = [u.amount, u.price, u.paymentAmount].find((v) => typeof v === 'number' && v > 0) || null;
+  if (!newAmount) {
+    // "2-sini 120 ming qil" — model summani newValue'ga qo'yishi ham mumkin.
+    const m = parseMoney(u.newValue);
+    if (m > 0) newAmount = m;
+  }
+  if (newAmount && signalsUsd(u, rawText)) {
+    const rate = await getUsdToUzsRate();
+    if (!rate) return { text: "Hozir dollar kursini ololmadim oka 😕 Summani so'mda ayting." };
+    newAmount = convertUsdToUzs(newAmount, rate);
+  }
+
+  const moneyKey = moneyFieldForIntent(rec.intent);
+  const data = {};
+  if (newAmount > 0 && newAmount !== rec.amount) data[moneyKey] = newAmount;
+  // Toifa faqat MAQSADLI yozuvdan farq qilsa yangilanadi (toifa nomi ko'pincha yozuvni
+  // TOPISH uchun aytiladi — uni o'zgartirish deb tushunmaymiz).
+  if (rec.intent === 'EXPENSE_ENTRY' && u.category && expenseKey(u.category) !== expenseKey(rec.category || '')) {
+    data.category = u.category;
+  }
+  if (u.description && u.description !== rec.description) data.description = u.description;
+  if (rec.intent === 'MATERIAL_SALE') {
+    if (typeof u.quantityKg === 'number' && u.quantityKg > 0) data.quantityKg = u.quantityKg;
+    if (typeof u.pricePerKg === 'number' && u.pricePerKg > 0) data.pricePerKg = u.pricePerKg;
+  }
+
+  if (!Object.keys(data).length) {
+    return {
+      text: `${target.index + 1}-yozuvda nimani o'zgartirishni tushunmadim oka. Masalan: "${target.index + 1}-sini 120 ming qil".`,
+      keyboard: savedEntryKeyboard('EXPENSE_ENTRY'),
+    };
+  }
+
+  await applySavedEntryUpdate(rec.intent, rec.ref, data, {});
+  records[target.index] = {
+    ...rec,
+    amount: data[moneyKey] ?? rec.amount,
+    category: data.category ? normalizeExpenseCategory(data.category) : rec.category,
+    description: data.description ?? rec.description,
+    quantityKg: data.quantityKg ?? rec.quantityKg,
+  };
+  conversation.collected = { ...pending, entries: records };
+  conversation.awaitingField = 'postSave';
+  conversation.markModified('collected');
+  await conversation.save();
+
+  return {
+    text: `Bo'ldi oka, ${target.index + 1}-yozuvni yangiladim ✅\n\n${multiSavedSummaryText(records)}`,
+    keyboard: savedEntryKeyboard('EXPENSE_ENTRY'),
+  };
+}
+
+// Multi-entry post-save matni: "2-sini bekor qil" / "benzinni o'chir" / "hammasini bekor" —
+// bekor fe'li bo'lsa mos yozuv(lar) o'chiriladi. Bekor fe'li bo'lmasa null (odatiy routing).
+const MULTI_CANCEL_VERB_RE = /(bekor|o'?chir|olib\s+tashla|отмен|удал)/i;
+const MULTI_CANCEL_ALL_RE = /(hammasi|barchasi|\bhamma\b|всё|все)/i;
+
+export async function handleMultiSavedText({ conversation, text }) {
+  const pending = conversation?.collected || {};
+  if (conversation?.pendingIntent !== 'ENTRY_SAVED' || pending.savedIntent !== 'MULTI_ENTRY') return null;
+  const raw = String(text || '');
+  if (!MULTI_CANCEL_VERB_RE.test(raw)) return null;
+
+  const records = Array.isArray(pending.entries) ? pending.entries : [];
+  if (MULTI_CANCEL_ALL_RE.test(raw) || !records.length) {
+    return cancelSavedEntry({ conversation });
+  }
+  const target = findMultiEntryTarget(records, null, raw);
+  if (!target) {
+    return {
+      text: `Qaysi birini bekor qilay oka?\n${multiEntryPickList(records)}\n"2-sini bekor qil" yoki "hammasini bekor qil" deng.`,
+      keyboard: savedEntryKeyboard('EXPENSE_ENTRY'),
+    };
+  }
+  if (target.record.ref) await undoSavedEntry(target.record.ref);
+  records.splice(target.index, 1);
+  if (!records.length) {
+    await conversation.reset();
+    return { text: "Bo'ldi oka, yozuvlarni o'chirdim ✅" };
+  }
+  conversation.collected = {
+    ...pending,
+    entries: records,
+    saved: { type: 'multi', refs: records.map((r) => r.ref).filter(Boolean) },
+  };
+  conversation.awaitingField = 'postSave';
+  conversation.markModified('collected');
+  await conversation.save();
+  return {
+    text: `Bo'ldi oka, o'chirdim ✅\n\n${multiSavedSummaryText(records)}`,
+    keyboard: savedEntryKeyboard('EXPENSE_ENTRY'),
+  };
 }
 
 // Tahrirlangan maydonlarni saqlangan yozuvga o'tkazadi. Faqat QIYMATI BOR maydonlar
@@ -1058,7 +1413,11 @@ export async function cancelSavedEntry({ conversation }) {
   }
   await undoSavedEntry(saved);
   await conversation.reset();
-  return { text: "Bo'ldi oka, yozuvni o'chirdim — hech narsa saqlanmadi ✅" };
+  return {
+    text: saved.type === 'multi'
+      ? "Bo'ldi oka, hammasini o'chirdim — hech narsa saqlanmadi ✅"
+      : "Bo'ldi oka, yozuvni o'chirdim — hech narsa saqlanmadi ✅",
+  };
 }
 
 async function undoSavedEntry(saved) {
@@ -1072,6 +1431,17 @@ async function undoSavedEntry(saved) {
       return;
     case 'transaction':
       await softDeleteTransaction(saved.transactionId);
+      return;
+    case 'multi':
+      // Bitta xabarda saqlangan BARCHA yozuvlar bekor qilinadi — har bir ref o'z turi
+      // bo'yicha (xizmat kaskadi, tranzaksiya, buyum sotuvi revert...) qaytariladi.
+      for (const ref of saved.refs || []) {
+        try {
+          await undoSavedEntry(ref);
+        } catch {
+          /* allaqachon o'chirilgan bo'lishi mumkin — qolganlarini davom ettiramiz */
+        }
+      }
       return;
     case 'item':
       await softDeleteUsefulItem(saved.itemId);
@@ -1115,6 +1485,10 @@ export function classifyPostSaveMessage(understanding, savedIntent, rawText = ''
   const action = resolveAction(understanding);
   const conf = understanding?.confidence ?? 0;
   const fields = understanding?.fields || {};
+  // Multi-entry saqlangan bo'lsa, "shu intent" testi multi qamrovidagi barcha turlarga tegishli.
+  const sameIntent = savedIntent === 'MULTI_ENTRY'
+    ? MULTI_ENTRY_INTENTS.has(action)
+    : action === savedIntent;
   if (PIVOT_SUBS.has(action) && conf >= CONFIDENCE_THRESHOLD) return 'new';
   // Shartnoma saqlangach darhol "X ga bordim/boraman" deyilishi tabiiy — bu tahrir emas,
   // YANGI tashrif (hasConcreteSignal talab qiladigan narx/sana/tel bu iborada bo'lmaydi).
@@ -1129,14 +1503,14 @@ export function classifyPostSaveMessage(understanding, savedIntent, rawText = ''
   if (action === 'SERVICE_EDIT' || action === 'CLIENT_EDIT') return 'edit';
   if (
     WRITE_ACTIONS.has(action) &&
-    action !== savedIntent &&
+    !sameIntent &&
     conf >= CONFIDENCE_THRESHOLD &&
     hasConcreteSignal(action, fields)
   ) {
     return 'new';
   }
   if (
-    action === savedIntent &&
+    sameIntent &&
     conf >= CONFIDENCE_THRESHOLD &&
     !fields.editField &&
     !CORRECTION_RE.test(String(rawText || '')) &&

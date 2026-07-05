@@ -122,6 +122,46 @@ function entryCategoryLabel(category) {
   return ENTRY_CATEGORY_LABEL[category] || category || 'Boshqa';
 }
 
+// MULTI-ENTRY xulosasi: bitta xabarda aytilgan bir nechta yozuv (kirim/chiqim/xizmat/
+// material/buyum aralash bo'lishi mumkin) — har biri ALOHIDA saqlangani raqamli ro'yxat
+// + jami bilan ko'rsatiladi.
+const KEYCAP_NUMBERS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+
+function multiRecordLine(r) {
+  const sum = typeof r.amount === 'number' && r.amount > 0 ? formatMoney(r.amount) : 'Summa aytilmagan';
+  switch (r.kind) {
+    case 'income':
+      return `💰 ${sum} | Kirim${r.description ? ` — ${r.description}` : ''}`;
+    case 'service':
+      return `👤 Xizmat: ${r.name || '-'} — ${sum}`;
+    case 'material_sale':
+      return `♻️ ${r.quantityKg > 0 ? `${formatKg(r.quantityKg)} kg ` : ''}${r.name || 'Material'} — ${sum}`;
+    case 'item_sale':
+      return `📦 ${r.name || 'Buyum'} sotildi — ${sum}`;
+    case 'item_giveaway':
+      return `📦 ${r.name || 'Buyum'} tekinga berildi`;
+    default: // expense
+      return `💸 ${sum} | ${entryCategoryLabel(r.category)}${r.description ? ` — ${r.description}` : ''}`;
+  }
+}
+
+export function multiSavedSummaryText(records = []) {
+  const lines = [`Bo'ldi oka, hammasini yozdim ✅ (${records.length} ta yozuv)`];
+  records.forEach((r, i) => {
+    lines.push(`${KEYCAP_NUMBERS[i] || `${i + 1})`} ${multiRecordLine(r)}`);
+  });
+  // Xizmat puli xulosa jamiga kirmaydi (kelajak xizmat hali olinmagan bo'lishi mumkin;
+  // tarixiy xizmat daromadi balansga o'z oqimida allaqachon yozilgan).
+  const incomeTotal = records
+    .filter((r) => r.kind === 'income' || r.kind === 'material_sale' || r.kind === 'item_sale')
+    .reduce((s, r) => s + (r.amount || 0), 0);
+  const expenseTotal = records.filter((r) => r.kind === 'expense').reduce((s, r) => s + (r.amount || 0), 0);
+  if (incomeTotal > 0) lines.push(`💰 Jami kirim: ${formatMoney(incomeTotal)}`);
+  if (expenseTotal > 0) lines.push(`💸 Jami chiqim: ${formatMoney(expenseTotal)}`);
+  lines.push("Bittasini o'zgartirish/bekor qilish: '2-sini 120 ming qil' yoki '2-sini bekor qil'.");
+  return lines.join('\n');
+}
+
 function hasNumber(value) {
   return typeof value === 'number' && value > 0;
 }

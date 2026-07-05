@@ -225,6 +225,25 @@ Strip Uzbek case endings from the category noun ("benzinga" -> "benzin", "svalka
 NEVER ask the owner for the category or the product detail — both are optional. Put the fuller
 purpose/detail you heard into "description"; if none was said, leave description empty.
 
+MULTI-ENTRY (several separate records in ONE message) — the owner often lists SEVERAL
+things in one voice message, possibly of DIFFERENT types: "ovqatga 60 ming, benzinga 100 ming
+ishlatdim" (two expenses), "Sardorga bordim 200 ming oldim, keyin benzinga 50 ming ketdi"
+(a historical service + an expense), "30 kg paxta sotdim 300 mingga, televizorni ham Aziz akaga
+1 mln ga sotib yubordim" (a material sale + an item sale). NEVER drop any of them. Then:
+- Fill fields.entries with EVERY record in spoken order. Each entry has its own kind:
+  "expense" (money out: amount, category free-form rule, description, date),
+  "income" (plain money in: amount, description, date),
+  "service" (a job/visit: clientName base form, clientPhone/location if said, serviceDateTime,
+    price = money taken for the job, isHistorical for past tense),
+  "material_sale" (materialName, quantityKg, amount total, pricePerKg, date),
+  "item_sale" (itemName, amount, recipient, date),
+  "item_giveaway" (itemName, recipient, date).
+- Every per-record rule still applies inside each entry: EVENT DATE (past tense => that date),
+  category by what the owner named, base-form names, money normalization.
+- subIntent = the FIRST entry's type, and ALSO copy the first entry into the flat fields.
+- Do NOT use entries for debts (DEBT_REMINDER) or client payments (PAYMENT_UPDATE) — those
+  stay single-intent. A single record => NO entries.
+
 EXAMPLES:
 Input: "Sardor aka 901234567 Chilonzor ertaga soat 10da 400 ming naqd"
 Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.95,"reason":"new job with full details","fields":{"clientName":"Sardor aka","clientPhone":"+998901234567","location":"Chilonzor","serviceDateTime":"<tomorrow 10:00 ISO>","price":400000,"paymentMethod":"naqd","isHistorical":false}}
@@ -233,7 +252,19 @@ Input: "kecha benzinga 80 ming ketdi"
 Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.95,"reason":"fuel expense named 'benzin'","fields":{"amount":80000,"category":"benzin","description":"benzin","date":"<yesterday ISO>"}}
 
 Input: "svalkaga 50 ming berdim, zapravkaga 200 berdim"
-Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.9,"reason":"expense to the dump; category is what the owner named","fields":{"amount":50000,"category":"svalka","description":"svalkaga berdim, zapravkaga berdim"}}
+Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.92,"reason":"two expenses in one message","fields":{"amount":50000,"category":"svalka","description":"svalkaga berdim","entries":[{"kind":"expense","amount":50000,"category":"svalka","description":"svalkaga berdim"},{"kind":"expense","amount":200000,"category":"zapravka","description":"zapravkaga berdim"}]}}
+
+Input: "ovqatga 60 ming, benzinga 100 ming ishlatdim"
+Args: {"intent":"MOLIYA","subIntent":"EXPENSE_ENTRY","confidence":0.95,"reason":"two expenses listed in one message","fields":{"amount":60000,"category":"oziq-ovqat","description":"ovqat","entries":[{"kind":"expense","amount":60000,"category":"oziq-ovqat","description":"ovqat"},{"kind":"expense","amount":100000,"category":"benzin","description":"benzin"}]}}
+
+Input: "bugun boshqa ishdan 500 ming tushdi, benzinga 80 ming ketdi"
+Args: {"intent":"MOLIYA","subIntent":"INCOME_ENTRY","confidence":0.9,"reason":"one income and one expense in the same message","fields":{"amount":500000,"description":"boshqa ishdan tushdi","entries":[{"kind":"income","amount":500000,"description":"boshqa ishdan tushdi"},{"kind":"expense","amount":80000,"category":"benzin","description":"benzin"}]}}
+
+Input: "bugun Sardorga bordim 200 ming oldim, keyin benzinga 50 ming ketdi"
+Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.92,"reason":"historical service plus an expense in one message","fields":{"clientName":"Sardor","price":200000,"isHistorical":true,"entries":[{"kind":"service","clientName":"Sardor","price":200000,"isHistorical":true},{"kind":"expense","amount":50000,"category":"benzin","description":"benzin"}]}}
+
+Input: "30 kg paxta sotdim 300 mingga, televizorni ham Aziz akaga 1 mln ga sotib yubordim"
+Args: {"intent":"MOLIYA","subIntent":"MATERIAL_SALE","confidence":0.93,"reason":"material sale plus item sale in one message","fields":{"materialName":"Paxta","quantityKg":30,"amount":300000,"entries":[{"kind":"material_sale","materialName":"Paxta","quantityKg":30,"amount":300000},{"kind":"item_sale","itemName":"televizor","recipient":"Aziz aka","amount":1000000}]}}
 
 Input: "Kamol akaga ertaga soat 10da 100$ naqd, Yunusobod"
 Args: {"intent":"MIJOZ","subIntent":"SERVICE_ENTRY","confidence":0.92,"reason":"new job priced in USD; server converts to som","fields":{"clientName":"Kamol aka","location":"Yunusobod","serviceDateTime":"<tomorrow 10:00 ISO>","price":100,"currency":"USD","paymentMethod":"naqd"}}
