@@ -130,6 +130,12 @@ const classifyTool = {
                 },
               },
               incomeSource: { type: SchemaType.STRING },
+              person: { type: SchemaType.STRING, description: 'DEBT_REMINDER: the counterparty of the loan.' },
+              direction: { type: SchemaType.STRING, enum: ['given', 'taken'], description: 'DEBT_REMINDER: given = owner lent money, taken = owner borrowed.' },
+              dueDate: { type: SchemaType.STRING, description: 'DEBT_REMINDER/FINE_ENTRY: FUTURE ISO date/time to remind (collect/repay/pay the fine). Only if actually said.' },
+              eventDate: { type: SchemaType.STRING, description: 'DEBT_REMINDER/FINE_ENTRY: ISO day the loan/fine happened (today if not said).' },
+              skipBalance: { type: SchemaType.BOOLEAN, description: 'DEBT_REMINDER: true ONLY if the owner explicitly said not to touch the balance.' },
+              paidNow: { type: SchemaType.BOOLEAN, description: 'FINE_ENTRY: true ONLY if the same message says the fine is ALREADY paid ("100 ming to\'ladim").' },
               materialName: { type: SchemaType.STRING, description: 'MATERIAL_SALE: the sold material, base form (e.g. "Paxta", "Mis", "chyorniy taxta").' },
               quantityKg: { type: SchemaType.NUMBER, description: 'MATERIAL_SALE: quantity in kilograms, if stated.' },
               pricePerKg: { type: SchemaType.NUMBER, description: 'MATERIAL_SALE: price per kilogram, if stated.' },
@@ -775,6 +781,24 @@ function normalizeExtractedFieldsByIntent(intent, clean) {
     };
   }
 
+  if (intent === 'FINE_ENTRY') {
+    return {
+      amount: numberOrNull(clean.amount),
+      paidNow: clean.paidNow === true,
+      dueDate: isoOrNull(clean.dueDate),
+      eventDate: isoOrNull(clean.eventDate) || isoOrNull(clean.date) || new Date().toISOString(),
+      description: textOrNull(clean.description || clean.notes),
+      currency: resolveCurrency(clean),
+    };
+  }
+
+  if (intent === 'FINE_PAID') {
+    return {
+      amount: numberOrNull(clean.amount),
+      currency: resolveCurrency(clean),
+    };
+  }
+
   return clean;
 }
 
@@ -930,6 +954,8 @@ function smallTalkUnderstanding() {
 // `history` — oxirgi ~10 xabar ([{role, text}]); qisqa javoblarni botning oldingi
 // savoli kontekstida talqin qilish uchun prompt'ga qo'shiladi (ixtiyoriy).
 export async function classifyIntent(text, history = []) {
+  // Deterministik guard: sof salom/rahmat/xayr Gemini'ga bormaydi — HAR DOIM SUXBAT
+  // (qidiruv/xizmat deb adashishning oldini oladi, javob ham tezlashadi).
   if (isPureSmallTalk(text)) return smallTalkUnderstanding();
   const prompt = buildClassificationPrompt(text, history);
   const res = await generate(functionCallingModel, prompt);
@@ -940,7 +966,7 @@ export async function classifyIntent(text, history = []) {
     : normalizeUnderstanding(safeParseJson(res.response.text()));
 
   // Determinstik xavfsizlik to'ri — sotuvni xarajat deb tasniflashni tuzatadi.
-  return isPureSmallTalk(text) ? smallTalkUnderstanding() : correctSaleClassification(understanding, text);
+  return correctSaleClassification(understanding, text);
 }
 
 export async function chooseAgentTool({ intent, fields = {}, rawText = '', mode = 'bot' }) {

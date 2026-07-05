@@ -17,7 +17,7 @@
 import cron from 'node-cron';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import Conversation from '../models/Conversation.js';
-import Reminder, { REMINDER_STATUS } from '../models/Reminder.js';
+import Reminder, { REMINDER_STATUS, REMINDER_TYPE } from '../models/Reminder.js';
 import { runGlobal } from '../db/tenantScope.js';
 import {
   serviceReminderText,
@@ -26,6 +26,8 @@ import {
   confirmServiceKeyboard,
   debtReminderDueText,
   debtReminderKeyboard,
+  fineReminderDueText,
+  fineReminderKeyboard,
 } from '../bot/ui.js';
 
 // Xizmat vaqtidagi eslatma juda kech qolsa ("hozir vaqti" demaslik uchun) — masalan bot
@@ -213,10 +215,14 @@ async function fireDebtReminders(bot) {
     );
     if (!claimed) continue; // boshqa tik ulgurdi yoki holat o'zgardi
 
-    const delivered = await sendToOwner(bot, claimed.telegramUserId, debtReminderDueText(claimed), {
-      reply_markup: debtReminderKeyboard(claimed._id.toString()),
+    // Jarima eslatmasi — o'z matni (summa bilan/siz) va [✅ To'ladim] tugmasi.
+    const isFine = claimed.type === REMINDER_TYPE.FINE;
+    const text = isFine ? fineReminderDueText(claimed) : debtReminderDueText(claimed);
+    const keyboard = isFine ? fineReminderKeyboard(claimed._id.toString()) : debtReminderKeyboard(claimed._id.toString());
+    const delivered = await sendToOwner(bot, claimed.telegramUserId, text, {
+      reply_markup: keyboard,
     });
-    if (delivered === 0) console.error(`Qarz eslatmasi yetmadi (eslatma ${claimed._id}, ega ${claimed.telegramUserId}).`);
+    if (delivered === 0) console.error(`${isFine ? 'Jarima' : 'Qarz'} eslatmasi yetmadi (eslatma ${claimed._id}, ega ${claimed.telegramUserId}).`);
   }
 }
 

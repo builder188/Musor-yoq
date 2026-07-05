@@ -3,7 +3,7 @@ import Conversation from '../../models/Conversation.js';
 import Client from '../../models/Client.js';
 import Service, { SERVICE_STATUS } from '../../models/Service.js';
 import { extractNotebookRecords, transcribeAudio, understandText } from '../../ai/gemini.js';
-import { runAgent, applyConfirmedEdit, editSavedEntry, cancelSavedEntry, classifyPostSaveMessage, confirmPendingUsefulItemMatch, handleMultiSavedText } from '../../ai/agent.js';
+import { runAgent, applyConfirmedEdit, editSavedEntry, cancelSavedEntry, classifyPostSaveMessage, confirmPendingUsefulItemMatch, handleMultiSavedText, handleFineAmountReply } from '../../ai/agent.js';
 import { editService, completeService, cancelService } from '../../services/serviceService.js';
 import { mergeFields, nextMissing, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
@@ -310,6 +310,10 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
   if (conv.pendingIntent === 'ITEM_MATCH_CONFIRM') {
     return routeItemMatchConfirmation(ctx, conv, text);
   }
+  // Jarima to'lovi uchun summa kutilyapti ("✅ To'ladim" bosilgan, summa noma'lum edi).
+  if (conv.pendingIntent === 'FINE_AMOUNT') {
+    return routeFineAmount(ctx, conv, text);
+  }
   if (conv.pendingIntent === 'IMAGE_RECORD_CONFIRM') {
     return routeImageConfirmation(ctx, conv, text);
   }
@@ -342,6 +346,18 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
 
   const understanding = await understandText(text, priorHistory);
   await routeUnderstanding(ctx, understanding, text, sourceMeta);
+}
+
+// Jarima summasi javobi (matn yoki ovoz transkripsiyasi) — to'lovni yozadi.
+// Xato bo'lsa (yozuv topilmadi/allaqachon to'langan) holat tozalanadi, sabab aytiladi.
+async function routeFineAmount(ctx, conv, text) {
+  try {
+    const res = await handleFineAmountReply({ conversation: conv, rawText: text });
+    await ctx.reply(res.text);
+  } catch (err) {
+    await conv.reset();
+    await ctx.reply(err?.message || "Voy oka, jarima to'lovini yozishda xatolik bo'ldi.");
+  }
 }
 
 async function routeServiceReschedule(ctx, conv, text) {

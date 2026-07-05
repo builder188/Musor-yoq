@@ -1,5 +1,15 @@
 # AI_CONTEXT.md
 
+## 2026-07-05 Davom: ensureIncomeCategory mojibake tuzatildi
+- `categoryService.js ensureIncomeCategory` ichida ikki joy buzuq kodlashda saqlangan ekan: (1) apostrof-normalizatsiya regexi `[`вЂвЂ™К»Кј]` (buzilgan `‘’ʻʼ`) — qiyshiq apostroflar to'g'rilanmasdi; (2) yangi kirim kategoriyasi yaratilganda egaga Telegram'da "рџ†• Yangi kirim kategoriyasi..." degan mojibake xabar ketardi. Ikkalasi ensureExpenseCategory'dagi to'g'ri variantga tenglashtirildi. Erkin kategoriya + Svalka talabi qolgan qismlari allaqachon joriy edi (Ijara/Shtraf dinamik, svalka+kelishik+poligon sinonimi) — `npm run test:write-read` 41/41 PASS tasdiqladi.
+
+## 2026-07-05 Davom: small-talk guard kirillcha + kim/bor himoyasi + doimiy regressiya testi
+- **Kirillcha bug yopildi:** egasi "Салом" deb yozsa avvalgi guard (faqat lotin regex) ushlamas, `answerReadQuery`dagi javob ham lotin edi — xabar qidiruvga tushib "hech narsa topilmadi" qaytardi. `smallTalk.js` endi lotin+kirill andozalar bilan ishlaydi. MUHIM: JS `\b` kirillda ISHLAMAYDI (faqat ASCII \w chegarasi) — kirill andozalar substring yoki `(?:^|\s)...(?=\s|$)` bilan yozilgan.
+- **Yutilish regressiyasi tuzatildi:** eski `queries.js` lokal guardidagi `\b(kim|bor)\b` himoyasi shared modulga ko'chirilganda tushib qolgan edi — "salom, menda televizor bor" sof salomlashish deb yutilib, buyum yozuvi saqlanmay qolardi. `SHORT_AMBIGUOUS_RE` (kim/bor/bormi/qani, lotin+kirill) qaytarildi; `BUSINESS_OR_ACTION_RE` ham kengaytirildi (`sot` stem — sotaman/sotmoqchi, olaman/beraman, shartnoma/hamkor/eslat + kirill ekvivalentlar).
+- **Tozalash:** `queries.js`dagi o'lik lokal SMALL_TALK bloki o'chirildi (yagona manba `ai/smallTalk.js`); `gemini.js classifyIntent`dagi o'lik ikkinchi `isPureSmallTalk` ternary olib tashlandi; shared javoblarga persona emojilari (😊👋) qaytarildi.
+- **Prompt kuchaytirildi:** PURE SMALL TALK qoidasi STRICT qilib qayta yozildi (kirillcha misollar, "salom+biznes ma'lumot = small talk EMAS" qoidasi) + 2 yangi misol: "салом, ишлар қалай?" => SUXBAT; "salom, menda ishlaydigan muzlatgich bor" => ITEM_ENTRY.
+- **Doimiy test:** `backend/scripts/small-talk-test.mjs` (`npm run test:small-talk`, DB/tarmoqsiz) — 22 sof suhbat (lotin+kirill) + 14 biznes gap (yutilmasligi) + Mini App bildirishnoma formatlash (create=faqat kiritilgan, update=faqat diff, o'zgarishsiz update=xabar yo'q, delete=nom, bulk=sonlar); 67/67 PASS. `npm run test:write-read` 41/41 PASS.
+
 ## 2026-07-05 Niyat klassifikatori small-talk guard + Mini App teskari bildirishnomalar
 - **Maqsad:** "Salom/qalaysiz/rahmat" kabi sof suhbat xabarlari hech qachon qidiruv/xizmat deb ketmasin; Mini App orqali bot ishtirokisiz qo'lda yaratilgan/tahrirlangan/o'chirilgan yozuvlar haqida Telegram bot darhol qisqa xabar bersin.
 - **AI:** yangi `backend/src/ai/smallTalk.js` shared guard. `classifyIntent()` Gemini chaqirishdan OLDIN `isPureSmallTalk()`ni tekshiradi va darhol `{intent:'SUXBAT', subIntent:'SEARCH_QUERY', fields:{}}` qaytaradi; shu sabab "hech narsa topilmadi" qidiruv fallbackiga tushmaydi. `queries.js` ham shu helperdan javob matnini oladi. `prompts.js`ga PURE SMALL TALK / GREETING rule va "salom", "assalomu alaykum, qalaysiz", "rahmat oka" misollari qo'shildi.
@@ -585,3 +595,11 @@ miniapp/src/
 - Biznes mantiqni `services/` da o'zgartiring — bot va API ikkalasi shu yerdan foydalanadi.
 - Yangi maydon qo'shsangiz: model + `flow.js` (slot-filling) + `prompts.js` (AI sxema) + Mini App formani yangilang.
 - Har katta ishdan keyin shu faylni va `SESSION_HANDOFF.md` ni yangilang.
+## 2026-07-05 Erkin kategoriya + moshina jarimasi yakuni
+- Kirim/chiqim kategoriyalari dynamic: aniq yangi nomlar `IncomeCategory`/`ExpenseCategory` orqali auto-create bo'ladi; faqat haqiqatan noaniq holatda `boshqa_kirim`/`boshqa_chiqim`.
+- `Svalka` default xarajat kategoriyasi qo'shildi; `svalkaga`, `poligon`, `musorxona/axlatxona` kabi matnlar `svalka`ga tushadi.
+- `Moshina jarimasi` alohida `Reminder(type='fine')` oqimi: jarima olingan sana saqlanadi, kelajak `dueDate` bo'lsa `remindAt=dueDate` (oldindan ogohlantirishsiz, bir marta), darhol to'langan bo'lsa chiqim transaction darhol yoziladi, summasiz jarima keyin bot yoki Mini App orqali to'lanadi.
+- Bot callback: jarima eslatmasidagi `[To'ladim]` summa bor bo'lsa `jarima` chiqimi yaratadi; summa yo'q bo'lsa `FINE_AMOUNT` holatida summani so'raydi.
+- Mini App Reminders: fine kartalari qarz sifatida ko'rsatilmaydi, `dueDate` yo'q bo'lsa "Eslatma qo'yilmagan", summasiz fine `To'ladim` bosilganda summa modalini ochadi va `/reminders/:id/done`ga `amount` yuboradi.
+- Hisobotlar: PDF va Excelga oylik jarima bo'limi qo'shildi (jarimaga tushish soni, to'lovlar soni, to'langan jami; Excelda to'lanmagan ham bor).
+- Self-check: `npm run test:write-read --workspace musir-yoq-backend` 50/50 o'tdi; `npm run test:small-talk --workspace musir-yoq-backend` 67/67 o'tdi; `npm run build --workspace musir-yoq-miniapp` OK; `git diff --check` OK (faqat CRLF warninglari).

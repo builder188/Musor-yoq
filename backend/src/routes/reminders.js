@@ -47,7 +47,9 @@ router.patch(
   '/:id/done',
   asyncHandler(async (req, res) => {
     const before = await getReminderById(req.params.id);
-    const result = await markReminderDone(req.params.id);
+    // Jarima (type='fine') uchun body.amount — to'langan summa (summasiz jarimani
+    // to'lashda Mini App so'rab yuboradi); qarzda e'tiborga olinmaydi.
+    const result = await markReminderDone(req.params.id, { amount: req.body?.amount });
     notifyMiniAppUpdated('reminder', before, result?.reminder);
     res.json(result);
   })

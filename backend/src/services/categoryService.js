@@ -28,6 +28,7 @@ export const DEFAULT_EXPENSE_CATEGORIES = [
   { slug: 'tamirlash', name: "Ta'mirlash" },
   { slug: 'oziq-ovqat', name: 'Oziq-ovqat' },
   { slug: 'svalka', name: 'Svalka' },
+  { slug: 'jarima', name: 'Moshina jarimasi' },
 ];
 
 export const SYSTEM_INCOME_CATEGORIES = [
@@ -139,7 +140,7 @@ export async function ensureExpenseCategory(rawName, { source = 'bot', notify = 
 // Kirim kategoriyasini kafolatlaydi. Xizmat/material/buyum/qarz va boshqa_kirim tizim
 // qiymatlari yaratilmaydi; aniq yangi daromad nomlari esa IncomeCategory'ga yoziladi.
 export async function ensureIncomeCategory(rawName, { source = 'bot', notify = true } = {}) {
-  const name = String(rawName || '').replace(/[`вЂвЂ™К»Кј]/g, "'").replace(/\s+/g, ' ').trim();
+  const name = String(rawName || '').replace(/[`‘’ʻʼ]/g, "'").replace(/\s+/g, ' ').trim();
   if (!name) return { value: null, created: false };
 
   if (expenseKey(name) === expenseKey(OTHER_INCOME_CATEGORY) || name === OTHER_INCOME_CATEGORY) {
@@ -159,7 +160,7 @@ export async function ensureIncomeCategory(rawName, { source = 'bot', notify = t
   const displayName = name.charAt(0).toUpperCase() + name.slice(1);
   const category = await IncomeCategory.create({ name: displayName, normalizedName: key, source });
   if (notify) {
-    await notifyOwner(`рџ†• Yangi kirim kategoriyasi yaratildi: "${displayName}"\nрџ“… ${formatDateTime(new Date())} вњ…`);
+    await notifyOwner(`🆕 Yangi kirim kategoriyasi yaratildi: "${displayName}"\n📅 ${formatDateTime(new Date())} ✅`);
   }
   return { value: category.name, created: true };
 }

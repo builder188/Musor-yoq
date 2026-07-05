@@ -17,9 +17,12 @@ export const REMINDER_STATUS = {
 };
 
 // 'debt' — qarz (summa + balans ta'siri bo'lishi mumkin). 'general' — oddiy eslatma (matn + sana).
+// 'fine' — moshina jarimasi: yaratilganda balansga TEGMAYDI; "to'ladim" bo'lganda
+// chiqim Transaction yaratiladi (transactionId) va shu payt balansdan ayiriladi.
 export const REMINDER_TYPE = {
   DEBT: 'debt',
   GENERAL: 'general',
+  FINE: 'fine',
 };
 
 // Qarz yo'nalishi: 'given' — men berdim (qaytishini kutaman, balansdan ayiriladi).

@@ -11,6 +11,7 @@ import { formatMoney } from '../utils/money.js';
 import { getMonthlyIncomeBreakdown } from '../services/incomeSourceService.js';
 import { getReportInsights } from '../services/reportInsightsService.js';
 import { getPartnerReportRows } from '../services/partnerService.js';
+import { getMonthlyFineRows } from '../services/fineService.js';
 
 const router = express.Router();
 const notDeleted = { isDeleted: { $ne: true } };
@@ -62,6 +63,13 @@ function buildPeriodTitle(range, language) {
 // Oylik manba qatorlarini tilga moslab (oy nomi) tayyorlaydi.
 async function buildMonthlyIncomeRows(range, language) {
   const rows = await getMonthlyIncomeBreakdown({ from: range.from, to: range.to });
+  return rows.map((row) => ({ ...row, label: monthLabel(row.year, row.month, language) }));
+}
+
+// Moshina jarimalari oylik qatorlari: [Oy | Necha marta | To'lovlar soni | To'langan jami].
+// PDF formatMoney bilan, Excel xom son bilan ishlatadi — ikkala variant ham shu yerdan.
+async function buildMonthlyFineRows(range, language) {
+  const rows = await getMonthlyFineRows({ from: range.from, to: range.to });
   return rows.map((row) => ({ ...row, label: monthLabel(row.year, row.month, language) }));
 }
 
@@ -147,7 +155,8 @@ const EXCEL_LABELS = {
   uz: {
     yes: 'ha',
     no: "yo'q",
-    sheets: { clients: 'Mijozlar', partners: 'Hamkorlar', services: 'Xizmatlar', transactions: 'Tranzaksiyalar', summary: 'Xulosa', sourceAnalysis: 'Manba tahlili', insights: 'Tahlil' },
+    sheets: { clients: 'Mijozlar', partners: 'Hamkorlar', services: 'Xizmatlar', transactions: 'Tranzaksiyalar', summary: 'Xulosa', sourceAnalysis: 'Manba tahlili', insights: 'Tahlil', fines: 'Jarimalar' },
+    fineHeaders: ['Oy', 'Jarimaga tushish soni', "To'lovlar soni", "To'langan jami", "To'lanmagan"],
     partnerHeaders: ['Nomi', 'Telefon', 'Standart narx', 'Standart manzil', 'Tashriflar (davr)', 'Jami daromad (davr)'],
     clientHeaders: ['ID', 'Ism', 'Telefon', 'Manzillar', 'Yaratilgan sana', 'Yangilangan sana'],
     serviceHeaders: ['ID', 'Client ID', 'Mijoz', 'Telefon', 'Manzil', 'Sana', 'Tarixiy', 'Narx', "To'langan", "To'lov usuli", "To'lov holati", 'Status', 'Bekor sababi', 'Bajarilgan sana', 'Izoh', 'Rasm fileIdlari', 'Income transaction ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana', 'Yangilangan sana'],
@@ -158,7 +167,8 @@ const EXCEL_LABELS = {
   ru: {
     yes: 'да',
     no: 'нет',
-    sheets: { clients: 'Клиенты', partners: 'Партнёры', services: 'Услуги', transactions: 'Транзакции', summary: 'Сводка', sourceAnalysis: 'Источники', insights: 'Анализ' },
+    sheets: { clients: 'Клиенты', partners: 'Партнёры', services: 'Услуги', transactions: 'Транзакции', summary: 'Сводка', sourceAnalysis: 'Источники', insights: 'Анализ', fines: 'Штрафы' },
+    fineHeaders: ['Месяц', 'Получено штрафов', 'Оплат', 'Оплачено всего', 'Не оплачено'],
     partnerHeaders: ['Название', 'Телефон', 'Станд. цена', 'Станд. адрес', 'Визиты (период)', 'Доход (период)'],
     clientHeaders: ['ID', 'Имя', 'Телефон', 'Адреса', 'Дата создания', 'Дата обновления'],
     serviceHeaders: ['ID', 'Client ID', 'Клиент', 'Телефон', 'Адрес', 'Дата', 'Исторический', 'Цена', 'Оплачено', 'Способ оплаты', 'Статус оплаты', 'Статус', 'Причина отмены', 'Дата выполнения', 'Заметка', 'ID файлов фото', 'Income transaction ID', 'Удалён', 'Дата удаления', 'Дата создания', 'Дата обновления'],
@@ -371,6 +381,15 @@ async function buildExcelPayload(body = {}) {
   const insightLines = await buildInsightLines(range, language);
   if (insightLines.length) addSheet(workbook, L.sheets.insights, makeInsightsRows(insightLines, language));
 
+  // Moshina jarimalari varag'i (oylik: soni + to'langan jami).
+  const fineRows = await buildMonthlyFineRows(range, language);
+  if (fineRows.length) {
+    addSheet(workbook, L.sheets.fines, [
+      L.fineHeaders,
+      ...fineRows.map((row) => [row.label, row.count, row.paidCount, row.paidTotal, row.unpaid]),
+    ]);
+  }
+
   return {
     buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
     filename: 'musir_yoq_eksport.xlsx',
@@ -559,6 +578,15 @@ async function buildReportData({ reportType, limit, range, language }) {
   // Daromad manbasi tahlili + insights faqat moliya bo'lgan hisobotlarda (finance/full).
   const monthlyIncomeBySource = includesFinance ? await buildMonthlyIncomeRows(range, language) : [];
   const insights = includesFinance ? await buildInsightLines(range, language) : [];
+  // Moshina jarimalari (oylik): [Oy | soni | to'lovlar | to'langan jami] — PDF jadval qatorlari.
+  const monthlyFines = includesFinance
+    ? (await buildMonthlyFineRows(range, language)).map((row) => [
+        row.label,
+        String(row.count),
+        String(row.paidCount),
+        formatMoney(row.paidTotal),
+      ])
+    : [];
 
   // Hamkor mijozlar bo'limi — mijozlarni o'z ichiga olgan hisobotlarda (clients/full).
   const partners = includesClients
@@ -582,6 +610,7 @@ async function buildReportData({ reportType, limit, range, language }) {
     monthlyChart,
     monthlyIncomeBySource,
     insights,
+    monthlyFines,
   };
 }
 

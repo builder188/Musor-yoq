@@ -52,6 +52,8 @@ const LABELS = {
     monthTotal: 'Jami',
     noIncome: 'Bu davrda kirim yo\'q',
     insights: 'Qiziqarli ko\'rsatkichlar',
+    fines: 'Moshina jarimalari (oylik)',
+    fineHeaders: ['Oy', 'Jarimaga tushish', "To'lovlar soni", "To'langan jami"],
   },
   ru: {
     title: "Musir Yo'q - Otchet",
@@ -85,6 +87,8 @@ const LABELS = {
     monthTotal: 'Vsego',
     noIncome: 'Net dohoda za etot period',
     insights: 'Poleznye pokazateli',
+    fines: 'Shtrafy za mashinu (po mesyatsam)',
+    fineHeaders: ['Mesyats', 'Shtrafov polucheno', 'Oplat', 'Oplacheno vsego'],
   },
 };
 
@@ -109,6 +113,12 @@ export function createReportDoc(data) {
   // Qiziqarli ko'rsatkichlar (insights) — biznesni tushunishga yordam beruvchi tahlil.
   if (data.insights?.length) {
     drawInsights(doc, data.insights, labels);
+  }
+
+  // Moshina jarimalari (oylik): necha marta tushilgan + jami qancha to'langan.
+  if (data.monthlyFines?.length) {
+    drawSectionTitle(doc, labels.fines);
+    drawTable(doc, labels.fineHeaders, data.monthlyFines, [140, 110, 110, 130]);
   }
 
   if (data.clients?.length) {

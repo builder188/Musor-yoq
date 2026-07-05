@@ -6,6 +6,7 @@ import { generateReportPdf, resolveReportRange } from '../../routes/reports.js';
 import { completeService, cancelService, createService, recordServicePayment } from '../../services/serviceService.js';
 import { runAgent, applyConfirmedEdit, cancelSavedEntry } from '../../ai/agent.js';
 import { markReminderDone, snoozeReminder } from '../../services/reminderEntryService.js';
+import { getFineById, payFine } from '../../services/fineService.js';
 import { formatMoney } from '../../utils/money.js';
 import { formatDateTime } from '../../utils/dates.js';
 import {
@@ -344,6 +345,49 @@ export function registerCallbacks(bot) {
       await ctx.editMessageText(`Zo'r oka, ${who} bilan qarz hal bo'ldi deb belgiladim ✅${line}`).catch(() => {});
     } catch (err) {
       await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true });
+    }
+  });
+
+  // Jarima eslatmasi — "✅ To'ladim": summa ma'lum bo'lsa chiqim darhol yoziladi
+  // (balansdan ayiriladi); summa noma'lum bo'lsa FINE_AMOUNT holatiga o'tib so'raladi.
+  bot.callbackQuery(/^fine_paid_(.+)$/, async (ctx) => {
+    try {
+      const fine = await getFineById(ctx.match[1]);
+      if (!fine) {
+        await ctx.answerCallbackQuery({ text: 'Jarima yozuvi topilmadi', show_alert: true });
+        return;
+      }
+      if (fine.transactionId) {
+        await ctx.answerCallbackQuery({ text: "Allaqachon to'langan ✅" });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        return;
+      }
+      if (fine.amount > 0) {
+        const paid = await payFine(fine._id, {});
+        await ctx.answerCallbackQuery({ text: "To'landi ✅" });
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+        await ctx.editMessageText(
+          `✅ Boldi oka, moshina jarimasi to'landi — ${formatMoney(paid.paidAmount)} chiqimga yozildi.\n💸 Joriy balans: ${formatMoney(paid.balanceAfter)}`
+        ).catch(() => {});
+        return;
+      }
+      // Summa oldindan aytilmagan — so'raymiz; javob message.js FINE_AMOUNT orqali keladi.
+      await Conversation.updateOne(
+        { telegramId: ctx.from.id },
+        {
+          $set: {
+            pendingIntent: 'FINE_AMOUNT',
+            collected: { fineId: String(fine._id) },
+            awaitingField: 'amount',
+          },
+        },
+        { upsert: true }
+      );
+      await ctx.answerCallbackQuery({ text: 'Summani ayting' });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      await ctx.reply("💰 Jarima summasi qancha edi oka? (masalan: 150 ming)");
+    } catch (err) {
+      await ctx.answerCallbackQuery({ text: 'Xatolik: ' + err.message, show_alert: true }).catch(() => {});
     }
   });
 

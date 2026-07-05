@@ -15,9 +15,11 @@ export const TX_TYPES = {
 // Kirim va xarajat toifalari endi DINAMIK: quyidagi ro'yxatlar legacy/tizim slug'lari xolos —
 // yangi nomlar erkin string bo'lib saqlanadi. Nomlar IncomeCategory/ExpenseCategory modelida
 // ro'yxatga olinadi, shu sabab schema'da enum YO'Q.
-export const TX_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'svalka', 'boshqa_chiqim', 'qarz'];
+export const TX_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim', 'yoqilgi', 'tamirlash', 'oziq-ovqat', 'svalka', 'jarima', 'boshqa_chiqim', 'qarz'];
 export const INCOME_CATEGORIES = ['xizmat', 'material', 'buyum', 'boshqa_kirim'];
-export const EXPENSE_CATEGORIES = ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'svalka', 'boshqa_chiqim'];
+export const EXPENSE_CATEGORIES = ['yoqilgi', 'tamirlash', 'oziq-ovqat', 'svalka', 'jarima', 'boshqa_chiqim'];
+// Moshina jarimasi toifasi — jarima to'lovi chiqimi (fineService bilan bog'liq).
+export const FINE_CATEGORY = 'jarima';
 export const OTHER_EXPENSE_CATEGORY = 'boshqa_chiqim';
 export const OTHER_INCOME_CATEGORY = 'boshqa_kirim';
 // Material sotuvi toifasi — daromad, lekin alohida kategoriya statistikasi bor.

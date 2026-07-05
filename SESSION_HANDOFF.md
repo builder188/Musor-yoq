@@ -1,5 +1,15 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-05 Davom: ensureIncomeCategory mojibake fix
+- `categoryService.js ensureIncomeCategory`: apostrof regexi va bot xabari buzuq kodlashda edi ("рџ†•..." mojibake egaga ketardi) — expense variantiga tenglashtirildi. Erkin kirim/chiqim kategoriya + Svalka funksiyasi avvaldan to'liq; `test:write-read` 41/41, `test:small-talk` 67/67 PASS.
+
+## 2026-07-05 Davom: small-talk guard kirill + kim/bor himoyasi + doimiy test
+- **Kirill bug:** "Салом" avvalgi lotin-only guarddan o'tib qidiruvga tushar va "hech narsa topilmadi" qaytarardi. `ai/smallTalk.js` endi lotin+kirill (GOTCHA: JS `\b` kirillda ishlamaydi — `(?:^|\s)...(?=\s|$)` ishlatilgan).
+- **Yutilish himoyasi qaytarildi:** eski lokal guarddagi `\b(kim|bor)\b` ko'chirishda yo'qolgan edi — "salom, menda televizor bor" salomlashish deb yutilib buyum saqlanmasdi. `SHORT_AMBIGUOUS_RE` (kim/bor/bormi/qani) + kengaytirilgan `BUSINESS_OR_ACTION_RE` (sot stem, olaman/beraman, shartnoma/hamkor/eslat, kirill ekvivalentlar).
+- **Tozalash:** `queries.js` o'lik lokal SMALL_TALK bloki o'chirildi (yagona manba `ai/smallTalk.js`); `gemini.js`dagi o'lik ikkinchi guard-ternary olib tashlandi; javoblarga persona emojilari qaytdi.
+- **Prompt:** PURE SMALL TALK qoidasi STRICT (kirill misollar + "salom+biznes = small talk EMAS"); yangi misollar: "салом, ишлар қалай?" => SUXBAT, "salom, menda ishlaydigan muzlatgich bor" => ITEM_ENTRY.
+- **Test:** YANGI `backend/scripts/small-talk-test.mjs` (`npm run test:small-talk`, DB/tarmoqsiz) — guard 36 holat + Mini App bildirishnoma formatlash (create=input maydonlari, update=diff, diff bo'lmasa xabar yo'q, delete=nom, bulk=count). 67/67 PASS; `test:write-read` 41/41 PASS.
+
 ## 2026-07-05 Small-talk intent guard + Mini App CRUD Telegram bildirishnomalari
 - **Maqsad:** sof salom/suhbat ("Salom", "qalaysiz", "rahmat") qidiruv/xizmatga aylanmasin; Mini App orqali qo'lda create/edit/delete qilingan yozuvlar bot orqali darhol egaga qisqa xabar bo'lib borsin.
 - **AI:** `backend/src/ai/smallTalk.js` qo'shildi. `gemini.js classifyIntent()` boshida deterministic guard bor: pure small-talk -> `SUXBAT/SEARCH_QUERY`, `fields:{}`, `confidence:0.99`; Gemini chaqirilmaydi. `queries.js` shared reply helperdan foydalanadi. `prompts.js` system promptga greeting/small-talk qoidasi va misollar qo'shildi.
@@ -709,3 +719,9 @@ Batafsil: `FIXLOG.md`. Asosiy o'zgarishlar (hammasi syntax + import + miniapp bu
 - Keyingi Railway build xatosi: Rollup Linux native optional package (`@rollup/rollup-linux-x64-gnu`) root lockfile'da yo'q edi, shuning uchun `vite build` Linux builderda modulni topolmadi.
 - Root `package-lock.json` ga `miniapp/node_modules/@rollup/rollup-linux-x64-gnu` qo'shildi.
 - Self-check: `npm ci` OK; `npm run build` OK; `node --check backend/src/index.js` OK; Linux dry-run (`npm_config_platform=linux`, `npm_config_arch=x64`, `npm ci --dry-run --ignore-scripts`) `add @rollup/rollup-linux-x64-gnu 4.61.1` ko'rsatdi.
+## 2026-07-05 Erkin kategoriya + moshina jarimasi yakuni
+- Talab bajarildi: kirim/chiqimda aniq yangi kategoriya auto-create, `Svalka` default xarajat, `Moshina jarimasi` uchun alohida `Reminder(type='fine')` oqimi.
+- Jarima holatlari: summasiz/sanasiz record saqlanadi va balansga tegmaydi; future `dueDate` aniq `remindAt` bo'ladi; immediate paid bo'lsa `Transaction(type='expense', category='jarima')` darhol yaratiladi; keyin to'lash bot callback/text yoki Mini App orqali ishlaydi.
+- Mini App Reminders yangilandi: fine kartalari qarz yo'nalishisiz chiqadi; summasiz fine uchun `To'ladim` bosilganda summa modal ochiladi va done APIga amount yuboriladi.
+- Reports: PDF/Excel oylik jarima bo'limi qo'shilgan.
+- Self-check: `npm run test:write-read --workspace musir-yoq-backend` 50/50 o'tdi; `npm run test:small-talk --workspace musir-yoq-backend` 67/67 o'tdi; `npm run build --workspace musir-yoq-miniapp` OK; `git diff --check` OK (faqat CRLF warninglari).

@@ -10,6 +10,7 @@ import { createService, completeService, listServices } from '../src/services/se
 import { createTransaction, listTransactions, getSummary } from '../src/services/financeService.js';
 import { createUsefulItem, sellUsefulItem, giveAwayUsefulItem, listUsefulItems } from '../src/services/usefulItemService.js';
 import { createDebtReminder, listReminders, markReminderDone } from '../src/services/reminderEntryService.js';
+import { createFine, getFineStats } from '../src/services/fineService.js';
 import { getExpenseCategoryRecords, getIncomeCategoryRecords, getMaterialCategoryRecords } from '../src/services/categoryService.js';
 import Transaction from '../src/models/Transaction.js';
 
@@ -120,13 +121,35 @@ async function main() {
     const shop = await createTransaction({ type: 'expense', amount: 400000, description: 'magazinga ishlatdim' });
     check('noaniq bo\'lmagan yangi xarajat toifasi yaratiladi', shop.category === 'Magazin', shop.category);
 
-    // ── 5. SHTRAF (dinamik xarajat kategoriyasi) ─────────────────────────
-    console.log('5) SHTRAF (dinamik kategoriya):');
+    // ── 5. SHTRAF / MOSHINA JARIMASI ─────────────────────────────────────
+    console.log('5) SHTRAF / MOSHINA JARIMASI:');
     const fine = await createTransaction({ type: 'expense', amount: 100000, category: 'shtraf', description: 'YPX jarima' });
     check('shtraf yozildi', !!fine?._id);
-    check('dinamik kategoriya kanonik saqlandi', fine.category === 'Shtraf', fine.category);
-    const fineRecords = await getExpenseCategoryRecords('Shtraf');
+    check('shtraf system kategoriya = jarima', fine.category === 'jarima', fine.category);
+    const fineRecords = await getExpenseCategoryRecords('Moshina jarimasi');
     check('kategoriya sahifasida o\'qiladi', fineRecords.records.some((r) => r.id === String(fine._id)));
+
+    const fineBefore = (await getSummary('all')).balance;
+    const unpaidFine = await createFine({ eventDate: new Date().toISOString() });
+    check('summasiz jarima yozuvi saqlandi', unpaidFine?.reminder?.type === 'fine' && unpaidFine.reminder.amount === 0);
+    check('summasiz jarimada eslatma yo\'q', !unpaidFine.reminder.dueDate && !unpaidFine.reminder.remindAt);
+    check('jarima olinganda balansga tegmadi', (await getSummary('all')).balance === fineBefore);
+
+    const paidFine = await markReminderDone(unpaidFine.reminder._id, { amount: 150000 });
+    check('summasiz jarima to\'langanda chiqim yozildi', paidFine?.paidAmount === 150000 && !!paidFine.reminder.transactionId);
+    const fineTx = await Transaction.findOne({ _id: paidFine.reminder.transactionId, type: 'expense', isDeleted: { $ne: true } });
+    check('jarima to\'lovi category=jarima', fineTx?.category === 'jarima' && fineTx.amount === 150000, fineTx?.category);
+
+    const futureFineDue = new Date(Date.now() + 24 * 3600 * 1000);
+    const futureFine = await createFine({ amount: 250000, dueDate: futureFineDue.toISOString() });
+    check('kelajakdagi jarimada remindAt aynan dueDate', new Date(futureFine.reminder.remindAt).getTime() === futureFineDue.getTime());
+    check('kelajakdagi jarima hali balansga tegmadi', !futureFine.reminder.transactionId);
+
+    const paidNowFine = await createFine({ amount: 120000, paidNow: true });
+    check('darhol to\'langan jarima status=done', paidNowFine.reminder.status === 'done' && !!paidNowFine.reminder.transactionId);
+
+    const fineStats = await getFineStats({});
+    check('jarima statistikasi sanaydi', fineStats.count >= 3 && fineStats.paidTotal >= 270000, JSON.stringify(fineStats));
 
     // ── 6. MATERIAL SOTUVI ───────────────────────────────────────────────
     console.log('6) MATERIAL:');

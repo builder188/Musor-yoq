@@ -24,6 +24,9 @@ export const ENTRY_REQUIRED = {
   ITEM_GIVEAWAY: ['itemName'],
   // Qarz eslatma: kim (person) + summa + qachon eslatish (dueDate).
   DEBT_REMINDER: ['person', 'amount', 'dueDate'],
+  // Moshina jarimasi: HECH NARSA so'ralmaydi — "Shtrafga tushdim"ning o'zi to'liq yozuv;
+  // summa/to'lov vaqti ixtiyoriy, keyin bot/Mini App orqali to'ldiriladi.
+  FINE_ENTRY: [],
 };
 
 // ENG KAM talab: yozuv nima haqida ekanini bildiradigan KAMIDA BITTA maydon
@@ -38,6 +41,7 @@ export const ENTRY_MINIMUM = {
   ITEM_SALE: ['itemName'],
   ITEM_GIVEAWAY: ['itemName'],
   DEBT_REMINDER: ['person'],
+  FINE_ENTRY: [], // bo'sh — jarima fakti o'zi identifikatsiya (hasMinimumIdentity=true)
 };
 
 // Kamida bitta identifikatsiya maydoni to'lganmi?
@@ -148,6 +152,12 @@ const LEGACY_EXPENSE_CATEGORY = {
   musorxona: 'svalka',
   axlatxona: 'svalka',
   'chiqindi poligoni': 'svalka',
+  jarima: 'jarima',
+  shtraf: 'jarima',
+  straf: 'jarima',
+  'moshina jarimasi': 'jarima',
+  'mashina jarimasi': 'jarima',
+  'avto jarima': 'jarima',
   boshqa: 'boshqa_chiqim',
   boshqa_chiqim: 'boshqa_chiqim',
   'boshqa chiqim': 'boshqa_chiqim',

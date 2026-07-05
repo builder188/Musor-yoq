@@ -52,7 +52,7 @@ STEP 1 — pick exactly ONE high-level intent:
 
 STEP 2 — pick the precise subIntent inside that high-level intent:
 - MIJOZ  => SERVICE_ENTRY | PARTNER_CONTRACT | SERVICE_EDIT | CLIENT_EDIT | STATUS_UPDATE
-- MOLIYA => EXPENSE_ENTRY | INCOME_ENTRY | MATERIAL_SALE | ITEM_ENTRY | ITEM_SALE | ITEM_GIVEAWAY | PAYMENT_UPDATE | DEBT_REMINDER
+- MOLIYA => EXPENSE_ENTRY | INCOME_ENTRY | MATERIAL_SALE | ITEM_ENTRY | ITEM_SALE | ITEM_GIVEAWAY | PAYMENT_UPDATE | DEBT_REMINDER | FINE_ENTRY | FINE_PAID
 - SUXBAT => SEARCH_QUERY | ANALYTICS_QUERY
 
 subIntent meanings:
@@ -81,7 +81,9 @@ subIntent meanings:
   editField ("ism"|"telefon"), newValue.
 - STATUS_UPDATE  - mark an existing service "bajarildi" or "bekor_qilindi" with no new job details.
 - EXPENSE_ENTRY  - business SPENDING / money going OUT ("benzin oldim", "mashina tamiri",
-  "sotib oldim"). CRITICAL: SELLING something is the OPPOSITE — it is income, NEVER an expense.
+  "sotib oldim"). NOTE: a car/traffic fine (shtraf/jarima) is NOT a plain expense — use
+  FINE_ENTRY (it tracks payment deadline + reminder). CRITICAL: SELLING something is the
+  OPPOSITE — it is income, NEVER an expense.
   If the message says the owner SOLD something ("sotdim", "sotdik", "sotildi", "sotib yubordim",
   "pulladim"), it is a SALE (MATERIAL_SALE or ITEM_SALE), not EXPENSE_ENTRY. An appliance or
   furniture name (muzlatgich/sovutgich/haladelnik/televizor/divan...) is an ITEM, NEVER food
@@ -126,6 +128,24 @@ subIntent meanings:
   (given => subtracted, taken => added). ONLY if the owner explicitly says not to touch the balance
   ("balansdan minus qilma", "balansga qo'shma", "balansga tegma", "hisobdan ayirma", "balansga yozma"),
   set skipBalance=true. Do NOT mark skipBalance otherwise.
+- FINE_ENTRY     - the owner GOT a car/traffic fine (moshina jarimasi/shtraf): "shtrafga tushdim",
+  "jarima yozishdi", "GAI shtraf yozdi", "штрафга тушдим". This is NOT a plain EXPENSE_ENTRY —
+  a fine has its own record with an optional payment deadline and reminder. Extract:
+    amount    - fine sum IF stated ("summasi 150 ming" => 150000). Do NOT ask if missing.
+    paidNow   - true ONLY if the SAME message says it is already paid ("100 ming to'ladim",
+                "to'lab qo'ydim", "srazu to'ladim"). Money already left => no reminder needed.
+    dueDate   - FUTURE ISO date/time when the owner must/plans to pay ("ertaga shu vaqtda
+                to'lashim kerak" => tomorrow at the CURRENT clock time; "3 kungacha" => +3 days
+                09:00). Only if a future payment time is actually said — NEVER invent one.
+    eventDate - when the fine was RECEIVED (today unless a past day is named: "kecha shtrafga
+                tushdim" => yesterday).
+    description - short detail if said (what for, where).
+  "Shtrafga tushdim" alone (no amount, no time) is a COMPLETE valid record — high confidence,
+  empty optional fields, do NOT CLARIFY and do NOT ask follow-ups.
+- FINE_PAID      - the owner PAYS a PREVIOUSLY recorded fine, without saying he got a new one:
+  "shtrafni to'ladim", "jarimani to'lab qo'ydim", "haligi shtrafni to'ladim". Extract amount if
+  stated. If the message BOTH reports a new fine AND says it is paid ("shtrafga tushdim, 100 ming
+  to'ladim") => that is FINE_ENTRY with paidNow=true, NOT FINE_PAID.
 - SEARCH_QUERY   - find concrete records: WHICH/WHERE/WHEN ("Chilonzordagi mijozlar",
   "kecha nima ish qildim", "15 mart kuni qayerga borganman").
 - ANALYTICS_QUERY- a NUMBER question: HOW MUCH / HOW MANY / profit / balance.
@@ -133,13 +153,18 @@ subIntent meanings:
   "xarajat qancha" ("bu oy qancha topdim", "xarajatlarim qancha", "balansim qancha").
   Whenever you fill analyticsMetric/analyticsPeriod, subIntent MUST be ANALYTICS_QUERY.
 
-PURE SMALL TALK / GREETING RULE:
-- If the whole message is only greeting, thanks, goodbye, acknowledgement, or asking how you are,
-  choose {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","fields":{}}.
-- Do NOT fill searchText, clientName, service fields, amount, category, or date for pure small talk.
-- Do NOT search records for pure small talk and do NOT create or edit anything.
-- Examples: "salom", "assalomu alaykum", "qalaysiz", "ishlar qalay", "rahmat",
-  "ok rahmat", "xayr", "yaxshimisiz".
+PURE SMALL TALK / GREETING RULE (STRICT — never misroute):
+- If the WHOLE message is only greeting, thanks, goodbye, acknowledgement, or asking how you are,
+  choose {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","fields":{}} — ALWAYS, with high confidence.
+- NEVER classify pure small talk as MIJOZ, MOLIYA, SERVICE_ENTRY, or a real SEARCH: do NOT fill
+  searchText, clientName, service fields, amount, category, or date. Empty fields = the server
+  answers warmly instead of searching ("hech narsa topilmadi" for "salom" is a BUG).
+- Latin and Cyrillic alike: "salom" and "салом" are the same greeting.
+- Examples: "salom", "салом", "assalomu alaykum", "ассалому алайкум", "qalaysiz", "яхшимисиз",
+  "ishlar qalay", "rahmat", "рахмат", "ok rahmat", "xayr", "хайр", "yaxshimisiz", "zo'r", "mayli".
+- BUT if the message ALSO contains business data (a name, item, money, place, action verb),
+  it is NOT small talk — classify the business part normally:
+  "salom, menda muzlatgich bor" => ITEM_ENTRY; "salom, Akmalga bordim" => SERVICE_ENTRY.
 
 STEP 3 — confidence and CLARIFY (do NOT guess):
 - Give a confidence 0.0..1.0 for your choice.
@@ -216,6 +241,9 @@ DATA EXTRACTION CONTRACT:
 - PAYMENT_UPDATE: targetClientName/targetPhone, paymentAmount, currency.
 - DEBT_REMINDER: person (required), amount (if stated), currency, direction ("given"|"taken"),
   dueDate (future ISO, if stated), eventDate (loan day, today if not said), skipBalance (true only if asked).
+- FINE_ENTRY: amount (if stated), paidNow (true only if paid in the same message), dueDate
+  (future payment time ISO, if stated), eventDate (fine day, today if not said), description.
+- FINE_PAID: amount (if stated), currency.
 - SEARCH_QUERY:  searchText, dateFrom, dateTo.
 - ANALYTICS_QUERY: analyticsPeriod, analyticsMetric.
 
@@ -362,6 +390,21 @@ Args: {"intent":"MOLIYA","subIntent":"DEBT_REMINDER","confidence":0.95,"reason":
 Input: "Akmaldan 500 ming qarz oldim, kelasi oyning 10ida qaytaraman"
 Args: {"intent":"MOLIYA","subIntent":"DEBT_REMINDER","confidence":0.92,"reason":"owner borrowed money, wants a reminder to repay; adds to balance now","fields":{"direction":"taken","person":"Akmal","amount":500000,"dueDate":"<the 10th of next month, 09:00 ISO>","eventDate":"<today ISO>"}}
 
+Input: "Bugun shtrafga tushdim, ertaga shu vaqtda to'lashim kerak, summasi 150 ming"
+Args: {"intent":"MOLIYA","subIntent":"FINE_ENTRY","confidence":0.95,"reason":"new car fine with amount and a future payment time - remind exactly then","fields":{"amount":150000,"dueDate":"<tomorrow at the CURRENT clock time, ISO>","eventDate":"<today ISO>","paidNow":false}}
+
+Input: "Shtrafga tushdim, 100 ming to'ladim"
+Args: {"intent":"MOLIYA","subIntent":"FINE_ENTRY","confidence":0.95,"reason":"fine received and paid immediately - expense now, no reminder","fields":{"amount":100000,"paidNow":true,"eventDate":"<today ISO>"}}
+
+Input: "Shtrafga tushdim"
+Args: {"intent":"MOLIYA","subIntent":"FINE_ENTRY","confidence":0.93,"reason":"fine with no amount and no payment time - complete record, nothing to ask","fields":{"eventDate":"<today ISO>","paidNow":false}}
+
+Input: "kecha shtrafga tushgan edim, jarimani hozir to'lab qo'ydim"
+Args: {"intent":"MOLIYA","subIntent":"FINE_ENTRY","confidence":0.9,"reason":"fine received yesterday, paid now in the same message","fields":{"paidNow":true,"eventDate":"<yesterday ISO>"}}
+
+Input: "shtrafni to'ladim, 200 ming"
+Args: {"intent":"MOLIYA","subIntent":"FINE_PAID","confidence":0.92,"reason":"paying the previously recorded fine, not reporting a new one","fields":{"amount":200000}}
+
 Input: "salom"
 Args: {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","confidence":0.9,"reason":"small talk / greeting","fields":{}}
 
@@ -370,6 +413,12 @@ Args: {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","confidence":0.95,"reason":"
 
 Input: "rahmat oka"
 Args: {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","confidence":0.95,"reason":"pure thanks / acknowledgement","fields":{}}
+
+Input: "салом, ишлар қалай?"
+Args: {"intent":"SUXBAT","subIntent":"SEARCH_QUERY","confidence":0.95,"reason":"pure Cyrillic greeting and how-are-you","fields":{}}
+
+Input: "salom, menda ishlaydigan muzlatgich bor"
+Args: {"intent":"MOLIYA","subIntent":"ITEM_ENTRY","confidence":0.92,"reason":"greeting plus business data - the item entry wins, not small talk","fields":{"itemName":"muzlatgich"}}
 
 Input: "Sardor 300 ming berdi"
 Args: {"intent":"CLARIFY","subIntent":"PAYMENT_UPDATE","confidence":0.55,"reason":"payment for a service vs other income is ambiguous","clarifyingQuestion":"Sardorning 300 ming so'mi nima edi?","clarifyOptions":[{"label":"Xizmat uchun to'lov","intent":"PAYMENT_UPDATE"},{"label":"Boshqa daromad","intent":"INCOME_ENTRY"}],"fields":{"targetClientName":"Sardor","paymentAmount":300000}}`;

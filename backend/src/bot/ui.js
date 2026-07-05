@@ -116,6 +116,7 @@ const ENTRY_CATEGORY_LABEL = {
   tamirlash: "Ta'mirlash",
   'oziq-ovqat': 'Oziq-ovqat',
   svalka: 'Svalka',
+  jarima: 'Moshina jarimasi',
   boshqa_chiqim: 'Boshqa',
   boshqa_kirim: 'Boshqa kirim',
 };
@@ -386,6 +387,24 @@ export function debtReminderKeyboard(reminderId) {
   return new InlineKeyboard()
     .text('✅ Hal bo\'ldi', `debt_done_${reminderId}`)
     .text('📅 Keyinroq', `debt_snooze_${reminderId}`);
+}
+
+// Jarima to'lov vaqti keldi — egasi aytgan ANIQ vaqtdagi BIR martalik eslatma.
+// Summa aytilgan bo'lsa xabarda ko'rsatiladi; aytilmagan bo'lsa summasiz.
+export function fineReminderDueText(reminder) {
+  const lines = [
+    reminder.amount > 0
+      ? `🚔 Moshina jarimasini to'lang, ${formatMoney(reminder.amount)}`
+      : `🚔 Moshina jarimasini to'lang`,
+  ];
+  if (reminder.note) lines.push(`📝 ${reminder.note}`);
+  return lines.join('\n');
+}
+
+// [✅ To'ladim] — bosilganda summa ma'lum bo'lsa chiqim yoziladi (balansdan ayiriladi);
+// summa noma'lum bo'lsa bot avval summani so'raydi (FINE_AMOUNT holati).
+export function fineReminderKeyboard(reminderId) {
+  return new InlineKeyboard().text("✅ To'ladim", `fine_paid_${reminderId}`);
 }
 
 // Xizmat saqlangach: qachon eslatma/tasdiq yuborilishini bildiradi (avtomatik, tugmasiz).

@@ -40,6 +40,7 @@ import {
   softDeleteTransaction,
 } from '../services/financeService.js';
 import { createDebtReminder, updateDebtReminder, deleteReminder } from '../services/reminderEntryService.js';
+import { createFine, payFine, findPayableFine, FINE_TEXT } from '../services/fineService.js';
 import { softDeleteServiceCascade } from '../services/deleteService.js';
 import { listClients, updateClient } from '../services/clientService.js';
 import { formatKg } from '../services/materialService.js';
@@ -93,7 +94,7 @@ const FREE_TEXT_FIELDS = new Set(['clientName', 'location', 'notes', 'descriptio
 // Slot-filling o'rtasida niyat korreksiyasi faqat shu aniq yozuv amallari uchun.
 const WRITE_ACTIONS = new Set([
   'SERVICE_ENTRY', 'PARTNER_CONTRACT', 'EXPENSE_ENTRY', 'INCOME_ENTRY', 'MATERIAL_SALE', 'ITEM_ENTRY', 'ITEM_SALE', 'ITEM_GIVEAWAY', 'STATUS_UPDATE',
-  'SERVICE_EDIT', 'CLIENT_EDIT', 'PAYMENT_UPDATE', 'DEBT_REMINDER',
+  'SERVICE_EDIT', 'CLIENT_EDIT', 'PAYMENT_UPDATE', 'DEBT_REMINDER', 'FINE_ENTRY', 'FINE_PAID',
 ]);
 
 function looksLikeQuestion(text) {
@@ -174,6 +175,12 @@ function hasConcreteSignal(action, f = {}) {
     case 'DEBT_REMINDER':
       // Aniq qarz: kim + summa + sana (uchalasi bo'lsa haqiqiy yangi qarz eslatmasi).
       return Boolean(f.person && typeof f.amount === 'number' && f.amount > 0 && f.dueDate);
+    case 'FINE_ENTRY':
+      // Aniq jarima: summa yoki to'lov vaqti yoki "to'ladim" — tasodifiy so'z emas.
+      return Boolean((typeof f.amount === 'number' && f.amount > 0) || f.dueDate || f.paidNow === true);
+    case 'FINE_PAID':
+      // Sessiya o'rtasida jarima to'lovi deb sessiyani buzmaymiz — juda kam signal.
+      return false;
     case 'SERVICE_EDIT':
     case 'CLIENT_EDIT':
       return Boolean(f.editField || f.newValue);
@@ -213,6 +220,7 @@ const TOOL_BY_INTENT = {
   CLIENT_EDIT: 'edit_client',
   PAYMENT_UPDATE: 'record_payment',
   DEBT_REMINDER: 'create_debt_reminder',
+  FINE_ENTRY: 'create_fine',
   SEARCH_QUERY: 'search_data',
   ANALYTICS_QUERY: 'get_analytics',
 };
@@ -274,8 +282,13 @@ export async function runAgent({ understanding, rawText = '', conversation = nul
     case 'ITEM_SALE':
     case 'ITEM_GIVEAWAY':
     case 'DEBT_REMINDER':
+    case 'FINE_ENTRY':
       if (mode === 'query') return { text: "Buni bot orqali bajaramiz oka. Bu yer faqat qidiruv va tahlil uchun." };
       return startEntry({ conversation, intent: action, fields: understanding.fields || {}, rawText, mode, sourceMeta });
+
+    case 'FINE_PAID':
+      if (mode === 'query') return { text: "Buni bot orqali bajaramiz oka. Bu yer faqat qidiruv va tahlil uchun." };
+      return handleFinePaid({ fields: understanding.fields || {}, conversation });
 
     case 'STATUS_UPDATE':
       return handleStatusUpdate({ fields: understanding.fields || {}, rawText, conversation, mode });
@@ -396,7 +409,7 @@ async function startClarify({ clarify, understanding, rawText, conversation }) {
 
 // ── Valyuta (dollar/so'm) aniqlash va avtomatik konvertatsiya ────────────────
 // Qaysi maydon pul summasi (intent bo'yicha).
-const AMOUNT_KEY = { SERVICE_ENTRY: 'price', PARTNER_CONTRACT: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount', MATERIAL_SALE: 'amount', ITEM_ENTRY: 'estimatedPrice', ITEM_SALE: 'amount', DEBT_REMINDER: 'amount' };
+const AMOUNT_KEY = { SERVICE_ENTRY: 'price', PARTNER_CONTRACT: 'price', EXPENSE_ENTRY: 'amount', INCOME_ENTRY: 'amount', MATERIAL_SALE: 'amount', ITEM_ENTRY: 'estimatedPrice', ITEM_SALE: 'amount', DEBT_REMINDER: 'amount', FINE_ENTRY: 'amount' };
 const USD_RE = /(\$|dollar|dollor|\bdoll?ar\b|\busd\b)/i;
 
 function detectUsd(text) {
@@ -1842,6 +1855,9 @@ async function executeAgentTool(name, args) {
     case 'create_debt_reminder':
       return createDebtReminder(args);
 
+    case 'create_fine':
+      return createFine(args);
+
     case 'search_data':
       return searchAgentData(args);
 
@@ -2219,6 +2235,17 @@ function fallbackToolCall(intent, fields, rawText) {
           date: fields.date || null,
         },
       };
+    case 'create_fine':
+      return {
+        name,
+        args: {
+          amount: fields.amount, // allaqachon so'mda (kerak bo'lsa konvertatsiya qilingan)
+          paidNow: fields.paidNow === true,
+          dueDate: fields.dueDate || null,
+          eventDate: fields.eventDate || fields.date || null,
+          description: fields.description || fields.note || fields.notes || '',
+        },
+      };
     case 'create_debt_reminder':
       return {
         name,
@@ -2313,6 +2340,11 @@ function applyEntryDefaults(intent, fields) {
     if (!out.eventDate) out.eventDate = out.date || new Date().toISOString();
     if (out.direction !== 'taken') out.direction = 'given';
   }
+  if (intent === 'FINE_ENTRY') {
+    // Jarima OLINGAN sana doim yoziladi (aytilmasa bugun).
+    if (!out.eventDate) out.eventDate = out.date || new Date().toISOString();
+    out.paidNow = out.paidNow === true;
+  }
   return out;
 }
 
@@ -2368,6 +2400,7 @@ const CATEGORY_LABEL = {
   tamirlash: "Ta'mirlash",
   'oziq-ovqat': 'Oziq-ovqat',
   svalka: 'Svalka',
+  jarima: 'Moshina jarimasi',
   boshqa_chiqim: 'Boshqa',
   boshqa_kirim: 'Boshqa kirim',
 };
@@ -2437,6 +2470,8 @@ function fallbackResponse(toolName, result) {
       return `Boldi oka, ${formatMoney(result.amountApplied)} to'lovni yozib qo'ydim ✅`;
     case 'create_debt_reminder':
       return debtReminderSummary(result);
+    case 'create_fine':
+      return fineSummary(result);
     case 'search_data':
       return searchSummary(result);
     case 'get_analytics':
@@ -2468,6 +2503,77 @@ function debtReminderSummary(result) {
   }
   lines.push(`📅 ${when} da eslatib qo'yaman.`);
   return lines.join('\n');
+}
+
+// Jarima saqlangach egaga javob — uch holat: darhol to'landi / eslatmali / shunchaki yozildi.
+function fineSummary(result) {
+  const r = result?.reminder || {};
+  const lines = [`🚔 Boldi oka, moshina jarimasini yozib qo'ydim (${formatDateTime(r.eventDate)}).`];
+  if (r.amount > 0) lines.push(`💰 Summa: ${formatMoney(r.amount)}`);
+  if (result?.paidRecorded) {
+    lines.push(`💸 To'langani chiqimga yozildi — joriy balans: ${formatMoney(result.balanceAfter)}`);
+  } else if (result?.paidNow) {
+    // "To'ladim" deyildi, lekin summa aytilmadi — chiqim yozilmadi, summa kutilyapti.
+    lines.push("Summasini aytsangiz, chiqimga yozib balansdan ayirib qo'yaman oka.");
+  } else if (r.dueDate) {
+    lines.push(`🔔 ${formatDateTime(r.dueDate)} da "to'lang" deb bir marta eslataman.`);
+  } else {
+    lines.push("To'lov vaqti aytilmadi — eslatma qo'ymadim. \"Shtrafni to'ladim\" desangiz chiqimga yozaman.");
+  }
+  return lines.join('\n');
+}
+
+// "Shtrafni to'ladim" — oldin yozilgan jarimani to'lash. Summa aytilgan yoki yozuvda bor
+// bo'lsa darhol chiqim; bo'lmasa FINE_AMOUNT holatiga o'tib summani so'raymiz.
+async function handleFinePaid({ fields = {}, conversation = null }) {
+  const stated = typeof fields.amount === 'number' && fields.amount > 0 ? fields.amount : 0;
+  const fine = await findPayableFine();
+
+  if (!fine) {
+    if (stated > 0) {
+      // Yozilmagan jarima to'landi — yangi "darhol to'langan" jarima sifatida saqlaymiz.
+      const created = await createFine({ amount: stated, paidNow: true });
+      return { text: fineSummary(created), tool: 'create_fine', result: created };
+    }
+    return { text: "To'lanmagan moshina jarimasi topolmadim oka. Yangi bo'lsa \"shtrafga tushdim\" deb ayting." };
+  }
+
+  const amount = stated || fine.amount || 0;
+  if (amount > 0) {
+    const paid = await payFine(fine._id, { amount });
+    return {
+      text: `✅ Boldi oka, ${FINE_TEXT.toLowerCase()} to'landi — ${formatMoney(paid.paidAmount)} chiqimga yozildi.\n💸 Joriy balans: ${formatMoney(paid.balanceAfter)}`,
+      tool: 'pay_fine',
+      result: paid,
+    };
+  }
+
+  // Summa noma'lum — so'raymiz; javob message.js'da FINE_AMOUNT holati orqali qaytadi.
+  if (conversation) {
+    conversation.pendingIntent = 'FINE_AMOUNT';
+    conversation.collected = { fineId: String(fine._id) };
+    conversation.awaitingField = 'amount';
+    conversation.markModified('collected');
+    await conversation.save();
+  }
+  return { text: "💰 Jarima summasi qancha edi oka? (masalan: 150 ming)" };
+}
+
+// FINE_AMOUNT holatidagi javob: summa parse bo'lsa jarima to'lanadi; bo'lmasa qayta so'raladi.
+// message.js chaqiradi — biznes mantiq shu yerda (bot va boshqa kirish nuqtalari umumiy).
+export async function handleFineAmountReply({ conversation, rawText }) {
+  const fineId = conversation?.collected?.fineId;
+  const amount = parseMoney(rawText);
+  if (!(typeof amount === 'number' && amount > 0)) {
+    return { text: "Summani tushunmadim oka, raqam bilan ayting (masalan: 150 ming yoki 150000)." };
+  }
+  await conversation.reset();
+  const paid = await payFine(fineId, { amount });
+  return {
+    text: `✅ Boldi oka, jarima to'landi — ${formatMoney(paid.paidAmount)} chiqimga yozildi.\n💸 Joriy balans: ${formatMoney(paid.balanceAfter)}`,
+    tool: 'pay_fine',
+    result: paid,
+  };
 }
 
 function serviceSummary(service) {

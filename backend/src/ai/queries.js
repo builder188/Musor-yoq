@@ -14,7 +14,7 @@ import {
 } from '../services/serviceService.js';
 import { formatMoney } from '../utils/money.js';
 import { formatDateTime, formatTime } from '../utils/dates.js';
-import { smallTalkReply as sharedSmallTalkReply } from './smallTalk.js';
+import { smallTalkReply } from './smallTalk.js';
 
 // Xarajat toifasi -> ko'rsatiladigan o'zbekcha nom (balans hisobotidagi xarajat satrlari uchun).
 const CATEGORY_LABEL = {
@@ -181,51 +181,6 @@ async function buildNextClientReport() {
   return { text, tool: 'next_client' };
 }
 
-// ── Oddiy suhbat (salom / rahmat / xayr / ahvol) ─────────────────────────────
-// Egasi shunchaki salomlashsa yoki rahmat aytsa, dastur buni QIDIRUV deb o'ylamasligi
-// kerak ("hech narsa topilmadi" javobi xato edi). Bunday xabarlarga iliq, qisqa javob.
-// Juda ehtiyotkor: raqam yoki ma'lumotga ishora (qancha, mijoz, balans, manzil...) bo'lsa —
-// suhbat EMAS, oddiy qidiruv/savol sifatida o'tkazib yuboramiz.
-// Diqqat: stemlar (qalays-, yaxshimi-) trailing \b SIZ — qo'shimchali shakllarni
-// ham ushlash uchun ("qalaysiz", "yaxshimisiz"). "xayr" (xayrlashuv) ESA \bxayr\b —
-// "xayrli kun" (salomlashuv) bilan chalkashmasin.
-const SMALL_TALK = [
-  { cat: 'thanks', re: /\b(rahmat|raxmat|rahmet|rhmat|rhamat|rakhmat|tashakkur|minnatdor)\b/ },
-  { cat: 'bye', re: /(\bxayr\b|ko'rishg|korishg|salomat\s*bo|omon\s*bo)/ },
-  { cat: 'howareyou', re: /\b(qalays|yaxshimi|naxshimi|ishlaring|tinchlik)/ },
-  { cat: 'greeting', re: /\b(assalom|salom|alik|alaykum|hayrli|xayrli)/ },
-  { cat: 'ack', re: /^(zo'?r|ok(ay)?|mayli|xo'?p|yaxshi|barakalla|super)\b/ },
-];
-
-const SMALL_TALK_REPLY = {
-  thanks: "Arzimaydi oka! 😊 Yana biror narsa kerak bo'lsa shu yerdaman.",
-  bye: "Xayr oka, omon bo'ling! 👋",
-  howareyou: "Rahmat oka, men joyidaman! 😊 Ishlar bo'yicha nima kerak — mijoz, xizmat, xarajat yoki hisobot?",
-  greeting: "Va alaykum assalom oka! 👋 Xizmatingizdaman — mijoz, xizmat, xarajat yoki hisobot bo'yicha nima kerak?",
-  ack: 'Xizmatingizdaman oka 😊',
-};
-
-function smallTalkReply(rawText = '') {
-  const v = String(rawText || '').toLowerCase().trim();
-  if (!v) return null;
-  if (/\d/.test(v)) return null; // raqam bor — suhbat emas
-  // Ma'lumotga ishora bo'lgan gap (qidiruv/savol/yozuv) — suhbat emas. Biznes so'zlari STEM
-  // sifatida tekshiriladi (qo'shimchali shakllar ham: "mijozlar", "xizmatlar", "narxi") —
-  // trailing \b qo'yilsa "mijozlar" tushib qolib, "salom mijozlar" xato suhbat bo'lardi.
-  if (/(qancha|nechta|necha|qachon|qayer|qaysi|balans|foyda|daromad|xarajat|qarz|mijoz|xizmat|hisob|royxat|ro'yxat|manzil|narx|telefon|kirim|chiqim|to'lov|tolov)/.test(v)) {
-    return null;
-  }
-  // Qisqa, ko'p ma'noli so'zlar faqat butun so'z sifatida bloklaydi.
-  if (/\b(kim|bor)\b/.test(v)) return null;
-  const words = v.split(/\s+/).filter(Boolean);
-  if (words.length > 6) return null; // uzun gap — ehtimol haqiqiy so'rov
-  for (const { cat, re } of SMALL_TALK) {
-    if (cat === 'ack' && words.length > 3) continue; // "ok/zo'r" faqat qisqa tasdiq sifatida
-    if (re.test(v)) return { text: SMALL_TALK_REPLY[cat], tool: 'small_talk' };
-  }
-  return null;
-}
-
 // Yagona kirish nuqtasi — bot va Mini App ikkalasi shu orqali javob oladi.
 // Standart shablon yoki suhbatga mos kelsa {text, tool}, aks holda null (umumiy qidiruvga o'tadi).
 export async function answerReadQuery({ rawText = '', fields = {}, isAnalytics = false } = {}) {
@@ -233,8 +188,9 @@ export async function answerReadQuery({ rawText = '', fields = {}, isAnalytics =
   if (looksLikeNextClient(rawText, fields)) return buildNextClientReport();
   if (looksLikeTodayClients(rawText, fields)) return buildTodayClientsReport();
   if (looksLikeTodayServices(rawText, fields)) return buildTodayServicesReport();
-  // Data shabloniga mos kelmadi — oddiy salom/rahmat/xayr bo'lsa qidiruv emas, iliq javob.
-  const chat = sharedSmallTalkReply(rawText);
+  // Data shabloniga mos kelmadi — oddiy salom/rahmat/xayr bo'lsa qidiruv emas, iliq javob
+  // (yagona guard: ai/smallTalk.js — klassifikator bilan bir xil mezon).
+  const chat = smallTalkReply(rawText);
   if (chat) return chat;
   return null;
 }

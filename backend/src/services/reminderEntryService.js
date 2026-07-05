@@ -221,9 +221,21 @@ export async function updateDebtReminder(id, data = {}) {
 }
 
 // Qarz hal bo'ldi (qaytdi/to'lab yubordim) — balans tranzaksiyasi bekor qilinadi (tiklanadi).
-export async function markReminderDone(id) {
+// JARIMA (type='fine') TESKARI ishlaydi: "bajarildi" = to'landi, ya'ni chiqim ENDI yoziladi
+// (balans kamayadi) — fineService.payFine orqali. Summa berilmagan-u yozuvda ham yo'q bo'lsa
+// payFine aniq xato qaytaradi ("summani ayting") — Mini App/bot avval summani so'raydi.
+export async function markReminderDone(id, { amount } = {}) {
   const reminder = await Reminder.findOne({ _id: id, ...notDeleted });
   if (!reminder) throw badRequest("Eslatma topilmadi.");
+  if (reminder.type === REMINDER_TYPE.FINE) {
+    if (reminder.transactionId) {
+      // Allaqachon to'langan — takror chiqim yozmaymiz, shunchaki holatni qaytaramiz.
+      const summary = await getSummary('all');
+      return { reminder: serialize(reminder), balanceAfter: summary.balance };
+    }
+    const { payFine } = await import('./fineService.js');
+    return payFine(id, { amount });
+  }
   if (reminder.status !== REMINDER_STATUS.DONE) {
     if (reminder.affectsBalance && reminder.transactionId) await reverseBalanceTransaction(reminder.transactionId);
     reminder.status = REMINDER_STATUS.DONE;

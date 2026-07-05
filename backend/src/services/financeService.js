@@ -13,6 +13,7 @@ const CATEGORY_KEYWORDS = {
   tamirlash: [/\btamir/, /\bta'mir/, /\bshina/, /\bmoy\b/, /\behtiyot/, /\bzapchast/, /\bremont/],
   'oziq-ovqat': [/\bovqat/, /\bnon\b/, /\btushlik/, /\bchoy\b/, /\bkafe/, /\bsomsa/, /\boziq/],
   svalka: [/\bsvalka/, /\bsvarka/, /\bpoligon/, /\bmusorxona/, /\baxlatxona/, /\bchiqindi\s+poligoni/],
+  jarima: [/\bshtraf/, /\bjarima/, /штраф/],
 };
 
 const GENERIC_EXPENSE_WORDS = new Set(['pul', 'narsa', 'nimadir', 'kerakli narsa', 'xarajat', 'chiqim']);

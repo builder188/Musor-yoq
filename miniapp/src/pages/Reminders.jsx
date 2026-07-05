@@ -17,6 +17,7 @@ export default function Reminders() {
   const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(null);
+  const [payingFine, setPayingFine] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
   const load = async () => {
@@ -45,6 +46,10 @@ export default function Reminders() {
   );
 
   const markDone = async (reminder) => {
+    if (isFineReminder(reminder) && !(Number(reminder.amount) > 0)) {
+      setPayingFine(reminder);
+      return;
+    }
     setBusyId(reminder._id);
     try {
       await api.patch(`/reminders/${reminder._id}/done`);
@@ -134,30 +139,55 @@ export default function Reminders() {
           }}
         />
       )}
+
+      {payingFine && (
+        <FinePaymentModal
+          reminder={payingFine}
+          onClose={() => setPayingFine(null)}
+          onSaved={() => {
+            setPayingFine(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
 
 function ReminderCard({ reminder, t, lang, busy, onDone, onDelete }) {
+  const isFine = isFineReminder(reminder);
   const taken = reminder.direction === 'taken';
-  const who = reminder.person || reminder.text || '-';
+  const who = isFine ? t('reminders.fine') : (reminder.person || reminder.text || '-');
   const initial = (who || '?').trim().charAt(0).toUpperCase() || '?';
-  const overdue = reminder.status === 'pending' && new Date(reminder.dueDate) < new Date();
+  const dueText = reminder.dueDate ? formatDateTime(reminder.dueDate, lang) : '';
+  const overdue = reminder.status === 'pending' && reminder.dueDate && new Date(reminder.dueDate) < new Date();
+
   return (
     <div className={`list-item ${reminder.status !== 'pending' ? 'is-done' : ''}`} style={{ width: '100%' }}>
       <div className="job-card">
         <div className="avatar">{initial}</div>
         <div className="job-main">
           <div className="job-name">
-            {who} <span className="muted" style={{ fontWeight: 400 }}>· {taken ? t('reminders.taken') : t('reminders.given')}</span>
+            {who}
+            {!isFine && <span className="muted" style={{ fontWeight: 400 }}> - {taken ? t('reminders.taken') : t('reminders.given')}</span>}
           </div>
           <div className="job-sub">
-            🔔 {t('reminders.remindOn')}: {formatDateTime(reminder.dueDate, lang)}
+            {isFine ? (
+              <>
+                {t('reminders.fineReceivedOn')}: {formatDateTime(reminder.eventDate || reminder.createdAt, lang)}
+                <br />
+                {dueText ? `${t('reminders.remindOn')}: ${dueText}` : t('reminders.fineNoDue')}
+              </>
+            ) : (
+              <>{t('reminders.remindOn')}: {dueText}</>
+            )}
             {overdue && <span className="badge badge-pending" style={{ marginLeft: 6 }}>!</span>}
           </div>
           {reminder.amount > 0 && <div className="job-price">{formatMoney(reminder.amount)}</div>}
           <div className="muted" style={{ fontSize: 12 }}>
-            {reminder.affectsBalance ? t('reminders.inBalance') : t('reminders.notInBalance')}
+            {isFine
+              ? reminder.transactionId ? t('reminders.finePaid') : t('reminders.fineUnpaid')
+              : reminder.affectsBalance ? t('reminders.inBalance') : t('reminders.notInBalance')}
           </div>
           {reminder.note && <div className="muted" style={{ fontSize: 12 }}>{reminder.note}</div>}
         </div>
@@ -168,7 +198,7 @@ function ReminderCard({ reminder, t, lang, busy, onDone, onDelete }) {
       {reminder.status === 'pending' && (
         <div className="btn-row" style={{ marginTop: 8 }}>
           <button className="btn btn-primary btn-sm" onClick={onDone} disabled={busy}>
-            {busy ? '...' : t('reminders.markDone')}
+            {busy ? '...' : isFine ? t('reminders.finePaidBtn') : t('reminders.markDone')}
           </button>
           <button className="btn btn-danger btn-sm" onClick={onDelete} disabled={busy}>
             {t('common.delete')}
@@ -177,6 +207,46 @@ function ReminderCard({ reminder, t, lang, busy, onDone, onDelete }) {
       )}
     </div>
   );
+}
+
+function FinePaymentModal({ reminder, onClose, onSaved }) {
+  const { t } = useApp();
+  const [amount, setAmount] = useState(reminder.amount > 0 ? String(reminder.amount) : '');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    const paidAmount = Number(amount);
+    if (!(paidAmount > 0)) {
+      setError(t('reminders.fineAmountInvalid'));
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await api.patch(`/reminders/${reminder._id}/done`, { amount: paidAmount });
+      onSaved();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={t('reminders.fine')} onClose={onClose}>
+      <label className="label">{t('reminders.fineAmountPrompt')}</label>
+      <input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+      {error && <div className="muted" style={{ color: '#C62828', fontSize: 12, marginTop: 8 }}>{error}</div>}
+      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !(Number(amount) > 0)} style={{ marginTop: 12 }}>
+        {busy ? '...' : t('reminders.finePaidBtn')}
+      </button>
+    </Modal>
+  );
+}
+
+function isFineReminder(reminder) {
+  return reminder?.type === 'fine';
 }
 
 function ReminderFormModal({ onClose, onSaved }) {
