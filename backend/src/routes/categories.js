@@ -10,9 +10,30 @@ import {
   getOtherCategoryRecords,
   createMaterialCategory,
 } from '../services/categoryService.js';
+import { findDuplicateCategories, mergeCategoryPairs } from '../services/categoryMergeService.js';
+import { requireDeleteCode } from '../middleware/deleteCode.js';
 import { notifyMiniAppCreated } from '../services/miniAppNotifyService.js';
 
 const router = Router();
+
+// GET /api/categories/duplicates — ehtimoliy dublikat juftlar (deterministik + AI).
+// Hech narsa avtomatik birlashtirilmaydi — bu faqat tasdiqlash uchun ro'yxat.
+router.get(
+  '/duplicates',
+  asyncHandler(async (req, res) => {
+    res.json(await findDuplicateCategories());
+  })
+);
+
+// POST /api/categories/merge  body: { merges: [{kind, from, to}], confirmationCode }
+// Ma'lumotni doimiy o'zgartiradi — 1990-kod (requireDeleteCode) shart.
+router.post(
+  '/merge',
+  requireDeleteCode,
+  asyncHandler(async (req, res) => {
+    res.json(await mergeCategoryPairs(req.body?.merges || []));
+  })
+);
 
 // GET /api/categories — barcha material kategoriyalari (statistika bilan) + Kerakli buyumlar.
 router.get(

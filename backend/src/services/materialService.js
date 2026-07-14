@@ -6,6 +6,7 @@
 // kanonik shaklga keltirish (dublikatlarning oldini olish) va material bo'yicha statistika.
 import Transaction, { TX_TYPES, MATERIAL_CATEGORY } from '../models/Transaction.js';
 import { periodRange } from '../utils/dates.js';
+import { findVariantMatch } from '../utils/nameVariant.js';
 
 // Oldindan tanilgan 10 ta asosiy kategoriya. Bular doim tanilgan deb hisoblanadi;
 // ro'yxatda yo'q narsa aytilsa — yangi kategoriya o'sha nom bilan yaratiladi.
@@ -87,6 +88,12 @@ export async function resolveMaterialName(rawName) {
   for (const name of used) {
     if (materialKey(name) === key) return name;
   }
+
+  // 2.5) IMLO VARIANTI: "plasmasa" ~ "Plassmassa", "paxtalar" ~ "Paxta" — mavjud
+  // kategoriyaning aniq yozilishi qaytariladi, dublikat kategoriya OCHILMAYDI.
+  // Chinakam boshqa nom ("Yengil temir" vs "Og'ir temir") variant hisoblanmaydi.
+  const variant = findVariantMatch(cleaned, [...DEFAULT_MATERIALS, ...used]);
+  if (variant) return variant;
 
   // 3) Yangi kategoriya.
   return cleaned;

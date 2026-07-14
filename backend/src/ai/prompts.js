@@ -441,9 +441,32 @@ ${lines.join('\n')}
 `;
 }
 
-export function buildClassificationPrompt(text, history = []) {
+// Egasining MAVJUD kategoriya nomlari — Gemini yangi nom o'ylab topishdan oldin shu
+// ro'yxat bilan solishtirib, imlo/talaffuz varianti bo'lsa AYNAN mavjud yozilishni
+// qaytarishi kerak (dublikat kategoriya statistikani ikkiga bo'lib yuboradi).
+function formatKnownCategories(known) {
+  if (!known) return '';
+  const lines = [];
+  if (known.materials?.length) lines.push(`Materials: ${known.materials.join(', ')}`);
+  if (known.expenses?.length) lines.push(`Expense categories: ${known.expenses.join(', ')}`);
+  if (known.incomes?.length) lines.push(`Income categories: ${known.incomes.join(', ')}`);
+  if (!lines.length) return '';
+  return `
+--- OWNER'S EXISTING CATEGORIES (reuse EXACT spelling) ---
+${lines.join('\n')}
+Category matching rule: BEFORE returning a category or materialName as a new name,
+compare it against the lists above and THINK: is the owner's wording merely a
+spelling/pronunciation variant of an existing name (typo, doubled or missing letter,
+plural "-lar", case/apostrophe difference — e.g. spoken "plasmassa" when the list has
+"Plassmassa")? If yes, you MUST return the EXACT spelling from the list. Return a new
+name ONLY for a genuinely different category/material (e.g. "Yengil temir" and
+"Og'ir temir" are truly different — never merge those).
+`;
+}
+
+export function buildClassificationPrompt(text, history = [], knownCategories = null) {
   return `${buildSystemPrompt()}
-${formatHistory(history)}
+${formatKnownCategories(knownCategories)}${formatHistory(history)}
 --- USER INPUT (the owner's new message) ---
 ${text}`;
 }

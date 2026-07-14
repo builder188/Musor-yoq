@@ -17,6 +17,7 @@ import IncomeCategory from '../models/IncomeCategory.js';
 import { DEFAULT_MATERIALS, materialKey, getMaterialStats, listUsedMaterialNames } from './materialService.js';
 import { notifyOwner } from '../bot/notify.js';
 import { formatDateTime } from '../utils/dates.js';
+import { findVariantMatch } from '../utils/nameVariant.js';
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -91,6 +92,12 @@ export async function ensureMaterialCategory(rawName, { source = 'bot', notify =
   const existing = await MaterialCategory.findOne({ ...notDeleted, normalizedName: key });
   if (existing) return { name: existing.name, created: false };
 
+  // Imlo varianti ("plasmasa" ~ "Plassmassa") — yangi kategoriya OCHILMAYDI,
+  // mavjudining aniq yozilishi qaytariladi (dublikat statistikaning oldini oladi).
+  const knownNames = await listKnownMaterialNames();
+  const variant = findVariantMatch(name, knownNames);
+  if (variant) return { name: variant, created: false };
+
   const category = await MaterialCategory.create({ name, normalizedName: key, source });
   if (notify) {
     await notifyOwner(`🆕 Yangi kategoriya yaratildi: "${name}"\n📅 ${formatDateTime(new Date())} ✅`);
@@ -129,6 +136,13 @@ export async function ensureExpenseCategory(rawName, { source = 'bot', notify = 
   const existing = await ExpenseCategory.findOne({ ...notDeleted, normalizedName: key });
   if (existing) return { value: existing.name, created: false };
 
+  // Imlo varianti — mavjud kategoriyaga yoziladi, dublikat yaratilmaydi.
+  // (Default nomlar defaultExpenseBySlugOrKey'da aniq mos kelmagan bo'lsa ham
+  // variant sifatida shu yerda ushlanadi, mas. "yoqilgilar".)
+  const known = await listKnownExpenseCategories();
+  const variant = known.find((c) => findVariantMatch(name, [c.name]));
+  if (variant) return { value: variant.value, created: false };
+
   const displayName = name.charAt(0).toUpperCase() + name.slice(1);
   const category = await ExpenseCategory.create({ name: displayName, normalizedName: key, source });
   if (notify) {
@@ -156,6 +170,11 @@ export async function ensureIncomeCategory(rawName, { source = 'bot', notify = t
   const key = expenseKey(name);
   const existing = await IncomeCategory.findOne({ ...notDeleted, normalizedName: key });
   if (existing) return { value: existing.name, created: false };
+
+  // Imlo varianti — mavjud kirim kategoriyasiga yoziladi, dublikat yaratilmaydi.
+  const known = await listKnownIncomeCategories();
+  const variant = known.find((c) => findVariantMatch(name, [c.name]));
+  if (variant) return { value: variant.value, created: false };
 
   const displayName = name.charAt(0).toUpperCase() + name.slice(1);
   const category = await IncomeCategory.create({ name: displayName, normalizedName: key, source });

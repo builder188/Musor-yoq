@@ -203,6 +203,14 @@ export default {
     perKg: '1 kg narxi',
     inBalance: 'Balansda',
     notInBalance: 'Balansda emas',
+    mergeTool: 'Dublikatlarni birlashtirish',
+    mergeScan: 'Dublikatlar qidirilmoqda...',
+    mergeNone: 'Dublikat kategoriya topilmadi ✅',
+    mergeHint: "Belgilangan juftlikdagi barcha yozuvlar qoladigan nomga o'tkaziladi, ortiqcha kategoriya o'chiriladi.",
+    mergeKeep: 'Qoladigan nom',
+    mergeDo: 'Birlashtirish',
+    mergeDone: 'Birlashtirildi',
+    mergeMoved: "ta yozuv ko'chirildi",
   },
 
   finance: {

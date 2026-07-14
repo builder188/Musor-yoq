@@ -8,6 +8,7 @@ import { api } from '../api/client.js';
 import { getInitData } from '../telegram.js';
 import { formatMoney, formatDateTime, toInputDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
+import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import SheetTable from '../components/SheetTable.jsx';
 import Items from './Items.jsx';
@@ -20,6 +21,7 @@ export default function Categories() {
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState(null); // { kind, name, value }
   const [showItems, setShowItems] = useState(false);
+  const [merging, setMerging] = useState(false);
 
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -186,7 +188,13 @@ export default function Categories() {
   return (
     <div>
       {loadError && <LoadError onRetry={() => load()} />}
-      <h1 className="page-title">{t('categories.title')}</h1>
+      <div className="row-between" style={{ marginBottom: 8 }}>
+        <h1 className="page-title" style={{ marginBottom: 0 }}>{t('categories.title')}</h1>
+        {/* Bir martalik (va kerak bo'lsa qayta) dublikat tozalash vositasi. */}
+        <button className="btn btn-sm" onClick={() => setMerging(true)}>
+          🔀 {t('categories.mergeTool')}
+        </button>
+      </div>
 
       {loading ? (
         <Spinner />
@@ -208,7 +216,157 @@ export default function Categories() {
           t={t}
         />
       )}
+
+      {merging && (
+        <MergeDuplicatesModal
+          onClose={() => setMerging(false)}
+          onDone={() => {
+            setMerging(false);
+            load(true);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// "Dublikat kategoriyalarni birlashtirish": backend deterministik + AI bilan taxminiy
+// juftlarni topadi; foydalanuvchi HAR BIR juftlikni belgilab, qoladigan nomni tanlaydi
+// (standart — ko'proq ishlatilgani), so'ng 1990-kod bilan tasdiqlaydi. Avtomatik
+// birlashtirish YO'Q.
+function MergeDuplicatesModal({ onClose, onDone }) {
+  const { t } = useApp();
+  const [pairs, setPairs] = useState(null); // null = yuklanmoqda
+  const [scanError, setScanError] = useState(false);
+  const [chosen, setChosen] = useState({}); // pairKey -> qoladigan value ('' = tanlanmagan)
+  const [confirming, setConfirming] = useState(false);
+  const [doneResults, setDoneResults] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await api.get('/categories/duplicates');
+        if (alive) setPairs(Array.isArray(res?.pairs) ? res.pairs : []);
+      } catch {
+        if (alive) {
+          setScanError(true);
+          setPairs([]);
+        }
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const pairKey = (p) => `${p.kind}:${p.a.value}||${p.b.value}`;
+  const kindLabel = (kind) =>
+    kind === 'material' ? t('categories.materials') : kind === 'expense' ? t('finance.expense') : t('finance.income');
+
+  const toggle = (p) => {
+    const key = pairKey(p);
+    setChosen((c) => {
+      const next = { ...c };
+      if (next[key]) delete next[key];
+      else next[key] = p.suggested; // standart: ko'proq ishlatilgani / default tomon
+      return next;
+    });
+  };
+
+  const pickSurvivor = (p, value) => {
+    const key = pairKey(p);
+    setChosen((c) => ({ ...c, [key]: value }));
+  };
+
+  const merges = (pairs || [])
+    .filter((p) => chosen[pairKey(p)])
+    .map((p) => {
+      const to = chosen[pairKey(p)];
+      const from = to === p.a.value ? p.b.value : p.a.value;
+      return { kind: p.kind, from, to };
+    });
+
+  if (doneResults) {
+    return (
+      <Modal title={t('categories.mergeTool')} onClose={onDone}>
+        <div className="center" style={{ padding: '12px 0', fontSize: 15 }}>✅ {t('categories.mergeDone')}</div>
+        {doneResults.map((r, i) => (
+          <div key={i} className="sub" style={{ padding: '2px 0' }}>
+            "{r.from}" → "{r.to}" · {r.moved} {t('categories.mergeMoved')}
+          </div>
+        ))}
+        <button className="btn btn-primary btn-block mt-12" onClick={onDone}>OK</button>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title={`🔀 ${t('categories.mergeTool')}`} onClose={onClose}>
+      {pairs === null ? (
+        <div className="center" style={{ padding: '16px 0' }}>{t('categories.mergeScan')}</div>
+      ) : pairs.length === 0 ? (
+        <>
+          {scanError && <div className="error-banner" style={{ marginBottom: 10 }}>{t('common.loadError')}</div>}
+          {!scanError && <div className="center" style={{ padding: '16px 0' }}>{t('categories.mergeNone')}</div>}
+          <button className="btn btn-block" onClick={onClose}>{t('common.close')}</button>
+        </>
+      ) : (
+        <>
+          <div className="sub" style={{ marginBottom: 10 }}>{t('categories.mergeHint')}</div>
+          {pairs.map((p) => {
+            const key = pairKey(p);
+            const selected = chosen[key] || '';
+            // Default (asosiy) kategoriya o'chirilmaydi — qoladigan tomon faqat o'sha.
+            const lockValue = p.a.isDefault ? p.a.value : p.b.isDefault ? p.b.value : null;
+            return (
+              <div key={key} className="card" style={{ marginBottom: 10 }}>
+                <label className="card-row" style={{ padding: 0, cursor: 'pointer' }}>
+                  <span style={{ fontWeight: 600 }}>
+                    {p.a.name} ↔ {p.b.name}
+                  </span>
+                  <input type="checkbox" checked={!!selected} onChange={() => toggle(p)} />
+                </label>
+                <div className="sub" style={{ marginTop: 2 }}>
+                  {kindLabel(p.kind)} · {p.a.count + p.b.count} {t('categories.recordsCount')}
+                </div>
+                {selected && (
+                  <div style={{ marginTop: 8 }}>
+                    <div className="label" style={{ marginBottom: 4 }}>{t('categories.mergeKeep')}</div>
+                    <div className="btn-row">
+                      {[p.a, p.b].map((side) => (
+                        <button
+                          key={side.value}
+                          className={`btn btn-sm btn-block ${selected === side.value ? 'btn-primary' : ''}`}
+                          disabled={!!lockValue && lockValue !== side.value}
+                          onClick={() => pickSurvivor(p, side.value)}
+                        >
+                          {side.name} · {side.count}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <button className="btn btn-primary btn-block" disabled={!merges.length} onClick={() => setConfirming(true)}>
+            🔀 {t('categories.mergeDo')}{merges.length ? ` (${merges.length})` : ''}
+          </button>
+        </>
+      )}
+
+      {confirming && (
+        <ConfirmDeleteModal
+          title={t('categories.mergeTool')}
+          message={merges.map((m) => `"${m.from}" → "${m.to}"`).join(', ')}
+          onClose={() => setConfirming(false)}
+          onConfirm={async (code) => {
+            const res = await api.post('/categories/merge', { merges, confirmationCode: code });
+            setConfirming(false);
+            setDoneResults(Array.isArray(res?.results) ? res.results : []);
+          }}
+        />
+      )}
+    </Modal>
   );
 }
 

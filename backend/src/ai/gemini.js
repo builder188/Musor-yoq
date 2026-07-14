@@ -953,11 +953,38 @@ function smallTalkUnderstanding() {
 // STEP 2: intent classification with Gemini function calling enabled.
 // `history` — oxirgi ~10 xabar ([{role, text}]); qisqa javoblarni botning oldingi
 // savoli kontekstida talqin qilish uchun prompt'ga qo'shiladi (ixtiyoriy).
+// Egasining mavjud kategoriya nomlarini yuklaydi (prompt uchun). Tenant kontekstidan
+// tashqarida yoki DB xatosida null — tasniflash ro'yxatsiz davom etadi (fail-safe).
+// Dynamic import — categoryService bot/notify orqali botga bog'lanadi, statik import
+// gemini.js bilan sikl hosil qilishi mumkin.
+async function loadKnownCategoriesSafe() {
+  try {
+    const { listKnownMaterialNames, listKnownExpenseCategories, listKnownIncomeCategories } = await import(
+      '../services/categoryService.js'
+    );
+    const [materials, expenses, incomes] = await Promise.all([
+      listKnownMaterialNames(),
+      listKnownExpenseCategories(),
+      listKnownIncomeCategories(),
+    ]);
+    return {
+      materials: materials.slice(0, 60),
+      expenses: expenses.map((c) => c.name).slice(0, 60),
+      incomes: incomes.map((c) => c.name).slice(0, 60),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function classifyIntent(text, history = []) {
   // Deterministik guard: sof salom/rahmat/xayr Gemini'ga bormaydi — HAR DOIM SUXBAT
   // (qidiruv/xizmat deb adashishning oldini oladi, javob ham tezlashadi).
   if (isPureSmallTalk(text)) return smallTalkUnderstanding();
-  const prompt = buildClassificationPrompt(text, history);
+  // Mavjud kategoriyalar prompt'ga qo'shiladi — Gemini imlo variantini yangi nom deb
+  // emas, mavjud kategoriyaning aynan yozilishi bilan qaytaradi (dublikat oldini olish).
+  const knownCategories = await loadKnownCategoriesSafe();
+  const prompt = buildClassificationPrompt(text, history, knownCategories);
   const res = await generate(functionCallingModel, prompt);
   const args = functionArgs(res.response);
   const understanding = args
@@ -993,6 +1020,37 @@ Rules:
 - Keep expense/income category exactly as extracted (free-form names allowed); the server stores new names as dynamic categories.`);
 
   return namedFunctionCall(res.response, AGENT_TOOL_NAMES);
+}
+
+// Dublikat kategoriya juftlarini AI bilan aniqlash — "Dublikatlarni birlashtirish"
+// vositasi uchun BITTA chaqiruv (foydalanuvchi tugmani bosganda ishlaydi, yozish
+// oqimiga latensiya qo'shmaydi). groups = { material: [..], expense: [..], income: [..] }.
+// Qaytadi: [{ kind, a, b }] — a/b ro'yxatdagi AYNAN yozilishlar. Xatoda [] (deterministik
+// aniqlash baribir ishlaydi).
+export async function suggestDuplicatePairs(groups) {
+  try {
+    const res = await generate(textModel, `You are deduplicating category names for an Uzbek
+trash-collection business. For each kind below, find pairs of names that are ALMOST
+CERTAINLY the same category spelled differently: typos, doubled/missing letters,
+plural "-lar", apostrophe/case differences, Latin-Cyrillic transliteration
+(e.g. "Plasmassa" ~ "Plassmassa", "paxtalar" ~ "Paxta").
+Do NOT pair genuinely different categories (e.g. "Yengil temir" vs "Og'ir temir",
+"Plastik" vs "Plassmassa" are DIFFERENT).
+
+Material categories: ${JSON.stringify(groups.material || [])}
+Expense categories: ${JSON.stringify(groups.expense || [])}
+Income categories: ${JSON.stringify(groups.income || [])}
+
+Return ONLY JSON (no prose):
+{"pairs":[{"kind":"material|expense|income","a":"exact name from list","b":"exact name from list"}]}
+If there are no duplicates: {"pairs":[]}`);
+    const parsed = safeParseJson(res.response.text());
+    const pairs = Array.isArray(parsed?.pairs) ? parsed.pairs : Array.isArray(parsed) ? parsed : [];
+    return pairs.filter((p) => p && p.a && p.b && ['material', 'expense', 'income'].includes(p.kind));
+  } catch (err) {
+    console.error('suggestDuplicatePairs xatosi:', err.message);
+    return [];
+  }
 }
 
 export async function formulateToolResponse({ toolName, toolArgs, toolResult, rawText = '' }) {

@@ -1,5 +1,10 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-14 (3) Kategoriya dublikatlari tuzatildi
+- `utils/nameVariant.js` — imlo-variant matcher; ensure*/resolveMaterialName yangi kategoriya ochishdan oldin tekshiradi; classifyIntent prompt'iga mavjud kategoriyalar ro'yxati qo'shildi (yozish oqimiga Gemini chaqiruvi qo'shilmagan).
+- Kategoriyalar sahifasida "🔀 Dublikatlarni birlashtirish": GET /categories/duplicates (deterministik + bitta Gemini chaqiruvi) → juftlik tasdiqlash + qoladigan nom tanlash (default qulflangan) → POST /categories/merge 1990-kod bilan; bot xabari ketadi. Istalgan payt qayta ishlatiladi.
+- Tekshirildi: matcher 15 keysli sanity test PASS; merge UI oqimi mock bilan preview'da to'liq; barcha backend fayllar node --check OK; miniapp build OK. Real Gemini/Mongo bilan smoke qilinmagan (lokal bot 409 tuzog'i).
+
 ## 2026-07-14 (2) Sahifaga xos jadval talablari
 - Xizmatlar: funnel sana-filtri (Barchasi/Bugungi/Kelajakdagi/Tarixdagi/Oy — 12 oy select) + filtrlangan xizmatlar jami narxi.
 - Kirim: hamma tur bitta jadvalda, Turi ustuni + turi filtri (hamkorlik = serviceId→clientId→isPartner); Chiqim: kategoriya filtri (jarima labeli bor); ikkalasida filtr bo'yicha jami; davr segmentida endi "Barchasi" ham.
