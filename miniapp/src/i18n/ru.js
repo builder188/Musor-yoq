@@ -98,6 +98,9 @@ export default {
     monthVisits: 'Визитов за {month}',
     visitTimes: 'раз',
     optional: 'необязательно',
+    servicesCount: 'Число услуг',
+    totalPaid: 'Оплачено всего',
+    debt: 'Долг',
   },
 
   services: {
@@ -162,6 +165,14 @@ export default {
     sentToChat: 'Готово! Отправил в ваш чат Telegram 👇',
     genError: 'Ой, возникла ошибка, попробуем ещё раз?',
     retry: 'Повторить',
+    // Столбец и фильтр «Тип» в таблице доходов.
+    incomeTypes: {
+      xizmat: 'Услуга',
+      material: 'Материал',
+      buyum: 'Предмет',
+      qolda: 'Ручной доход',
+      hamkorlik: 'Партнёрство',
+    },
   },
 
   items: {
@@ -177,6 +188,7 @@ export default {
     soldAmount: 'Сумма продажи',
     markSold: 'Продано',
     giveAway: 'Отдано',
+    addedAt: 'Дата добавления',
     searchPlaceholder: 'Поиск вещи...',
     empty: 'Полезных вещей нет',
     status: {
@@ -312,6 +324,7 @@ export default {
     xizmat: 'Услуга',
     boshqa_kirim: 'Прочий доход',
     qarz: 'Долг',
+    jarima: 'Штраф за машину',
   },
 
   paymentStatus: {
@@ -358,6 +371,11 @@ export default {
     partialPaid: 'Оплаченная сумма (сум)',
     special: 'Специальный',
     open: 'Открыть',
+    filter: 'Фильтр',
+    fToday: 'Сегодняшние',
+    fFuture: 'Будущие',
+    fPast: 'Прошедшие',
+    fMonth: 'По месяцу',
   },
 
   confirm: {

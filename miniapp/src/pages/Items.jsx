@@ -112,7 +112,7 @@ export default function Items({ onBack = null }) {
     },
     {
       key: 'date',
-      title: t('common.date'),
+      title: t('items.addedAt'),
       width: 160,
       type: 'text',
       draft: false,

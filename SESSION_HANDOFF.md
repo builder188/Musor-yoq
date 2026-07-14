@@ -1,5 +1,11 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-14 (2) Sahifaga xos jadval talablari
+- Xizmatlar: funnel sana-filtri (Barchasi/Bugungi/Kelajakdagi/Tarixdagi/Oy — 12 oy select) + filtrlangan xizmatlar jami narxi.
+- Kirim: hamma tur bitta jadvalda, Turi ustuni + turi filtri (hamkorlik = serviceId→clientId→isPartner); Chiqim: kategoriya filtri (jarima labeli bor); ikkalasida filtr bo'yicha jami; davr segmentida endi "Barchasi" ham.
+- Kategoriyalar: material qatorida jami kg ustuni; Mijozlar: servicesCount/totalPaid/currentDebt (backend listClients aggregatsiyasi) + qator bosishda mavjud tafsilot modali (onRowOpen).
+- Tekshirildi: mock API + preview'da barcha filtr/jami hisoblar DOM orqali; miniapp build OK; clientService syntax OK.
+
 ## 2026-07-14 Spreadsheet ko'rinishi (Mini App ro'yxat sahifalari)
 - **`SheetTable.jsx` umumiy komponent** — Xizmatlar/Moliya(Kirim+Chiqim)/Kategoriyalar/Mijozlar/Buyumlar endi Google Sheets uslubidagi jadval: joyida tahrirlash, enum dropdownlar, ustun resize (localStorage), barcha ustunlar bo'yicha qidiruv, "+" bo'sh qator (formasiz, immediate-save), sticky birinchi ustun, 1990-kod o'chirish o'zgarmagan. Sozlamalar/Eslatmalar/Hisobotlar tegilmagan.
 - **Barcha tahrirlar mavjud API orqali** (PUT/PATCH) — narx→daromad qayta hisob, holat→complete/cancel, to'lov holati→paidAmount, buyum sotildi→SellModal; bot notifikatsiyasi server tomonda avtomatik.

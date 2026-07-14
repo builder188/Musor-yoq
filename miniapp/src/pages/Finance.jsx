@@ -12,7 +12,8 @@ import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import SheetTable from '../components/SheetTable.jsx';
 import LoadError from '../components/LoadError.jsx';
 
-const PERIODS = ['today', 'month', 'year'];
+const PERIODS = ['today', 'month', 'year', 'all'];
+const INCOME_TYPES = ['xizmat', 'material', 'buyum', 'qolda', 'hamkorlik'];
 
 export default function Finance() {
   const { t, lang } = useApp();
@@ -23,21 +24,28 @@ export default function Finance() {
   const [materials, setMaterials] = useState([]);
   const [incomeSources, setIncomeSources] = useState(null);
   const [stockItems, setStockItems] = useState([]);
+  const [partnerServiceIds, setPartnerServiceIds] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const [downloading, setDownloading] = useState(false);
+  // Jadval filtrlari: kirim — turi bo'yicha, chiqim — kategoriya bo'yicha.
+  const [incomeFilter, setIncomeFilter] = useState('all');
+  const [expenseFilter, setExpenseFilter] = useState('all');
 
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [s, c, tx, mat, src, items] = await Promise.all([
+      const [s, c, tx, mat, src, items, services, clients] = await Promise.all([
         api.get(`/finance/summary?period=${period}`),
         api.get('/finance/chart'),
         api.get(`/finance/transactions?period=${period}`),
         api.get(`/finance/materials?period=${period}`),
         api.get(`/finance/income-sources?period=${period}`),
         api.get('/items?status=available'),
+        // Hamkorlik tashrifini aniqlash uchun: tx.serviceId -> service.clientId -> client.isPartner.
+        api.get('/services'),
+        api.get('/clients'),
       ]);
       setSummary(s);
       setChart(c);
@@ -45,6 +53,7 @@ export default function Finance() {
       setMaterials(Array.isArray(mat) ? mat : []);
       setIncomeSources(src && Array.isArray(src.sources) ? src : null);
       setStockItems(Array.isArray(items) ? items : []);
+      setPartnerServiceIds(buildPartnerServiceIds(asArray(services), asArray(clients)));
       setLoadError(false);
     } catch {
       // Yuklash xatosi bo'sh ro'yxatga aylanmasin — aniq banner (yozuvlar bazada turibdi).
@@ -55,6 +64,7 @@ export default function Finance() {
       setMaterials([]);
       setIncomeSources(null);
       setStockItems([]);
+      setPartnerServiceIds(new Set());
     } finally {
       if (!silent) setLoading(false);
     }
@@ -66,8 +76,36 @@ export default function Finance() {
   }, [period]);
 
   const bars = makeBars(chart, lang);
-  const incomes = transactions.filter((tx) => tx.type === 'income');
-  const expenses = transactions.filter((tx) => tx.type === 'expense');
+
+  // BARCHA kirim turlari bitta jadvalda — "turi" (__srcType) ustuni bilan farqlanadi.
+  const incomes = useMemo(
+    () =>
+      transactions
+        .filter((tx) => tx.type === 'income')
+        .map((tx) => ({ ...tx, __srcType: incomeSrcType(tx, partnerServiceIds) })),
+    [transactions, partnerServiceIds]
+  );
+  const filteredIncomes = useMemo(
+    () => (incomeFilter === 'all' ? incomes : incomes.filter((tx) => tx.__srcType === incomeFilter)),
+    [incomes, incomeFilter]
+  );
+  const incomeTotal = useMemo(() => filteredIncomes.reduce((sum, tx) => sum + (tx.amount || 0), 0), [filteredIncomes]);
+
+  const expenses = useMemo(() => transactions.filter((tx) => tx.type === 'expense'), [transactions]);
+  // Kategoriya filtri variantlari — yuklangan yozuvlardagi mavjud kategoriyalardan.
+  const expenseCategories = useMemo(() => {
+    const seen = new Map();
+    expenses.forEach((tx) => {
+      const value = tx.category || 'boshqa_chiqim';
+      if (!seen.has(value)) seen.set(value, categoryLabel(t, value));
+    });
+    return Array.from(seen, ([value, label]) => ({ value, label }));
+  }, [expenses, t]);
+  const filteredExpenses = useMemo(
+    () => (expenseFilter === 'all' ? expenses : expenses.filter((tx) => (tx.category || 'boshqa_chiqim') === expenseFilter)),
+    [expenses, expenseFilter]
+  );
+  const expenseTotal = useMemo(() => filteredExpenses.reduce((sum, tx) => sum + (tx.amount || 0), 0), [filteredExpenses]);
 
   return (
     <div>
@@ -120,10 +158,39 @@ export default function Finance() {
           {stockItems.length > 0 && <StockItemsCard items={stockItems} t={t} />}
 
           <div className="section-title">↑ {t('finance.income')}</div>
+          {/* Turi filtri + joriy filtr bo'yicha jami. Davr filtri — yuqoridagi segment. */}
+          <div className="sheet-filterbar">
+            <span className="sheet-funnel" aria-hidden="true">▼</span>
+            <select
+              className="sheet-filter-select"
+              value={incomeFilter}
+              onChange={(e) => setIncomeFilter(e.target.value)}
+              aria-label={t('sheet.filter')}
+            >
+              <option value="all">{t('services.all')}</option>
+              {INCOME_TYPES.map((type) => (
+                <option key={type} value={type}>{t(`finance.incomeTypes.${type}`)}</option>
+              ))}
+            </select>
+            <div className="sheet-total">
+              {t('common.total')}: <b>+{formatNumber(incomeTotal)}</b> · {filteredIncomes.length} {t('home.countSuffix')}
+            </div>
+          </div>
           <TransactionsSheet
             id="finance-income"
             type="income"
-            rows={incomes}
+            rows={filteredIncomes}
+            leadColumns={[
+              {
+                key: '__srcType',
+                title: t('finance.type'),
+                width: 110,
+                type: 'text',
+                draft: false,
+                get: (r) => r.__srcType || '',
+                text: (r) => (r.__srcType ? t(`finance.incomeTypes.${r.__srcType}`) : ''),
+              },
+            ]}
             t={t}
             lang={lang}
             onChanged={() => load(true)}
@@ -131,10 +198,28 @@ export default function Finance() {
           />
 
           <div className="section-title">↓ {t('finance.expense')}</div>
+          {/* Kategoriya filtri + joriy filtr bo'yicha jami. */}
+          <div className="sheet-filterbar">
+            <span className="sheet-funnel" aria-hidden="true">▼</span>
+            <select
+              className="sheet-filter-select"
+              value={expenseFilter}
+              onChange={(e) => setExpenseFilter(e.target.value)}
+              aria-label={t('sheet.filter')}
+            >
+              <option value="all">{t('services.all')}</option>
+              {expenseCategories.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+            <div className="sheet-total">
+              {t('common.total')}: <b>−{formatNumber(expenseTotal)}</b> · {filteredExpenses.length} {t('home.countSuffix')}
+            </div>
+          </div>
           <TransactionsSheet
             id="finance-expense"
             type="expense"
-            rows={expenses}
+            rows={filteredExpenses}
             t={t}
             lang={lang}
             onChanged={() => load(true)}
@@ -162,9 +247,11 @@ export default function Finance() {
 
 // Kirim yoki Chiqim jadvali. Yangi qator o'sha turdagi tranzaksiya sifatida saqlanadi
 // (tur jadvalning o'zi bilan belgilangan — keyin o'zgartirish shart emas).
-function TransactionsSheet({ id, type, rows, t, lang, onChanged, onDelete }) {
+// leadColumns — jadval boshiga qo'shiladigan qo'shimcha ustunlar (masalan kirimda "Turi").
+function TransactionsSheet({ id, type, rows, leadColumns = [], t, lang, onChanged, onDelete }) {
   const columns = useMemo(
     () => [
+      ...leadColumns,
       {
         key: 'date',
         title: t('common.date'),
@@ -210,7 +297,8 @@ function TransactionsSheet({ id, type, rows, t, lang, onChanged, onDelete }) {
         apply: (r, v) => api.put(`/transactions/${r._id}`, { description: v }),
       },
     ],
-    [t, lang]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t, lang, leadColumns]
   );
 
   const draft = {
@@ -489,4 +577,31 @@ function normalizeTransactions(value) {
   if (Array.isArray(value)) return value;
   if (value && Array.isArray(value.items)) return value.items;
   return [];
+}
+
+function asArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.items)) return value.items;
+  return [];
+}
+
+// Hamkor mijozlarning xizmat IDlari — kirim tranzaksiyasini "Hamkorlik" deb belgilash uchun.
+function buildPartnerServiceIds(services, clients) {
+  const partnerClientIds = new Set(clients.filter((c) => c.isPartner).map((c) => String(c._id)));
+  return new Set(
+    services
+      .filter((s) => s.clientId && partnerClientIds.has(String(s.clientId)))
+      .map((s) => String(s._id))
+  );
+}
+
+// Kirim turi: xizmat / material / buyum / qo'lda kirim / hamkorlik tashrifi.
+// serviceId bo'lsa xizmat (hamkor mijozniki bo'lsa — hamkorlik); aks holda kategoriya
+// bo'yicha; kategoriyasiz yoki erkin kategoriya — qo'lda kiritilgan kirim.
+function incomeSrcType(tx, partnerServiceIds) {
+  if (tx.serviceId) return partnerServiceIds.has(String(tx.serviceId)) ? 'hamkorlik' : 'xizmat';
+  if (tx.category === 'material') return 'material';
+  if (tx.category === 'buyum') return 'buyum';
+  if (tx.category === 'xizmat') return 'xizmat';
+  return 'qolda';
 }

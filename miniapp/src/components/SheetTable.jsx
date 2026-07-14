@@ -94,6 +94,7 @@ export default function SheetTable({
   draft = null, // { defaults?, canSave(values), save(values) } — "+" qator uchun
   draftSignal = 0, // tashqi tugma "+" qatorni ochishi uchun (masalan bosh sahifadan)
   onDelete = null, // (row) => void — mavjud 1990-kod modal oqimini ochadi
+  onRowOpen = null, // (row) => void — o'qish-uchun katak/qator raqami bosilganda (tafsilot)
   actions = null, // (row) => JSX — qo'shimcha amal tugmalari
   rowDetail = null, // (row) => JSX|null — yoyiladigan tafsilot (ovoz va h.k.)
   emptyText = '',
@@ -253,16 +254,22 @@ export default function SheetTable({
               return (
                 <Fragment key={rid}>
                   <tr className={busyKey?.startsWith(`${rid}:`) ? 'sheet-busy' : ''}>
-                    <td className="sheet-rownum">{index + 1}</td>
+                    <td
+                      className={`sheet-rownum${onRowOpen ? ' openable' : ''}`}
+                      onClick={() => onRowOpen?.(row)}
+                    >
+                      {index + 1}
+                    </td>
                     {columns.map((col, i) => {
                       const editable = isEditable(col, row);
                       const isEditing = editing && editing.rowId === rid && editing.colKey === col.key;
                       return (
                         <td
                           key={col.key}
-                          className={`${i === 0 ? 'sheet-pin ' : ''}sheet-cell${editable ? ' editable' : ''}`}
+                          className={`${i === 0 ? 'sheet-pin ' : ''}sheet-cell${editable ? ' editable' : ''}${!editable && onRowOpen ? ' openable' : ''}`}
                           onClick={() => {
                             if (editable && !isEditing) setEditing({ rowId: rid, colKey: col.key });
+                            else if (!editable && onRowOpen) onRowOpen(row);
                           }}
                         >
                           {isEditing ? (

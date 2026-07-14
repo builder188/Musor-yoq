@@ -1996,3 +1996,40 @@ textarea.input {
   height: auto !important;
   white-space: normal;
 }
+
+/* Filtr paneli (funnel) va jami summa qatori */
+.sheet-filterbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sheet-funnel {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.sheet-filter-select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-input);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  max-width: 46vw;
+}
+.sheet-total {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.sheet-total b {
+  color: var(--text);
+}
+.sheet-rownum.openable,
+.sheet-cell.openable {
+  cursor: pointer;
+}

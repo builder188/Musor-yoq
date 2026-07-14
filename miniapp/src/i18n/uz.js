@@ -97,6 +97,9 @@ export default {
     monthVisits: '{month} oyida borilgan',
     visitTimes: 'marta',
     optional: 'ixtiyoriy',
+    servicesCount: 'Xizmatlar soni',
+    totalPaid: "To'langan summa",
+    debt: 'Qarz',
   },
 
   services: {
@@ -132,6 +135,7 @@ export default {
     soldAmount: 'Sotilgan summa',
     markSold: 'Sotildi',
     giveAway: 'Tekinga berildi',
+    addedAt: "Qo'shilgan sana",
     searchPlaceholder: 'Buyumni qidirish...',
     empty: 'Kerakli buyumlar yo\'q',
     status: {
@@ -243,6 +247,14 @@ export default {
     sentToChat: 'Tayyor! Telegram chatingizga yubordim 👇',
     genError: "Voy, xato chiqib qoldi oka, qayta urinib ko'ramizmi?",
     retry: 'Qayta urinish',
+    // Kirim jadvalidagi "Turi" ustuni va filtri.
+    incomeTypes: {
+      xizmat: 'Xizmat',
+      material: 'Material',
+      buyum: 'Buyum',
+      qolda: "Qo'lda kirim",
+      hamkorlik: 'Hamkorlik',
+    },
   },
 
   settings: {
@@ -332,6 +344,7 @@ export default {
     xizmat: 'Xizmat',
     boshqa_kirim: 'Boshqa kirim',
     qarz: 'Qarz',
+    jarima: 'Moshina jarimasi',
   },
 
   paymentStatus: {
@@ -357,6 +370,11 @@ export default {
     partialPaid: "To'langan summa (so'm)",
     special: 'Maxsus',
     open: 'Ochish',
+    filter: 'Filtr',
+    fToday: 'Bugungi',
+    fFuture: 'Kelajakdagi',
+    fPast: 'Tarixdagi',
+    fMonth: "Oy bo'yicha",
   },
 
   confirm: {

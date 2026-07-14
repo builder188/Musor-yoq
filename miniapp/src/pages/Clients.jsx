@@ -63,6 +63,11 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
 
   const putClient = (row, body) => api.put(`/clients/${row._id}`, body);
   const loc0 = (row) => row.locations?.[0] || null;
+  const allAddresses = (row) =>
+    (row.locations || [])
+      .map((l) => l?.address)
+      .filter(Boolean)
+      .join(' · ');
 
   const columns = [
     {
@@ -88,28 +93,46 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
       apply: (r, v) => putClient(r, { phone: v }),
     },
     {
+      // Barcha manzillar ko'rsatiladi; tahrir BIRINCHI manzilni yangilaydi
+      // (qolganlari tafsilot oynasida).
       key: 'location',
       title: t('common.location'),
-      width: 170,
+      width: 180,
       type: 'text',
       get: (r) => loc0(r)?.address || '',
-      text: (r) => loc0(r)?.address || '',
+      text: (r) => allAddresses(r),
       apply: (r, v) =>
         putClient(r, {
           location: { address: v, mapUrl: loc0(r)?.mapUrl || '', coordinates: loc0(r)?.coordinates || null },
         }),
     },
     {
-      key: 'mapUrl',
-      title: t('common.mapUrl'),
-      width: 130,
-      type: 'text',
-      get: (r) => loc0(r)?.mapUrl || '',
-      text: (r) => loc0(r)?.mapUrl || '',
-      apply: (r, v) =>
-        putClient(r, {
-          location: { address: loc0(r)?.address || '', mapUrl: v, coordinates: loc0(r)?.coordinates || null },
-        }),
+      key: 'servicesCount',
+      title: t('clients.servicesCount'),
+      width: 110,
+      type: 'number',
+      draft: false,
+      get: (r) => r.servicesCount ?? '',
+      text: (r) => String(r.servicesCount ?? 0),
+    },
+    {
+      key: 'totalPaid',
+      title: t('clients.totalPaid'),
+      width: 140,
+      type: 'number',
+      draft: false,
+      get: (r) => (r.totalPaid > 0 ? r.totalPaid : ''),
+      text: (r) => (r.totalPaid > 0 ? formatMoney(r.totalPaid) : ''),
+    },
+    {
+      key: 'currentDebt',
+      title: t('clients.debt'),
+      width: 120,
+      type: 'number',
+      draft: false,
+      get: (r) => (r.currentDebt > 0 ? r.currentDebt : ''),
+      text: (r) => (r.currentDebt > 0 ? formatMoney(r.currentDebt) : ''),
+      render: (r) => (r.currentDebt > 0 ? <span className="text-expense">{formatMoney(r.currentDebt)}</span> : ''),
     },
     {
       key: 'isPartner',
@@ -137,16 +160,6 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
         return putClient(r, { partnerPrice: Number(v) || 0 });
       },
     },
-    {
-      key: 'createdAt',
-      title: t('common.createdAt'),
-      width: 150,
-      type: 'text',
-      draft: false,
-      get: (r) => r.createdAt || '',
-      text: (r) => (r.createdAt ? formatDateTime(r.createdAt, lang) : ''),
-      // read-only: apply yo'q
-    },
   ];
 
   // Yangi qator: hamkorda ism yetarli, oddiy mijozda ism + telefon (backend qoidasi).
@@ -160,7 +173,7 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
     save: async (v) => {
       const isPartner = v.isPartner === 'true';
       const payload = { name: v.name, phone: v.phone || '', isPartner };
-      const location = v.location ? { address: v.location, mapUrl: v.mapUrl || '' } : null;
+      const location = v.location ? { address: v.location } : null;
       if (isPartner) {
         payload.partnerPrice = Number(v.partnerPrice) || 0;
         if (location) payload.partnerLocation = location;
@@ -188,6 +201,9 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
           draft={draft}
           draftSignal={draftSignal}
           onDelete={setDeleting}
+          // Qator (o'qish-uchun kataklar/raqam) bosilganda — chuqur tafsilot oynasi
+          // (to'liq xizmatlar tarixi bilan) ochiladi; bu qism o'zgarishsiz.
+          onRowOpen={(row) => openDetail(row._id)}
           actions={(row) => (
             <button type="button" aria-label={t('services.detail')} onClick={() => openDetail(row._id)}>
               ℹ️

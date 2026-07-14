@@ -79,6 +79,7 @@ export default function Categories() {
       name: m.name,
       typeLabel: t('categories.materials'),
       count: m.count || 0,
+      totalKg: m.totalKg || 0,
       totalText: m.total > 0 ? `+${formatNumber(m.total)}` : '',
       totalClass: 'text-income',
     })),
@@ -148,6 +149,16 @@ export default function Categories() {
       text: (r) => String(r.count ?? 0),
     },
     {
+      // Materiallar uchun jami sotilgan miqdor (kg); boshqa turlarda bo'sh.
+      key: 'totalKg',
+      title: t('categories.kg'),
+      width: 110,
+      type: 'number',
+      draft: false,
+      get: (r) => (r.totalKg > 0 ? r.totalKg : ''),
+      text: (r) => (r.totalKg > 0 ? `${formatNumber(r.totalKg)} kg` : ''),
+    },
+    {
       key: 'totalText',
       title: t('common.total'),
       width: 140,
@@ -187,6 +198,7 @@ export default function Categories() {
           rowKey={(r) => r.key}
           onChanged={() => load(true)}
           draft={draft}
+          onRowOpen={openRow}
           actions={(row) => (
             <button type="button" aria-label={t('sheet.open')} onClick={() => openRow(row)}>
               ›

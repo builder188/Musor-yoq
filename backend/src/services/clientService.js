@@ -72,6 +72,49 @@ function upsertLocation(locations, incoming) {
   return true;
 }
 
+// Har mijoz uchun xizmat statistikasi (jadval ustunlari): xizmatlar soni,
+// jami to'langan summa va joriy qarz (bajarilgan, lekin to'lanmagan qismi).
+// Bitta aggregatsiya — N+1 yo'q; tenant plugin avtomatik scope qiladi.
+async function serviceStatsByClient() {
+  const rows = await Service.aggregate([
+    { $match: { isDeleted: { $ne: true }, clientId: { $ne: null } } },
+    {
+      $group: {
+        _id: '$clientId',
+        servicesCount: { $sum: { $cond: [{ $ne: ['$status', SERVICE_STATUS.CANCELLED] }, 1, 0] } },
+        totalPaid: {
+          $sum: {
+            $cond: [{ $ne: ['$status', SERVICE_STATUS.CANCELLED] }, { $ifNull: ['$paidAmount', 0] }, 0],
+          },
+        },
+        // Qarz — faqat BAJARILGAN xizmatning to'lanmagan qismi (kelajakdagi ish qarz emas).
+        currentDebt: {
+          $sum: {
+            $cond: [
+              { $eq: ['$status', SERVICE_STATUS.DONE] },
+              { $max: [0, { $subtract: [{ $ifNull: ['$price', 0] }, { $ifNull: ['$paidAmount', 0] }] }] },
+              0,
+            ],
+          },
+        },
+      },
+    },
+  ]);
+  return new Map(rows.map((row) => [String(row._id), row]));
+}
+
+function attachServiceStats(clients, statsMap) {
+  return clients.map((client) => {
+    const stats = statsMap.get(String(client._id));
+    return {
+      ...client,
+      servicesCount: stats?.servicesCount || 0,
+      totalPaid: stats?.totalPaid || 0,
+      currentDebt: stats?.currentDebt || 0,
+    };
+  });
+}
+
 export async function listClients({ search = '', page = null, limit = null } = {}) {
   const filter = { ...notDeleted };
   if (search) {
@@ -80,17 +123,24 @@ export async function listClients({ search = '', page = null, limit = null } = {
   }
   const pageNumber = Math.max(1, parseInt(page, 10) || 0);
   const limitNumber = Math.min(Math.max(parseInt(limit, 10) || 0, 1), 100);
-  if (!pageNumber || !limitNumber) return Client.find(filter).sort({ updatedAt: -1 }).lean();
+  if (!pageNumber || !limitNumber) {
+    const [clients, statsMap] = await Promise.all([
+      Client.find(filter).sort({ updatedAt: -1 }).lean(),
+      serviceStatsByClient(),
+    ]);
+    return attachServiceStats(clients, statsMap);
+  }
 
-  const [items, total] = await Promise.all([
+  const [items, total, statsMap] = await Promise.all([
     Client.find(filter)
       .sort({ updatedAt: -1 })
       .skip((pageNumber - 1) * limitNumber)
       .limit(limitNumber)
       .lean(),
     Client.countDocuments(filter),
+    serviceStatsByClient(),
   ]);
-  return { items, page: pageNumber, limit: limitNumber, total };
+  return { items: attachServiceStats(items, statsMap), page: pageNumber, limit: limitNumber, total };
 }
 
 export async function getClientById(id) {

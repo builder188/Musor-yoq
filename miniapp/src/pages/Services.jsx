@@ -4,10 +4,10 @@
 //  - holat dropdown -> complete/cancel endpointlari (daromad yoziladi/qaytariladi)
 //  - to'lov holati dropdown -> paidAmount orqali (paymentStatus backend'da hisoblanadi)
 // Server tomonda notifyMiniAppUpdated bot xabarini yuboradi.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatDateTime, formatWeekdayDate, toInputDateTime } from '../utils/format.js';
+import { formatMoney, formatDateTime, formatMonthYear, toInputDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
@@ -18,7 +18,9 @@ import LoadError from '../components/LoadError.jsx';
 
 export default function Services() {
   const { t, lang } = useApp();
-  const [view, setView] = useState('today');
+  // Funnel filtri: barchasi (standart) / bugungi / kelajakdagi / tarixdagi / oy bo'yicha.
+  const [filter, setFilter] = useState('all');
+  const [month, setMonth] = useState(() => currentMonthValue());
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -29,9 +31,9 @@ export default function Services() {
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const params = serviceParamsForView(view);
-      const data = await api.get(`/services${params.toString() ? `?${params.toString()}` : ''}`);
-      setServices(sortServicesForView(normalizeServices(data), view));
+      // Hamma xizmat bir marta yuklanadi — filtr mijoz tomonda (jami summa ham shundan).
+      const data = await api.get('/services');
+      setServices(normalizeServices(data));
       setLoadError(false);
     } catch {
       // Xato = bo'sh ro'yxat EMAS — banner ko'rsatamiz (yozuvlar bazada turibdi).
@@ -45,7 +47,15 @@ export default function Services() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, []);
+
+  const months = useMemo(() => buildLast12Months(lang), [lang]);
+  const filtered = useMemo(
+    () => sortForFilter(services.filter((s) => matchesFilter(s, filter, month)), filter),
+    [services, filter, month]
+  );
+  // FAQAT joriy filtr bo'yicha ko'rinayotgan XIZMATLAR summasi (boshqa kirimlar aralashmaydi).
+  const totalPrice = useMemo(() => filtered.reduce((sum, s) => sum + (s.price > 0 ? s.price : 0), 0), [filtered]);
 
   const putService = (row, body) => api.put(`/services/${row._id}`, body);
 
@@ -223,22 +233,37 @@ export default function Services() {
       {loadError && <LoadError onRetry={() => load()} />}
       <h1 className="page-title">{t('services.title')}</h1>
 
-      <div className="segment">
-        <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}>
-          {t('services.today')}
-        </button>
-        <button className={view === 'pending' ? 'active' : ''} onClick={() => setView('pending')}>
-          {t('status.kutilmoqda')}
-        </button>
-        <button className={view === 'done' ? 'active' : ''} onClick={() => setView('done')}>
-          {t('status.bajarildi')}
-        </button>
-        <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>
-          {t('services.all')}
-        </button>
+      {/* Funnel filtri + joriy filtr bo'yicha jami summa. */}
+      <div className="sheet-filterbar">
+        <span className="sheet-funnel" aria-hidden="true">▼</span>
+        <select
+          className="sheet-filter-select"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          aria-label={t('sheet.filter')}
+        >
+          <option value="all">{t('services.all')}</option>
+          <option value="today">{t('sheet.fToday')}</option>
+          <option value="future">{t('sheet.fFuture')}</option>
+          <option value="past">{t('sheet.fPast')}</option>
+          <option value="month">{t('sheet.fMonth')}</option>
+        </select>
+        {filter === 'month' && (
+          <select
+            className="sheet-filter-select"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            aria-label={t('sheet.fMonth')}
+          >
+            {months.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        )}
+        <div className="sheet-total">
+          {t('common.total')}: <b>{formatMoney(totalPrice)}</b> · {filtered.length} {t('home.countSuffix')}
+        </div>
       </div>
-
-      <div className="section-title compact">{serviceSectionLabel(view, t, lang)}</div>
 
       {loading ? (
         <Spinner />
@@ -246,7 +271,7 @@ export default function Services() {
         <SheetTable
           id="services"
           columns={columns}
-          rows={services}
+          rows={filtered}
           rowKey={(r) => r._id}
           onChanged={() => load(true)}
           draft={draft}
@@ -290,46 +315,62 @@ export default function Services() {
   );
 }
 
-function serviceParamsForView(view) {
-  const params = new URLSearchParams();
-  if (view === 'today') {
-    const { from, to } = todayRange();
-    params.set('dateFrom', from.toISOString());
-    params.set('dateTo', to.toISOString());
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Oxirgi 12 oy: { value: 'YYYY-MM', label: 'Oy YYYY' } (eng yangisi birinchi).
+function buildLast12Months(lang) {
+  const out = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push({
+      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: formatMonthYear(d, lang),
+    });
   }
-  if (view === 'pending') params.set('status', 'kutilmoqda');
-  if (view === 'done') params.set('status', 'bajarildi');
-  return params;
+  return out;
 }
 
-function todayRange() {
-  const from = new Date();
-  from.setHours(0, 0, 0, 0);
-  const to = new Date(from);
-  to.setHours(23, 59, 59, 999);
-  return { from, to };
+// Sana bo'yicha filtr: bugungi = shu kun ichi; kelajakdagi = bugundan keyin;
+// tarixdagi = bugundan oldin; oy = tanlangan YYYY-MM ichida. Sanasi yo'q xizmat
+// faqat "Barchasi"da ko'rinadi.
+function matchesFilter(service, filter, month) {
+  if (filter === 'all') return true;
+  const date = service.serviceDateTime ? new Date(service.serviceDateTime) : null;
+  if (!date || Number.isNaN(date.getTime())) return false;
+
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  if (filter === 'today') return date >= dayStart && date <= dayEnd;
+  if (filter === 'future') return date > dayEnd;
+  if (filter === 'past') return date < dayStart;
+  if (filter === 'month') {
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    return value === month;
+  }
+  return true;
 }
 
-function serviceSectionLabel(view, t, lang) {
-  if (view === 'pending') return t('status.kutilmoqda');
-  if (view === 'done') return t('status.bajarildi');
-  if (view === 'all') return t('services.all');
-  return `${t('services.today')} · ${formatWeekdayDate(new Date(), lang)}`;
+// Bugungi/kelajakdagi — eng yaqini birinchi; qolganlari — eng yangisi birinchi.
+function sortForFilter(items, filter) {
+  const direction = filter === 'today' || filter === 'future' ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const left = new Date(a.serviceDateTime).getTime() || 0;
+    const right = new Date(b.serviceDateTime).getTime() || 0;
+    return (left - right) * direction;
+  });
 }
 
 function normalizeServices(value) {
   if (Array.isArray(value)) return value;
   if (value && Array.isArray(value.items)) return value.items;
   return [];
-}
-
-function sortServicesForView(items, view) {
-  const direction = view === 'today' ? 1 : -1;
-  return [...items].sort((a, b) => {
-    const left = new Date(a.serviceDateTime).getTime() || 0;
-    const right = new Date(b.serviceDateTime).getTime() || 0;
-    return (left - right) * direction;
-  });
 }
 
 // Tafsilot (faqat ko'rish): xarita havolalari, kiritilgan sana va h.k.
