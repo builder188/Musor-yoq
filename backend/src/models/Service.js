@@ -87,6 +87,11 @@ const serviceSchema = new mongoose.Schema(
     images: { type: [imageSchema], default: [] },
 
     incomeTransactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', default: null },
+    // Egasi bu xizmatning daromadini QASDDAN o'chirgan (1990-kod bilan yoki bulk delete).
+    // ensureServiceIncome/repair bu bayroq turganda daromadni HECH QACHON qayta yaratmaydi —
+    // aks holda purgeOld soft-deleted tranzaksiyani butunlay o'chirgach, "o'chirilgan income
+    // bor" belgisi yo'qolib, repair uni qayta tiriltirardi (zombi daromad).
+    incomeManuallyRemoved: { type: Boolean, default: false },
     isDeletedByClientDeletion: { type: Boolean, default: false },
     clientDeletionNote: { type: String, default: '' },
 

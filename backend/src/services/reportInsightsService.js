@@ -66,11 +66,26 @@ async function serviceIncomeStats(incomeMatch) {
   return { total, count, avg: count > 0 ? Math.round(total / count) : 0 };
 }
 
+// Sana null/yo'q bo'lgan xizmatlarda $year/$dayOfWeek XATO beradi ("can't convert null
+// to Date") — sanasi kiritilmagan xizmat mavjud bo'lsa "hammasi" davri hisoboti butunlay
+// yiqilardi. Shu ifoda sana bor-yo'qligini tekshiradi; yo'q bo'lsa yozuv alohida
+// "Sana kiritilmagan" guruhiga tushadi (statistikadan yashirilmaydi).
+const HAS_SERVICE_DATE = { $eq: [{ $type: '$serviceDateTime' }, 'date'] };
+
 // Eng ko'p buyurtma (xizmat) tushgan oy — Service.serviceDateTime bo'yicha.
+// Sanasiz yozuvlar { year:null, month:null } guruhida sanaladi.
 async function busiestOrdersMonth(serviceMatch) {
   const rows = await Service.aggregate([
     { $match: serviceMatch },
-    { $group: { _id: { y: { $year: '$serviceDateTime' }, m: { $month: '$serviceDateTime' } }, count: { $sum: 1 } } },
+    {
+      $group: {
+        _id: {
+          y: { $cond: [HAS_SERVICE_DATE, { $year: '$serviceDateTime' }, null] },
+          m: { $cond: [HAS_SERVICE_DATE, { $month: '$serviceDateTime' }, null] },
+        },
+        count: { $sum: 1 },
+      },
+    },
     { $sort: { count: -1 } },
     { $limit: 1 },
   ]);
@@ -79,10 +94,11 @@ async function busiestOrdersMonth(serviceMatch) {
 }
 
 // Eng faol hafta kuni — Service.serviceDateTime bo'yicha ($dayOfWeek: 1=yakshanba .. 7=shanba).
+// Sanasiz yozuvlar dow=null guruhida sanaladi ("Sana kiritilmagan" bo'lib ko'rinadi).
 async function mostActiveWeekday(serviceMatch) {
   const rows = await Service.aggregate([
     { $match: serviceMatch },
-    { $group: { _id: { $dayOfWeek: '$serviceDateTime' }, count: { $sum: 1 } } },
+    { $group: { _id: { $cond: [HAS_SERVICE_DATE, { $dayOfWeek: '$serviceDateTime' }, null] }, count: { $sum: 1 } } },
     { $sort: { count: -1 } },
     { $limit: 1 },
   ]);

@@ -7,7 +7,6 @@ import clientsRouter from './clients.js';
 import servicesRouter from './services.js';
 import financeRouter from './finance.js';
 import settingsRouter from './settings.js';
-import aiRouter from './ai.js';
 import reportsRouter from './reports.js';
 import systemRouter from './system.js';
 import dataRouter from './data.js';
@@ -46,7 +45,9 @@ router.use('/items', itemsRouter);
 router.use('/categories', categoriesRouter);
 router.use('/reminders', remindersRouter);
 router.use('/settings', settingsRouter);
-router.use('/ai', aiRouter);
+// Eslatma: /ai chat/search endpointi OLIB TASHLANDI — Mini App'dagi AI panel yozuv
+// amallarini (STATUS_UPDATE/PAYMENT_UPDATE) tasdiqsiz bajara olardi. Tabiiy-til
+// muloqot faqat botda (u yerda tasdiqlash/tahrirlash oqimi bor).
 router.use('/reports', reportsRouter);
 router.use('/system', systemRouter);
 router.use('/data', dataRouter);

@@ -254,6 +254,7 @@ export function buildMiniAppBulkDeleteMessage(target, result = {}) {
     ['Xizmatlar', result.services],
     ['Tranzaksiyalar', result.transactions],
     ['Buyumlar', result.items],
+    ['Eslatmalar', result.reminders],
   ].filter(([, count]) => Number(count) > 0);
   if (!rows.length) return `Mini App orqali o'chirish bajarildi oka: ${target || 'tanlangan yozuvlar'} - o'chirilgan yozuv topilmadi.`;
   return [

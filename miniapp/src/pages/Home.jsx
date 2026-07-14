@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { formatMoney, formatPhone, formatDateTime, formatTime, formatWeekdayDate } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
-import { useNavigationView } from '../components/useNavigationView.js';
 import LoadError from '../components/LoadError.jsx';
 
+// Eslatma: AI chat paneli OLIB TASHLANDI — u backend'da yozuv amallarini tasdiqsiz
+// bajara olardi. Tabiiy-til muloqot faqat botda; bu yerda deterministik qidiruv qoladi.
 export default function Home({ onOpenClient, goToTab, onAddClient }) {
   const { t, lang } = useApp();
   const [stats, setStats] = useState(null);
@@ -16,7 +17,6 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
   const [search, setSearch] = useState('');
   const [clients, setClients] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
   const [completingServiceId, setCompletingServiceId] = useState(null);
 
@@ -111,9 +111,6 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
         />
       )}
 
-      <FloatingAiButton onClick={() => setAiOpen(true)} />
-
-      {aiOpen && <AiChatPanel onClose={() => setAiOpen(false)} onSelectService={setSelectedService} />}
       {selectedService && <ServiceDetailModal service={selectedService} onClose={() => setSelectedService(null)} />}
     </div>
   );
@@ -273,124 +270,6 @@ function ClientCard({ client, onOpen }) {
       <div className="sub">{formatPhone(client.phone)}</div>
       {lastServiceAt && <div className="sub">{t('ui.lastService')}: {formatDateTime(lastServiceAt, lang)}</div>}
       {debt > 0 && <div className="sub debt-text">{formatMoney(debt)}</div>}
-    </div>
-  );
-}
-
-function FloatingAiButton({ onClick }) {
-  return (
-    <button className="floating-ai" onClick={onClick} aria-label="AI yordamchi">
-      ✨
-    </button>
-  );
-}
-
-function AiChatPanel({ onClose, onSelectService }) {
-  const { t, lang } = useApp();
-  const goBack = useNavigationView(t('home.aiChat'), onClose);
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [thinking, setThinking] = useState(false);
-  const endRef = useRef(null);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, thinking]);
-
-  const send = async () => {
-    const text = input.trim();
-    if (!text || thinking) return;
-
-    setInput('');
-    const botIndex = messages.length + 1;
-    setMessages((m) => [...m, { role: 'user', text }, { role: 'bot', text: t('home.aiThinking'), results: [] }]);
-    setThinking(true);
-
-    try {
-      await api.streamPost('/ai/search', { message: text }, (event, data) => {
-        if (event === 'progress') {
-          setMessages((m) => m.map((item, index) => (index === botIndex ? { ...item, text: data.text } : item)));
-        }
-        if (event === 'result') {
-          setMessages((m) =>
-            m.map((item, index) =>
-              index === botIndex ? { role: 'bot', text: data.reply, results: data.results || [] } : item
-            )
-          );
-        }
-      });
-    } catch (e) {
-      setMessages((m) => [...m, { role: 'bot', text: `⚠️ ${e.message}` }]);
-    } finally {
-      setThinking(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay ai-overlay" onClick={onClose}>
-      <div className="modal ai-chat" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <button className="modal-back" type="button" onClick={goBack} aria-label={t('common.back')}>
-            <span aria-hidden="true">&larr;</span>
-            <span className="modal-back-label">{t('common.back')}</span>
-          </button>
-          <div className="modal-title">✨ AI yordamchi</div>
-          <button className="modal-close" type="button" onClick={onClose} aria-label={t('common.close')}>&times;</button>
-        </div>
-
-        <div className="ai-messages">
-          {messages.length === 0 && <div className="muted center">{t('home.aiPlaceholder')}</div>}
-          {messages.map((m, i) => (
-            <div key={i}>
-              <div className={`ai-bubble ${m.role}`}>{m.text}</div>
-              {(m.results || []).length > 0 && (
-                <div className="mt-8">
-                  {m.results.map((service) => (
-                    <div
-                      key={service._id}
-                      className="ai-result"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => onSelectService(service)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') onSelectService(service);
-                      }}
-                    >
-                      <div className="title">{service.clientName}</div>
-                      <div className="sub">
-                        {formatDateTime(service.serviceDateTime, lang)} · <LocationDisplay location={service.location} inline /> · {formatMoney(service.price)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-          {thinking && (
-            <div className="ai-bubble bot">
-              <span className="thinking">
-                <span></span>
-                <span></span>
-                <span></span>
-              </span>
-            </div>
-          )}
-          <div ref={endRef} />
-        </div>
-
-        <div className="search-box" style={{ margin: 0 }}>
-          <input
-            className="input"
-            placeholder={t('home.aiPlaceholder')}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && send()}
-          />
-          <button className="btn btn-primary" onClick={send} disabled={thinking}>
-            {t('home.ask')}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

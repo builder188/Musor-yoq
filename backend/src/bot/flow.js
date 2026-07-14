@@ -338,9 +338,12 @@ export function applyRawValue(field, rawText, collected) {
       break;
     }
     case 'serviceDateTime': {
-      // Foydalanuvchi sana/vaqtni alohida javob bersa ("ertaga soat 9") — mahalliy
-      // (Asia/Tashkent) vaqtda deterministik parse qilamiz; bo'lmasa xom matnni qoldiramiz.
-      const d = parseHumanDateTime(text);
+      // Foydalanuvchi sana/vaqtni alohida javob bersa ("ertaga soat 9", "30-iyun") —
+      // mahalliy (Asia/Tashkent) vaqtda deterministik parse qilamiz. parseUzbekDate AVVAL
+      // (dueDate yo'li bilan bir xil sabab): parseHumanDateTime ning yumshoq new Date()
+      // zaxirasi "5-may" ni noto'g'ri yilga o'qib yuborishi mumkin. O'zbek oy nomi
+      // bo'lmasa nisbiy parser ishlaydi; bo'lmasa xom matn qoladi (qayta so'raladi).
+      const d = parseUzbekDate(text) || parseHumanDateTime(text);
       if (d) out[field] = d.toISOString();
       else {
         const iso = new Date(text);

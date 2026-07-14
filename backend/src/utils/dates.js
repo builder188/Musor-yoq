@@ -184,10 +184,12 @@ export function parseHumanDateTime(input, base = new Date()) {
     dayShift = true;
   }
 
-  // "N kun/hafta/oy/soat/daqiqa(dan keyin)".
-  const rel = text.match(/(\d+)\s*(kun|hafta|oy|soat|daqiqa|minut)/);
+  // "N kun/hafta/oy/soat/daqiqa(dan keyin)" — kelajak; "... oldin/avval" — O'TMISH.
+  // Avval "2 soat oldin" ham +2 soat bo'lib kelajakka chiqib ketardi.
+  const rel = text.match(/(\d+)\s*(kun|hafta|oy|soat|daqiqa|minut)\w*(?:\s+(oldin|avval|ilgari))?/);
   if (rel) {
-    const n = parseInt(rel[1], 10);
+    const past = Boolean(rel[3]);
+    const n = parseInt(rel[1], 10) * (past ? -1 : 1);
     switch (rel[2]) {
       case 'kun': result.setDate(result.getDate() + n); dayShift = true; break;
       case 'hafta': result.setDate(result.getDate() + n * 7); dayShift = true; break;

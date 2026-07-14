@@ -640,6 +640,7 @@ async function handleMultiEntry({ conversation, entries, fields, rawText, mode, 
         saved: { type: 'multi', refs: saved.map((s) => s.ref).filter(Boolean) },
         entries: saved,
         rawText,
+        savedAt: new Date().toISOString(), // universal "bekor" oynasi uchun
       };
       conversation.awaitingField = 'postSave';
       conversation.markModified('collected');
@@ -972,7 +973,9 @@ async function enterPostSaveState({ conversation, intent, collected, saved, rawT
   let stateSaved = true;
   try {
     conversation.pendingIntent = 'ENTRY_SAVED';
-    conversation.collected = { savedIntent: intent, fields: collected, saved, rawText, stopped };
+    // savedAt: universal "bekor" faqat YAQINDA saqlangan yozuvni o'chirishi uchun
+    // (muddatsiz bo'lsa, soatlar o'tib yozilgan "bekor" eski yozuvni yo'q qilardi).
+    conversation.collected = { savedIntent: intent, fields: collected, saved, rawText, stopped, savedAt: new Date().toISOString() };
     conversation.awaitingField = 'postSave';
     conversation.markModified('collected');
     await conversation.save();
@@ -1121,9 +1124,13 @@ export async function editSavedEntry({ conversation, understanding, rawText = ''
 
   // Summa tahrirlangan bo'lsa — valyutani shu tahrirdan qayta baholaymiz va eski
   // konvertatsiya izlarini tozalaymiz (dollar→so'm yoki so'm→so'm to'g'ri ko'rinsin).
+  // MUHIM: editFieldToEntry orqali — u 'money' sinonimini intentning haqiqiy summa
+  // maydoniga ('amount'/'price') aylantiradi. Avval xom EDIT_FIELD_TO_ENTRY qiymati
+  // ('money') solishtirilardi va editField+newValue yo'lidagi summa tahriri hech qachon
+  // "summa tahriri" deb tanilmasdi — USD→so'm konvertatsiya o'tkazib yuborilardi.
   const amountKey = AMOUNT_KEY[intent];
   const u = understanding?.fields || {};
-  const editedKey = u.editField ? EDIT_FIELD_TO_ENTRY[String(u.editField).toLowerCase()] : null;
+  const editedKey = u.editField ? editFieldToEntry(intent, u.editField) : null;
   const touchedAmount = amountKey && (u[amountKey] !== undefined || editedKey === amountKey);
   if (touchedAmount) {
     updated = { ...updated, currency: signalsUsd(u, rawText) ? 'USD' : 'UZS' };
@@ -1379,7 +1386,13 @@ async function applySavedEntryUpdate(intent, saved, fields, prevFields = {}) {
     const address = fields.location?.address || fields.location;
     if (address) data.location = fields.location;
     if (hasValue('serviceDateTime', fields)) data.serviceDateTime = fields.serviceDateTime;
-    if (hasValue('price', fields)) data.price = fields.price;
+    if (hasValue('price', fields)) {
+      data.price = fields.price;
+      // Valyuta metasi summa bilan birga sinxron (USD: yangi qiymat/kurs; so'm: null).
+      data.originalAmount = fields.originalAmount ?? null;
+      data.originalCurrency = fields.originalCurrency ?? null;
+      data.exchangeRateUsed = fields.exchangeRateUsed ?? null;
+    }
     if (fields.notes !== undefined && fields.notes !== prevFields.notes) data.notes = fields.notes;
     if (fields.isHistorical !== undefined && fields.isHistorical !== prevFields.isHistorical) data.isHistorical = fields.isHistorical;
     await editService(saved.serviceId, data);
@@ -1387,7 +1400,13 @@ async function applySavedEntryUpdate(intent, saved, fields, prevFields = {}) {
   }
   if (intent === 'EXPENSE_ENTRY' || intent === 'INCOME_ENTRY' || intent === 'MATERIAL_SALE') {
     const data = {};
-    if (hasValue('amount', fields)) data.amount = fields.amount;
+    if (hasValue('amount', fields)) {
+      data.amount = fields.amount;
+      // Valyuta metasi summa bilan birga sinxron (USD: yangi qiymat/kurs; so'm: null).
+      data.originalAmount = fields.originalAmount ?? null;
+      data.originalCurrency = fields.originalCurrency ?? null;
+      data.exchangeRateUsed = fields.exchangeRateUsed ?? null;
+    }
     if (fields.date) data.date = fields.date;
     if ((intent === 'EXPENSE_ENTRY' || intent === 'INCOME_ENTRY') && fields.category) data.category = fields.category;
     const desc = fields.description ?? fields.notes;
@@ -1960,7 +1979,10 @@ async function getAgentBalance(args) {
 
 async function findServiceByIdentifier(identifier) {
   const text = String(identifier || '').trim();
-  const date = new Date(text);
+  // Sana deb faqat ANIQ ISO ko'rinishdagi matn o'qiladi. Avval har qanday matn
+  // new Date() ga berilardi — "2024" kabi ism/raqamlar xato sanaga aylanib,
+  // noto'g'ri xizmat tanlanishi mumkin edi.
+  const date = /^\d{4}-\d{2}-\d{2}/.test(text) ? new Date(text) : new Date(NaN);
   if (text && !Number.isNaN(date.getTime())) {
     const from = new Date(date);
     from.setHours(0, 0, 0, 0);

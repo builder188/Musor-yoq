@@ -35,38 +35,8 @@ export const api = {
   put: (path, body) => request('PUT', path, body),
   patch: (path, body) => request('PATCH', path, body),
   del: (path, body) => request('DELETE', path, body),
-  streamPost: streamPost,
   baseUrl: BASE,
 };
-
-async function streamPost(path, body, onEvent) {
-  const res = await fetch(`${BASE}/api${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Telegram-Init-Data': getInitData(),
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Xatolik (${res.status})`);
-  if (!res.body) throw new Error('Stream qo\'llab-quvvatlanmaydi');
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const chunks = buffer.split('\n\n');
-    buffer = chunks.pop() || '';
-    chunks.forEach((chunk) => {
-      const event = chunk.match(/^event:\s*(.+)$/m)?.[1];
-      const data = chunk.match(/^data:\s*(.+)$/m)?.[1];
-      if (event && data) onEvent(event, JSON.parse(data));
-    });
-  }
-}
 
 // To'g'ridan-to'g'ri PDF yuklab olish uchun URL (initData query bilan).
 export function reportUrl() {

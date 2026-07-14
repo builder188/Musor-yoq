@@ -90,8 +90,11 @@ export async function createDebtReminder(data = {}) {
 
   if (type === REMINDER_TYPE.DEBT && !person) throw badRequest("Kimga/kimdan qarz ekanini ayting oka.");
 
+  // Egasi aniq "balansga tegma" degan bo'lsa — bu niyat yozuvning o'zida saqlanadi
+  // (keyingi tahrirlar transactionId yo'qligidan xato xulosa chiqarmasin).
+  const skipBalance = data.affectsBalance === false;
   // Balansga ta'sir faqat summa bo'lsa mantiqiy. skipBalance true bo'lsa — tegmaymiz.
-  const affectsBalance = type === REMINDER_TYPE.DEBT && amount > 0 && data.affectsBalance !== false;
+  const affectsBalance = type === REMINDER_TYPE.DEBT && amount > 0 && !skipBalance;
   const eventDate = toDate(data.eventDate) || new Date();
 
   let transactionId = null;
@@ -119,6 +122,7 @@ export async function createDebtReminder(data = {}) {
     originalCurrency: data.originalCurrency ?? null,
     exchangeRateUsed: data.exchangeRateUsed ?? null,
     affectsBalance,
+    skipBalance,
     transactionId,
     eventDate,
     dueDate,
@@ -176,11 +180,17 @@ export async function updateDebtReminder(id, data = {}) {
   }
   reminder.text = debtText({ direction: reminder.direction, person: reminder.person, type: reminder.type });
 
-  // Balans holatini kelishtiramiz. wantBalance: summa bor va skipBalance so'ralmagan.
+  // skipBalance niyati yozuvning O'ZIDA saqlanadi: aniq ko'rsatma kelsa yangilanadi,
+  // kelmasa avvalgi qaror amal qiladi. Avval "transactionId yo'q" dan xulosa chiqarilardi —
+  // skipBalance qarzning istalgan tahriri balans tranzaksiyasini xato yaratib yuborardi.
+  if (data.affectsBalance !== undefined) {
+    reminder.skipBalance = data.affectsBalance === false;
+  }
+  // Balans holatini kelishtiramiz. wantBalance: summa bor va egasi balansni taqiqlamagan.
   const wantBalance =
     reminder.type === REMINDER_TYPE.DEBT &&
     reminder.amount > 0 &&
-    (data.affectsBalance !== undefined ? data.affectsBalance !== false : reminder.affectsBalance || !reminder.transactionId);
+    !reminder.skipBalance;
   if (reminder.status === REMINDER_STATUS.PENDING) {
     if (wantBalance && reminder.transactionId) {
       // Mavjud tx'ni yangilaymiz (summa/yo'nalish/sana/izoh mos bo'lsin).

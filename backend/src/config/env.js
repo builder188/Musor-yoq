@@ -138,7 +138,11 @@ const env = {
   MINIAPP_URL: process.env.MINIAPP_URL?.trim() || '',
 
   CONFIRM_DELETE_CODE: process.env.CONFIRM_DELETE_CODE?.trim() || '1990',
-  AUTH_DEV_BYPASS: process.env.AUTH_DEV_BYPASS?.trim() === '1',
+  // FAQAT development uchun. Production'da qiymatidan qat'i nazar QATTIQ o'chirilgan —
+  // Railway Variables'da tasodifan qolib ketsa ham butun API ochilib qolmasin.
+  AUTH_DEV_BYPASS:
+    process.env.AUTH_DEV_BYPASS?.trim() === '1' &&
+    (process.env.NODE_ENV?.trim() || 'development') !== 'production',
 };
 
 // Keep node-cron and Date calculations in the configured timezone.
@@ -193,6 +197,13 @@ export function getEnvIssues() {
   }
   if (env.NODE_ENV === 'production' && env.BOT_MODE === 'polling') {
     warnings.push('Production uchun BOT_MODE=webhook tavsiya qilinadi.');
+  }
+  if (process.env.AUTH_DEV_BYPASS?.trim() === '1') {
+    if (env.NODE_ENV === 'production') {
+      warnings.push("AUTH_DEV_BYPASS=1 production'da E'TIBORSIZ qoldirildi (xavfsizlik: auth chetlab o'tilmaydi). Bu o'zgaruvchini Railway Variables'dan olib tashlang.");
+    } else {
+      warnings.push('AUTH_DEV_BYPASS=1 yoqilgan — API autentifikatsiyasiz ishlayapti (faqat development uchun!).');
+    }
   }
 
   return { ok: errors.length === 0, errors, warnings };

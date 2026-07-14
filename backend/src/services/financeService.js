@@ -306,6 +306,14 @@ export async function softDeleteTransaction(id) {
     error.status = 404;
     throw error;
   }
+  // Xizmatga bog'langan daromad QASDDAN o'chirildi — xizmatga belgi qo'yamiz, shunda
+  // purgeOld tranzaksiyani butunlay o'chirgandan keyin ham repair uni qayta yaratmaydi.
+  if (transaction.type === TX_TYPES.INCOME && transaction.serviceId) {
+    await Service.updateOne(
+      { _id: transaction.serviceId },
+      { incomeManuallyRemoved: true }
+    ).catch((err) => console.error('incomeManuallyRemoved belgilashda xato:', err.message));
+  }
   return transaction;
 }
 
@@ -328,6 +336,11 @@ export async function updateTransaction(id, data) {
     allowed.amount = amount;
   }
   if (data.description !== undefined || data.note !== undefined) allowed.description = data.description ?? data.note;
+  // Summa tahririda asl valyuta metasi ham sinxron yangilanadi (USD: yangi qiymat/kurs;
+  // so'm: null bilan tozalanadi). undefined kelsa tegilmaydi.
+  if (data.originalAmount !== undefined) allowed.originalAmount = data.originalAmount;
+  if (data.originalCurrency !== undefined) allowed.originalCurrency = data.originalCurrency;
+  if (data.exchangeRateUsed !== undefined) allowed.exchangeRateUsed = data.exchangeRateUsed;
   if (data.date !== undefined) {
     const date = parseOptionalDate(data.date);
     if (!date) throw badRequest("Sana noto'g'ri");

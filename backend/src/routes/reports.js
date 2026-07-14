@@ -87,6 +87,7 @@ const INSIGHT_LABELS = {
     orders: 'ta buyurtma',
     metric: 'Ko\'rsatkich',
     value: 'Qiymat',
+    noDate: 'Sana kiritilmagan',
   },
   ru: {
     title: 'Полезные показатели',
@@ -100,6 +101,7 @@ const INSIGHT_LABELS = {
     orders: 'заказов',
     metric: 'Показатель',
     value: 'Значение',
+    noDate: 'Дата не указана',
   },
 };
 
@@ -123,14 +125,20 @@ function formatInsights(insights, language) {
   if (insights.topItem) add('📦', L.topItem, `${insights.topItem.name} — ${formatMoney(insights.topItem.total)}`);
   if (insights.topClient) add('👤', L.topClient, `${insights.topClient.name} — ${formatMoney(insights.topClient.total)}`);
   if (insights.busiestMonth) {
-    add('📅', L.busiestMonth, `${monthLabel(insights.busiestMonth.year, insights.busiestMonth.month, language)} (${insights.busiestMonth.count} ${L.orders})`);
+    // year/month null — sanasi kiritilmagan xizmatlar guruhi.
+    const label = insights.busiestMonth.year
+      ? monthLabel(insights.busiestMonth.year, insights.busiestMonth.month, language)
+      : L.noDate;
+    add('📅', L.busiestMonth, `${label} (${insights.busiestMonth.count} ${L.orders})`);
   }
   if (insights.bestIncomeMonth) {
     add('📈', L.bestMonth, `${monthLabel(insights.bestIncomeMonth.year, insights.bestIncomeMonth.month, language)} — ${formatMoney(insights.bestIncomeMonth.total)}`);
   }
   if (insights.avgServicePrice > 0) add('💰', L.avgService, formatMoney(insights.avgServicePrice));
   if (insights.mostActiveWeekday) {
-    add('📆', L.activeDay, `${wd[insights.mostActiveWeekday.dow - 1] || ''} (${insights.mostActiveWeekday.count} ${L.orders})`);
+    // dow null — sanasi kiritilmagan xizmatlar guruhi.
+    const dayLabel = insights.mostActiveWeekday.dow ? wd[insights.mostActiveWeekday.dow - 1] || '' : L.noDate;
+    add('📆', L.activeDay, `${dayLabel} (${insights.mostActiveWeekday.count} ${L.orders})`);
   }
   return lines;
 }
@@ -627,46 +635,39 @@ function makeSummary(services, totalIncome, totalExpense, unpaidTotal) {
   };
 }
 
+// Barcha mijozlar statistikasi BITTA aggregatsiyada (avval har mijozga 3 ta alohida
+// so'rov — 200 mijozda ~600 query bo'lib hisobot sekinlashardi).
 async function mapClientRows(clients, language = 'uz') {
-  const rows = [];
-  for (const client of clients) {
-    const [lastService, paidRows] = await Promise.all([
-      Service.findOne({ clientId: client._id, ...notDeleted })
-        .sort({ serviceDateTime: -1 })
-        .select('serviceDateTime')
-        .lean(),
-      Service.aggregate([
-        { $match: { clientId: client._id, status: 'bajarildi', ...notDeleted } },
-        { $group: { _id: '$clientId', total: { $sum: '$price' } } },
-      ]),
-    ]);
-
-    rows.push([
-      client.name || '',
-      client.phone || '',
-      lastService ? formatDateTime(lastService.serviceDateTime, language) : '',
-      formatMoney(paidRows[0]?.total || 0),
-      formatMoney((await clientUnpaidTotal(client._id)) || 0),
-    ]);
-  }
-  return rows;
-}
-
-async function clientUnpaidTotal(clientId) {
-  const rows = await Service.aggregate([
-    { $match: { clientId, ...notDeleted } },
+  if (!clients.length) return [];
+  const stats = await Service.aggregate([
+    { $match: { clientId: { $in: clients.map((c) => c._id) }, ...notDeleted } },
     {
       $group: {
         _id: '$clientId',
-        total: {
+        lastServiceAt: { $max: '$serviceDateTime' },
+        paidTotal: {
+          $sum: { $cond: [{ $eq: ['$status', 'bajarildi'] }, { $ifNull: ['$price', 0] }, 0] },
+        },
+        unpaidTotal: {
           $sum: {
-            $max: [{ $subtract: ['$price', { $ifNull: ['$paidAmount', 0] }] }, 0],
+            $max: [{ $subtract: [{ $ifNull: ['$price', 0] }, { $ifNull: ['$paidAmount', 0] }] }, 0],
           },
         },
       },
     },
   ]);
-  return rows[0]?.total || 0;
+  const byClient = new Map(stats.map((row) => [String(row._id), row]));
+
+  return clients.map((client) => {
+    const s = byClient.get(String(client._id)) || {};
+    return [
+      client.name || '',
+      client.phone || '',
+      s.lastServiceAt ? formatDateTime(s.lastServiceAt, language) : '',
+      formatMoney(s.paidTotal || 0),
+      formatMoney(s.unpaidTotal || 0),
+    ];
+  });
 }
 
 function mapServiceRow(service, language = 'uz') {

@@ -1,8 +1,13 @@
 import mongoose from 'mongoose';
 import Client from '../models/Client.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
-import Transaction from '../models/Transaction.js';
+import Transaction, { TX_TYPES } from '../models/Transaction.js';
 import UsefulItem from '../models/UsefulItem.js';
+import Reminder from '../models/Reminder.js';
+import DebtPayment from '../models/DebtPayment.js';
+import MaterialCategory from '../models/MaterialCategory.js';
+import ExpenseCategory from '../models/ExpenseCategory.js';
+import IncomeCategory from '../models/IncomeCategory.js';
 import env from '../config/env.js';
 import Settings from '../models/Settings.js';
 import { applyServiceSchedule } from './reminderService.js';
@@ -21,12 +26,14 @@ const MODELS = {
   item: UsefulItem,
   items: UsefulItem,
   UsefulItem,
+  reminder: Reminder,
+  reminders: Reminder,
+  Reminder,
 };
 
+// 'services' va 'clients' maxsus funksiyalar bilan (bog'liq yozuvlar aniq qamrovda).
 const BULK_TARGETS = {
-  all: [Client, Service, Transaction, UsefulItem],
-  clients: [Client, Service],
-  services: [Service, Transaction],
+  all: [Client, Service, Transaction, UsefulItem, Reminder],
   finance: [Transaction],
   items: [UsefulItem],
 };
@@ -41,7 +48,24 @@ export async function softDeleteOne(type, id, code = env.CONFIRM_DELETE_CODE) {
   if (!Model) throw new Error("Noto'g'ri tur");
   if (Model === Client) return softDeleteClient(id);
   if (Model === Service) return softDeleteService(id);
+  if (Model === Transaction) return softDeleteTransactionOne(id);
   return Model.findByIdAndUpdate(id, { isDeleted: true, deletedAt: new Date() }, { new: true });
+}
+
+// Bitta tranzaksiyani o'chirish: xizmatga bog'langan daromad bo'lsa, xizmatga
+// "qasddan o'chirilgan" belgisi qo'yiladi — purgeOld'dan keyin repair uni qayta yaratmaydi.
+async function softDeleteTransactionOne(id) {
+  const tx = await Transaction.findByIdAndUpdate(
+    id,
+    { isDeleted: true, deletedAt: new Date() },
+    { new: true }
+  );
+  if (tx && tx.type === TX_TYPES.INCOME && tx.serviceId) {
+    await Service.updateOne({ _id: tx.serviceId }, { incomeManuallyRemoved: true }).catch((err) =>
+      console.error('incomeManuallyRemoved belgilashda xato:', err.message)
+    );
+  }
+  return tx;
 }
 
 async function softDeleteClient(id) {
@@ -86,6 +110,7 @@ async function softDeleteService(id) {
 export async function bulkDelete(target, code = env.CONFIRM_DELETE_CODE) {
   await assertDeleteCode(code);
   if (target === 'clients') return bulkDeleteClients();
+  if (target === 'services') return bulkDeleteServices();
   const models = BULK_TARGETS[target];
   if (!models) throw new Error("Noto'g'ri o'chirish turi");
 
@@ -95,6 +120,7 @@ export async function bulkDelete(target, code = env.CONFIRM_DELETE_CODE) {
     services: 0,
     transactions: 0,
     items: 0,
+    reminders: 0,
   };
 
   for (const Model of models) {
@@ -103,10 +129,40 @@ export async function bulkDelete(target, code = env.CONFIRM_DELETE_CODE) {
     if (Model === Service) result.services = update.modifiedCount;
     if (Model === Transaction) result.transactions = update.modifiedCount;
     if (Model === UsefulItem) result.items = update.modifiedCount;
+    if (Model === Reminder) result.reminders = update.modifiedCount;
+  }
+
+  // Tranzaksiyalar qamrovga kirgan bo'lsa — bajarilgan (faol) xizmatlarga "daromadi
+  // qasddan o'chirilgan" belgisi qo'yiladi, aks holda repair ularni qayta tiriltiradi.
+  if (models.includes(Transaction)) {
+    await Service.updateMany(
+      { isDeleted: false, status: SERVICE_STATUS.DONE },
+      { incomeManuallyRemoved: true }
+    ).catch((err) => console.error('Bulk incomeManuallyRemoved xatosi:', err.message));
   }
 
   return {
     ...result,
+    warning: 'PDF yuklab olishni xohlaysizmi?',
+  };
+}
+
+// "Xizmatlarni o'chirish": faqat xizmatlar + o'sha xizmatlarga TO'G'RIDAN-TO'G'RI
+// bog'liq tranzaksiyalar (serviceId orqali). Qarz/jarima/material/buyum kabi mustaqil
+// moliya yozuvlariga TEGILMAYDI (avval barcha tranzaksiyalar o'chirilardi — xato qamrov).
+async function bulkDeleteServices() {
+  const deletedAt = new Date();
+  const tx = await Transaction.updateMany(
+    { isDeleted: false, serviceId: { $ne: null } },
+    { isDeleted: true, deletedAt }
+  );
+  const services = await Service.updateMany({ isDeleted: false }, { isDeleted: true, deletedAt });
+  return {
+    clients: 0,
+    services: services.modifiedCount,
+    transactions: tx.modifiedCount,
+    items: 0,
+    reminders: 0,
     warning: 'PDF yuklab olishni xohlaysizmi?',
   };
 }
@@ -135,6 +191,7 @@ async function bulkDeleteClients() {
     historyServicesKept: history.modifiedCount,
     transactions: 0,
     items: 0,
+    reminders: 0,
     warning: 'PDF yuklab olishni xohlaysizmi?',
   };
 }
@@ -142,11 +199,12 @@ async function bulkDeleteClients() {
 export async function listDeleted() {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const filter = { isDeleted: true, deletedAt: { $gte: thirtyDaysAgo } };
-  const [clients, services, transactions, items] = await Promise.all([
+  const [clients, services, transactions, items, reminders] = await Promise.all([
     Client.find(filter).sort({ deletedAt: -1 }).lean(),
     Service.find(filter).sort({ deletedAt: -1 }).lean(),
     Transaction.find(filter).sort({ deletedAt: -1 }).lean(),
     UsefulItem.find(filter).sort({ deletedAt: -1 }).lean(),
+    Reminder.find(filter).sort({ deletedAt: -1 }).lean(),
   ]);
   const clientIds = clients.map((client) => client._id);
   const restoreServices = clientIds.length
@@ -157,7 +215,7 @@ export async function listDeleted() {
         .sort({ serviceDateTime: -1 })
         .lean()
     : [];
-  return { clients, services, transactions, items, clientRestoreServices: restoreServices };
+  return { clients, services, transactions, items, reminders, clientRestoreServices: restoreServices };
 }
 
 export async function restore(typeOrIds, maybeId = null) {
@@ -174,7 +232,20 @@ export async function restore(typeOrIds, maybeId = null) {
   if (Model === Service && doc) {
     await restoreServiceLinks(doc);
   }
+  if (Model === Transaction && doc) {
+    await relinkRestoredTransaction(doc);
+  }
   return doc;
+}
+
+// Tiklangan income tranzaksiyani xizmatiga qayta bog'laydi va "qasddan o'chirilgan"
+// belgisini olib tashlaydi (holat yana izchil: faol income + toza bayroq).
+async function relinkRestoredTransaction(tx) {
+  if (tx.type !== TX_TYPES.INCOME || !tx.serviceId) return;
+  await Service.updateOne(
+    { _id: tx.serviceId },
+    { incomeManuallyRemoved: false, incomeTransactionId: tx._id }
+  ).catch((err) => console.error('Tiklangan daromadni bog\'lashda xato:', err.message));
 }
 
 // serviceEdits: { [serviceId]: { serviceDateTime?, price? } } — tiklashdan oldin
@@ -233,6 +304,7 @@ export async function restoreByIds(ids = []) {
     services: [],
     transactions: [],
     items: [],
+    reminders: [],
   };
 
   for (const id of ids.filter(Boolean)) {
@@ -247,6 +319,9 @@ export async function restoreByIds(ids = []) {
 
     if (modelName === 'services') {
       await restoreServiceLinks(doc);
+    }
+    if (modelName === 'transactions') {
+      await relinkRestoredTransaction(doc);
     }
 
     restored[modelName].push(doc);
@@ -263,12 +338,24 @@ export async function purgeOld(days = 30) {
   const s = await Service.deleteMany(filter);
   const c = await Client.deleteMany(filter);
   const i = await UsefulItem.deleteMany(filter);
+  // Qolgan soft-delete modellari ham izchil tozalanadi — hech biri "na purge, na
+  // restore ro'yxatida" zombi bo'lib qolmasin.
+  const r = await Reminder.deleteMany(filter);
+  const dp = await DebtPayment.deleteMany(filter);
+  const cats = await Promise.all([
+    MaterialCategory.deleteMany(filter),
+    ExpenseCategory.deleteMany(filter),
+    IncomeCategory.deleteMany(filter),
+  ]);
 
   return {
     clients: c.deletedCount,
     services: s.deletedCount,
     transactions: t.deletedCount,
     items: i.deletedCount,
+    reminders: r.deletedCount,
+    debtPayments: dp.deletedCount,
+    categories: cats.reduce((sum, res) => sum + res.deletedCount, 0),
   };
 }
 
@@ -278,6 +365,7 @@ async function findDeletedById(id) {
     ['services', Service],
     ['transactions', Transaction],
     ['items', UsefulItem],
+    ['reminders', Reminder],
   ];
 
   for (const [modelName, Model] of queries) {
@@ -294,6 +382,7 @@ async function restoreServiceLinks(service) {
       deletedAt: null,
     });
   }
+  service.incomeManuallyRemoved = false; // tiklangan xizmat daromadi yana odatiy oqimda
   service.isDeletedByClientDeletion = false;
   service.clientDeletionNote = '';
   if (

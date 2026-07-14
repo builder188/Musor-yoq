@@ -152,9 +152,23 @@ export async function payFine(id, { amount } = {}) {
   return { reminder: serialize(reminder), balanceAfter: summary.balance, paidAmount };
 }
 
+// Jarima yozuvlariga BOG'LANGAN to'lov tranzaksiyalari IDlari. Statistika faqat shular
+// bo'yicha yig'iladi — aks holda qo'lda kiritilgan 'jarima' kategoriyali xarajatlar
+// reminder orqali to'langanlar bilan IKKI MARTA hisoblanardi.
+async function fineLinkedTransactionIds() {
+  const linked = await Reminder.find({
+    ...notDeleted,
+    type: REMINDER_TYPE.FINE,
+    transactionId: { $ne: null },
+  })
+    .select('transactionId')
+    .lean();
+  return linked.map((r) => r.transactionId);
+}
+
 // Oylik jarima statistikasi (hisobotlar uchun): davr ichida
 //  - count: nechta jarima OLINGAN (eventDate bo'yicha, bekor qilinganlar kirmaydi)
-//  - paidTotal / paidCount: jami QANCHA to'langan (jarima chiqim tranzaksiyalari bo'yicha)
+//  - paidTotal / paidCount: jami QANCHA to'langan (jarima yozuviga bog'langan chiqimlar)
 //  - unpaidCount: hali to'lanmagan jarimalar soni (davr ichida olinganlardan)
 export async function getFineStats({ from, to } = {}) {
   const range = {};
@@ -167,10 +181,12 @@ export async function getFineStats({ from, to } = {}) {
   };
   if (range.$gte || range.$lte) eventFilter.eventDate = range;
 
+  const linkedIds = await fineLinkedTransactionIds();
   const txFilter = {
     ...notDeleted,
     type: TX_TYPES.EXPENSE,
     category: FINE_CATEGORY,
+    _id: { $in: linkedIds },
   };
   if (range.$gte || range.$lte) txFilter.date = range;
 
@@ -206,7 +222,10 @@ export async function getMonthlyFineRows({ from, to } = {}) {
     status: { $ne: REMINDER_STATUS.CANCELLED },
   };
   if (range.$gte || range.$lte) eventFilter.eventDate = range;
-  const txFilter = { ...notDeleted, type: TX_TYPES.EXPENSE, category: FINE_CATEGORY };
+  // Faqat jarima yozuviga bog'langan to'lovlar (qo'lda kiritilgan 'jarima' xarajati bilan
+  // ikki marta hisoblanmasin).
+  const linkedIds = await fineLinkedTransactionIds();
+  const txFilter = { ...notDeleted, type: TX_TYPES.EXPENSE, category: FINE_CATEGORY, _id: { $in: linkedIds } };
   if (range.$gte || range.$lte) txFilter.date = range;
 
   const [fineAgg, paidAgg] = await Promise.all([

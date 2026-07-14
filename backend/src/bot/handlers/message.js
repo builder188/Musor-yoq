@@ -48,6 +48,14 @@ function isRecentConfirm(at) {
   return Number.isFinite(t) && Date.now() - t <= CONFIRM_REPLY_WINDOW_MS;
 }
 
+// Universal "bekor" saqlangan yozuvni faqat YAQINDA saqlangan bo'lsa o'chiradi —
+// muddatsiz bo'lsa, soatlar o'tib yozilgan "bekor" eski yozuvni kutilmaganda yo'q qilardi.
+const SAVED_CANCEL_WINDOW_MS = 10 * 60 * 1000;
+function isRecentSavedEntry(conv) {
+  const at = conv?.collected?.savedAt ? new Date(conv.collected.savedAt).getTime() : 0;
+  return Number.isFinite(at) && at > 0 && Date.now() - at <= SAVED_CANCEL_WINDOW_MS;
+}
+
 // Atomar upsert — avval findOne+create edi: ikki xabar parallel kelsa ikkalasi ham
 // "yo'q" deb topib, biri unique index (telegramId) xatosi bilan yiqilardi.
 async function getConversation(telegramId) {
@@ -283,9 +291,10 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
   Conversation.pushHistory(ctx.from.id, 'user', text);
 
   // Universal chiqish: istalgan yarim qolgan oqimdan "bekor" bilan chiqish.
-  // Yozuv ALLAQACHON saqlangan bo'lsa (darhol-saqlash oqimi) — o'sha yozuv o'chiriladi.
+  // Yozuv YAQINDA (10 daqiqa ichida) saqlangan bo'lsa — o'sha yozuv o'chiriladi;
+  // eskirgan bo'lsa faqat holat tozalanadi (yozuv joyida qoladi).
   if (/^(bekor|otmen|otmena|cancel|to'?xtat|toxtat|stop)\b/i.test(text.trim())) {
-    if (conv.pendingIntent === 'ENTRY_SAVED') {
+    if (conv.pendingIntent === 'ENTRY_SAVED' && isRecentSavedEntry(conv)) {
       try {
         const res = await cancelSavedEntry({ conversation: conv });
         clearAllSessionState(ctx);

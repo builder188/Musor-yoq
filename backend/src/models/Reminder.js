@@ -50,6 +50,10 @@ const reminderSchema = new mongoose.Schema(
 
     // Balansga ta'sir qildimi? Qildi bo'lsa — bog'langan tranzaksiya.
     affectsBalance: { type: Boolean, default: false },
+    // Egasi ANIQ "balansga tegma" degan (qarz uchun). affectsBalance=false ikki ma'noli
+    // edi ("summa hali yo'q" ham false) — bu bayroq niyatni yozuvning o'zida saqlaydi,
+    // shunda keyingi tahrirlar tranzaksiyani xato yaratib yubormaydi.
+    skipBalance: { type: Boolean, default: false },
     transactionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Transaction', default: null },
 
     // Qarz qachon berilgan/olingan (voqea sanasi). Balans tranzaksiyasi shu sanaga yoziladi.

@@ -201,16 +201,27 @@ export async function createService(data) {
 async function ensureServiceIncome(service) {
   if (service.incomeTransactionId) {
     const linked = await Transaction.findOne({ _id: service.incomeTransactionId, isDeleted: { $ne: true } });
-    if (linked) return { transaction: linked, created: false };
+    if (linked) {
+      // Faol income bor (masalan tiklangan) — "qasddan o'chirilgan" bayrog'i eskirgan.
+      if (service.incomeManuallyRemoved) {
+        service.incomeManuallyRemoved = false;
+        await service.save();
+      }
+      return { transaction: linked, created: false };
+    }
   }
   const active = await Transaction.findOne({ serviceId: service._id, type: TX_TYPES.INCOME, isDeleted: { $ne: true } });
   if (active) {
-    if (String(service.incomeTransactionId) !== String(active._id)) {
+    if (String(service.incomeTransactionId) !== String(active._id) || service.incomeManuallyRemoved) {
       service.incomeTransactionId = active._id;
+      service.incomeManuallyRemoved = false;
       await service.save();
     }
     return { transaction: active, created: false };
   }
+  // Egasi daromadni QASDDAN o'chirgan — soft-deleted tranzaksiya purgeOld bilan butunlay
+  // yo'qolgandan keyin ham qayta yaratmaymiz (bayroq Service'ning o'zida saqlanadi).
+  if (service.incomeManuallyRemoved) return { transaction: null, created: false };
   // Faol income yo'q. O'chirilgan (qasddan olib tashlangan) income bo'lsa — tiklamaymiz.
   const removed = await Transaction.findOne({ serviceId: service._id, type: TX_TYPES.INCOME });
   if (removed || !(service.price > 0)) return { transaction: null, created: false };
@@ -316,6 +327,7 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
     date: completed.completedAt || new Date(),
   });
   completed.incomeTransactionId = transaction._id;
+  completed.incomeManuallyRemoved = false; // yangi bajarilish — eski "qasddan o'chirilgan" belgisi bekor
   await completed.save();
 
   return includeTransaction ? { service: completed, transaction, created: true } : completed;
@@ -338,6 +350,29 @@ export async function repairMissingServiceIncome() {
       }
     }
     if (repaired > 0) console.log(`[REPAIR] ${repaired} ta bajarilgan xizmatga yo'qolgan daromad balansga tiklandi`);
+
+    // Teskari tozalash: BEKOR QILINGAN xizmatda faol income qolib ketgan bo'lsa
+    // (masalan bekor paytida link uzilgan edi) — balansdan qaytaramiz.
+    try {
+      const cancelledIds = await Service.find({ ...notDeleted, status: SERVICE_STATUS.CANCELLED })
+        .select('_id')
+        .lean();
+      if (cancelledIds.length) {
+        const reversed = await Transaction.updateMany(
+          {
+            serviceId: { $in: cancelledIds.map((s) => s._id) },
+            type: TX_TYPES.INCOME,
+            isDeleted: { $ne: true },
+          },
+          { isDeleted: true, deletedAt: new Date() }
+        );
+        if (reversed.modifiedCount > 0) {
+          console.log(`[REPAIR] ${reversed.modifiedCount} ta bekor qilingan xizmatning qolib ketgan daromadi qaytarildi`);
+        }
+      }
+    } catch (err) {
+      console.error('Bekor qilingan xizmat daromadini qaytarishda xato:', err.message);
+    }
     return repaired;
   });
 }
@@ -348,7 +383,8 @@ export async function cancelService(serviceId, reason = null) {
   if (!service) throw notFound('Xizmat topilmadi');
 
   const wasDone = service.status === SERVICE_STATUS.DONE;
-  if (wasDone && service.incomeTransactionId) {
+  if (wasDone) {
+    // Link (incomeTransactionId) uzilgan bo'lsa ham serviceId orqali topib qaytaramiz.
     await reverseIncome(service);
   }
   service.status = SERVICE_STATUS.CANCELLED;
@@ -421,6 +457,11 @@ export async function editService(serviceId, data) {
   if (data.paymentMethod !== undefined) service.paymentMethod = data.paymentMethod;
   if (data.notes !== undefined) service.notes = data.notes;
   if (data.price !== undefined) service.price = parsePositiveMoneyAmount(data.price, "Xizmat narxi noto'g'ri");
+  // Narx tahririda asl valyuta metasi ham mos yangilanadi (USD tahriri — yangi kurs/summa;
+  // so'm tahriri — null bilan tozalanadi). undefined kelsa tegilmaydi.
+  if (data.originalAmount !== undefined) service.originalAmount = data.originalAmount;
+  if (data.originalCurrency !== undefined) service.originalCurrency = data.originalCurrency;
+  if (data.exchangeRateUsed !== undefined) service.exchangeRateUsed = data.exchangeRateUsed;
   if (data.paidAmount !== undefined) {
     service.paidAmount = Math.min(service.price, parseMoneyAmount(data.paidAmount, "To'lov summasi noto'g'ri"));
     service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
@@ -477,13 +518,20 @@ export async function rescheduleService(serviceId, newDateTime) {
 }
 
 // Bajarilgan xizmat daromadini qaytarish (bekor qilish/o'chirishda).
+// Faqat incomeTransactionId ga tayanmaymiz: link uzilgan bo'lsa ham shu xizmatga
+// serviceId orqali bog'langan FAOL income'lar birga qaytariladi.
 async function reverseIncome(service) {
+  const deletedAt = new Date();
   if (service.incomeTransactionId) {
     await Transaction.findByIdAndUpdate(service.incomeTransactionId, {
       isDeleted: true,
-      deletedAt: new Date(),
+      deletedAt,
     });
   }
+  await Transaction.updateMany(
+    { serviceId: service._id, type: TX_TYPES.INCOME, isDeleted: { $ne: true } },
+    { isDeleted: true, deletedAt }
+  );
   service.incomeTransactionId = null;
 }
 

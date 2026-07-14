@@ -1,7 +1,7 @@
 // Telegram Mini App initData ni tekshirish (HMAC-SHA256).
 // https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
 import crypto from 'crypto';
-import env, { isOwnerTelegramId, ownerId } from '../config/env.js';
+import env, { isOwnerTelegramId, isProd, ownerId } from '../config/env.js';
 
 // initData eskirgan hisoblanadigan muddat (replay hujumiga qarshi).
 const MAX_AUTH_AGE_SECONDS = 24 * 60 * 60;
@@ -53,8 +53,9 @@ function validateInitData(initData) {
 
 // Express middleware.
 export function authMiddleware(req, res, next) {
-  // Dev rejimida tekshiruvni o'tkazib yuborish (faqat development uchun).
-  if (env.AUTH_DEV_BYPASS) {
+  // Dev rejimida tekshiruvni o'tkazib yuborish. env.AUTH_DEV_BYPASS production'da
+  // allaqachon false (env.js), bu yerdagi isProd() — qo'shimcha (defense-in-depth) qatlam.
+  if (env.AUTH_DEV_BYPASS && !isProd()) {
     req.telegramUser = { id: ownerId() };
     return next();
   }
