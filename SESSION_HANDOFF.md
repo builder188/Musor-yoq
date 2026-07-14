@@ -1,5 +1,10 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-14 (4) Bosh sahifa dashboard
+- /stats/home: +balance (all-time), +nextClient (getNextClient), +unpaidFines {count,total}; listClients raqamli qidiruvda xizmat narxi bo'yicha ham mijoz topadi.
+- Home.jsx: jonli sana/vaqt + CBU kursi, katta umumiy balans, "Hozir kimga borish kerak?" kartasi (bo'lmasa 🎉), bugungi barcha xizmatlar holat yorliqlari bilan, oy Kirim/Chiqim alohida, jarima ogohlantirishi (bor bo'lsagina), qidiruv. Yangi i18n: home.nextClientTitle/allDoneToday/monthSummary (uz+ru).
+- Tekshirildi: mock + preview'da 8 bo'lim ham (🎉 holati, tezkor bajarish, qidiruvdan tafsilotga o'tish); build OK; stats.js/clientService.js node --check OK.
+
 ## 2026-07-14 (3) Kategoriya dublikatlari tuzatildi
 - `utils/nameVariant.js` — imlo-variant matcher; ensure*/resolveMaterialName yangi kategoriya ochishdan oldin tekshiradi; classifyIntent prompt'iga mavjud kategoriyalar ro'yxati qo'shildi (yozish oqimiga Gemini chaqiruvi qo'shilmagan).
 - Kategoriyalar sahifasida "🔀 Dublikatlarni birlashtirish": GET /categories/duplicates (deterministik + bitta Gemini chaqiruvi) → juftlik tasdiqlash + qoladigan nom tanlash (default qulflangan) → POST /categories/merge 1990-kod bilan; bot xabari ketadi. Istalgan payt qayta ishlatiladi.

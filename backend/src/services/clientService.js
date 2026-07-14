@@ -120,6 +120,17 @@ export async function listClients({ search = '', page = null, limit = null } = {
   if (search) {
     const rx = new RegExp(escapeRegex(search), 'i');
     filter.$or = [{ name: rx }, { phone: rx }, { 'locations.address': rx }];
+    // Raqamli so'rov ("150000" yoki "150 000") — SUMMA bo'yicha ham qidiradi:
+    // shu narxdagi xizmati bor mijozlar natijaga qo'shiladi (bosh sahifa qidiruvi).
+    const numeric = Number(String(search).replace(/[\s']/g, ''));
+    if (Number.isFinite(numeric) && numeric > 0 && /^[\d\s']+$/.test(String(search).trim())) {
+      const ids = await Service.distinct('clientId', {
+        isDeleted: { $ne: true },
+        clientId: { $ne: null },
+        price: numeric,
+      });
+      if (ids.length) filter.$or.push({ _id: { $in: ids } });
+    }
   }
   const pageNumber = Math.max(1, parseInt(page, 10) || 0);
   const limitNumber = Math.min(Math.max(parseInt(limit, 10) || 0, 1), 100);

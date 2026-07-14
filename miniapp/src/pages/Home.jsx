@@ -1,3 +1,7 @@
+// Bosh sahifa — DASHBOARD (jadval EMAS): kun/vaqt, CBU kursi, umumiy balans,
+// "hozir kimga borish kerak" kartasi, bugungi xizmatlar (holat yorliqlari bilan),
+// shu oy kirim/chiqim, to'lanmagan jarima ogohlantirishi va mijoz qidiruvi.
+// Hamma bo'lim mavjud backend funksiyalaridan (/stats/home bitta so'rovda yig'adi).
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
@@ -19,6 +23,7 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
   const [searching, setSearching] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
   const [completingServiceId, setCompletingServiceId] = useState(null);
+  const now = useNow();
 
   const loadStats = () => {
     return api
@@ -72,9 +77,13 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
   return (
     <div>
       {statsError && <LoadError onRetry={loadStats} />}
+
+      {/* 1) Sana va vaqt (jonli) + 2) dollar kursi */}
       <div className="greeting">
         <div>
-          <div className="greet-date">{formatWeekdayDate(new Date(), lang)}</div>
+          <div className="greet-date">
+            {formatWeekdayDate(now, lang)} · {formatTime(now)}
+          </div>
           <div className="greet-hello">{t('home.greeting')}</div>
           <RateChip />
         </div>
@@ -83,9 +92,26 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
         </button>
       </div>
 
-      <SummaryCard stats={stats} loading={loadingStats} />
+      {/* 3) Joriy balans — katta raqam (BARCHA VAQT bo'yicha) */}
+      <div className="balance-hero">
+        <div className="bh-label">{t('finance.balanceNow')}</div>
+        <div className={`bh-amount ${Number(stats?.balance ?? 0) < 0 ? 'negative' : ''}`}>
+          {loadingStats ? '…' : formatNumber(stats?.balance ?? 0)} <span className="unit">{t('common.soum')}</span>
+        </div>
+      </div>
 
+      {/* 4) Hozir kimga borish kerak? — so'rovsiz, darhol */}
+      <NextClientCard nextClient={stats?.nextClient} loading={loadingStats} onOpen={setSelectedService} />
 
+      {/* 7) To'lanmagan jarima — faqat bor bo'lsa ko'rinadi */}
+      {stats?.unpaidFines?.count > 0 && (
+        <div className="fine-alert" onClick={() => goToTab?.('reminders')}>
+          ⚠️ {t('reminders.fineUnpaid')}: {stats.unpaidFines.count} {t('home.countSuffix')}
+          {stats.unpaidFines.total > 0 ? ` · ${formatMoney(stats.unpaidFines.total)}` : ''}
+        </div>
+      )}
+
+      {/* 8) Mijozlar qidiruvi — ism/telefon/manzil/summa (universal qidiruv mantig'i) */}
       <div className="search">
         <span className="search-icon">🔍</span>
         <input
@@ -101,14 +127,21 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
       </button>
 
       <SearchResults clients={clients} searching={searching} onOpenClient={onOpenClient} />
+
       {!search.trim() && (
-        <TodayServices
-          items={stats?.todayServices || []}
-          loading={loadingStats}
-          busyId={completingServiceId}
-          onOpenService={setSelectedService}
-          onComplete={completeTodayService}
-        />
+        <>
+          {/* 5) Bugungi BARCHA xizmatlar — holat yorliqlari bilan */}
+          <TodayServices
+            items={stats?.todayServices || []}
+            loading={loadingStats}
+            busyId={completingServiceId}
+            onOpenService={setSelectedService}
+            onComplete={completeTodayService}
+          />
+
+          {/* 6) Bu oyning moliyaviy xulosasi: kirim va chiqim ALOHIDA */}
+          <MonthSummary summary={stats?.monthSummary} t={t} />
+        </>
       )}
 
       {selectedService && <ServiceDetailModal service={selectedService} onClose={() => setSelectedService(null)} />}
@@ -116,23 +149,77 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
   );
 }
 
-// Xulosa kartasi: 2 ustun — bugungi xizmatlar soni | joriy balans (yashil).
-function SummaryCard({ stats, loading }) {
-  const { t } = useApp();
-  const count = loading ? '…' : stats?.todayCount ?? 0;
-  const balance = stats?.monthSummary?.balance ?? 0;
-  return (
-    <div className="summary-card">
-      <div className="summary-col">
-        <div className="summary-label">{t('home.todayJobs')}</div>
-        <div className="summary-value">
-          {count} <span className="unit">{t('home.countSuffix')}</span>
-        </div>
+// Jonli soat: har 30 soniyada yangilanadi (sana yarim tunda, vaqt doim to'g'ri turadi).
+function useNow() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
+
+// "Hozir kimga borish kerak?" — backend getNextClient (bugungi kutilayotgan xizmatlardan
+// vaqtga eng yaqini). Bo'lmasa — bugungi ishlar tugagan.
+function NextClientCard({ nextClient, loading, onOpen }) {
+  const { t, lang } = useApp();
+  if (loading) return null;
+  if (!nextClient) {
+    return (
+      <div className="card next-client done">
+        <div className="next-title">{t('home.nextClientTitle')}</div>
+        <div className="next-done">{t('home.allDoneToday')}</div>
       </div>
-      <div className="summary-divider" />
-      <div className="summary-col wide">
-        <div className="summary-label">{t('home.balanceNow')}</div>
-        <div className="summary-value accent">{formatNumber(balance)}</div>
+    );
+  }
+  return (
+    <div className="card next-client" onClick={() => onOpen?.(nextClient)}>
+      <div className="next-title">{t('home.nextClientTitle')}</div>
+      <div className="job-card" style={{ paddingTop: 8 }}>
+        <div className="avatar">{(nextClient.clientName || '?').trim().charAt(0).toUpperCase() || '?'}</div>
+        <div className="job-main">
+          <div className="job-name">{nextClient.clientName || '-'}</div>
+          <div className="job-sub">
+            {formatTime(nextClient.serviceDateTime)}
+            {nextClient.location?.address ? (
+              <>
+                {' · '}
+                <LocationDisplay location={nextClient.location} inline />
+              </>
+            ) : null}
+          </div>
+          {nextClient.price > 0 && <div className="job-price">{formatMoney(nextClient.price)}</div>}
+        </div>
+        <span className="chevron">›</span>
+      </div>
+    </div>
+  );
+}
+
+// Bu oy: kirim (yashil, barcha manbalar jami) va chiqim (qizil) alohida.
+function MonthSummary({ summary, t }) {
+  const income = Number(summary?.income ?? summary?.totalIncome ?? 0);
+  const expense = Number(summary?.expense ?? summary?.totalExpense ?? 0);
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div className="section-head">
+        <div className="sec-title">{t('home.monthSummary')}</div>
+      </div>
+      <div className="io-row">
+        <div className="io-card">
+          <div className="io-head">
+            <div className="io-badge in">↑</div>
+            <span className="io-label">{t('finance.income')}</span>
+          </div>
+          <div className="io-value in">+{formatNumber(income)}</div>
+        </div>
+        <div className="io-card">
+          <div className="io-head">
+            <div className="io-badge out">↓</div>
+            <span className="io-label">{t('finance.expense')}</span>
+          </div>
+          <div className="io-value out">−{formatNumber(expense)}</div>
+        </div>
       </div>
     </div>
   );
@@ -209,11 +296,14 @@ function TodayServices({ items, loading, busyId, onOpenService, onComplete }) {
   );
 }
 
+// Bugungi xizmat kartasi: HAR BIRIDA aniq rangli holat yorlig'i; kutilayotganida
+// tezkor "bajarildi" tugmasi ham qoladi.
 function TodayServiceCard({ service, busy, onOpen, onComplete }) {
-  const { t, lang } = useApp();
+  const { t } = useApp();
   const isDone = service.status === 'bajarildi';
   const isCancelled = service.status === 'bekor_qilindi';
   const initial = (service.clientName || '?').trim().charAt(0).toUpperCase() || '?';
+  const badge = isDone ? 'done' : isCancelled ? 'cancelled' : 'pending';
 
   const stopAndComplete = (e) => {
     e.stopPropagation();
@@ -225,9 +315,12 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
       <div className={`job-card ${isDone ? 'is-done' : ''}`}>
         <div className="avatar">{initial}</div>
         <div className="job-main">
-          <div className="job-name">{service.clientName || '-'}</div>
+          <div className="job-name">
+            {service.clientName || '-'}{' '}
+            <span className={`badge badge-${badge}`}>{t(`status.${service.status || 'kutilmoqda'}`)}</span>
+          </div>
           <div className="job-sub">
-            {formatTime(service.serviceDateTime, lang)}
+            {formatTime(service.serviceDateTime)}
             {service.location?.address ? (
               <>
                 {' · '}
@@ -241,9 +334,7 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
           <div className="check-circle done" aria-label={t('status.bajarildi')}>
             ✓
           </div>
-        ) : isCancelled ? (
-          <span className="badge badge-cancelled">{t('status.bekor_qilindi')}</span>
-        ) : (
+        ) : isCancelled ? null : (
           <button
             className="check-circle"
             aria-label={t('services.markDone')}
@@ -259,7 +350,7 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
 function ClientCard({ client, onOpen }) {
   const { t, lang } = useApp();
   const lastServiceAt = client.lastServiceAt || client.services?.[0]?.serviceDateTime;
-  const debt = client.unpaidTotal || client.totalDebt || client.unpaidAmount;
+  const debt = client.currentDebt || client.unpaidTotal || client.totalDebt || client.unpaidAmount;
 
   return (
     <div className={`list-item ${client.isDeleted ? 'deleted-item' : ''}`} onClick={onOpen}>

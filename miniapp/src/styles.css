@@ -2033,3 +2033,39 @@ textarea.input {
 .sheet-cell.openable {
   cursor: pointer;
 }
+
+/* Bosh sahifa dashboard: "hozir kimga borish" kartasi va jarima ogohlantirishi */
+.next-client {
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+.next-client .next-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.next-client .next-done {
+  padding: 10px 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.next-client.done {
+  cursor: default;
+}
+.fine-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+  border-radius: 12px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
