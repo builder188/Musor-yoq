@@ -1,3 +1,8 @@
+// Kerakli buyumlar — umumiy jadval (spreadsheet) ko'rinishi.
+// Holat ustuni dropdown: Mavjud -> Sotilgan (summa so'raladi, kirim yoziladi) yoki
+// Berib yuborilgan. Orqaga o'tish backendda yo'q — variantlar holatga qarab cheklanadi.
+// Buyum ma'lumotini tahrirlash API'si yo'q — mavjud qatorlar faqat o'qiladi,
+// yangi qator POST /items bilan saqlanadi. O'chirish — 1990-kod.
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
@@ -6,34 +11,30 @@ import { formatDateTime, formatMoney } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
+import SheetTable from '../components/SheetTable.jsx';
 import LoadError from '../components/LoadError.jsx';
 
 export default function Items({ onBack = null }) {
   const { t, lang } = useApp();
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState('available');
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [detail, setDetail] = useState(null);
   const [selling, setSelling] = useState(null);
   const [giving, setGiving] = useState(null);
   const [deleting, setDeleting] = useState(null);
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      const params = new URLSearchParams({ status });
-      if (search.trim()) params.set('search', search.trim());
-      setItems(await api.get(`/items?${params.toString()}`));
+      setItems(await api.get(`/items?${new URLSearchParams({ status }).toString()}`));
       setLoadError(false);
     } catch {
       // Xato = bo'sh ro'yxat EMAS — banner ko'rsatamiz (yozuvlar bazada turibdi).
       setLoadError(true);
       setItems([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -44,9 +45,105 @@ export default function Items({ onBack = null }) {
 
   const activeCount = useMemo(() => items.filter((item) => item.status === 'available').length, [items]);
 
+  const statusOptions = (row) => {
+    if (row.status === 'available') {
+      return [
+        { value: 'available', label: t('items.status.available') },
+        { value: 'sold', label: t('items.status.sold') },
+        { value: 'given_away', label: t('items.status.given_away') },
+      ];
+    }
+    return [{ value: row.status, label: t(`items.status.${row.status}`) }];
+  };
+
+  const columns = [
+    {
+      key: 'name',
+      title: t('items.itemName'),
+      width: 150,
+      type: 'text',
+      get: (r) => r.name || '',
+      text: (r) => r.name || '',
+      // Buyumni tahrirlash API'si yo'q — faqat draft (yangi qator) uchun yoziladi.
+    },
+    {
+      key: 'status',
+      title: t('common.status'),
+      width: 130,
+      type: 'select',
+      options: statusOptions,
+      draft: false,
+      draftText: t('items.status.available'),
+      get: (r) => r.status || '',
+      text: (r) => (r.status ? t(`items.status.${r.status}`) : ''),
+      apply: async (r, v) => {
+        if (v === r.status) return;
+        // Sotildi — summa modal orqali so'raladi (kirim backendda yoziladi);
+        // berib yuborildi — oluvchi modal orqali. Ikkalasi mavjud oqimlar.
+        if (v === 'sold') setSelling(r);
+        else if (v === 'given_away') setGiving(r);
+      },
+    },
+    {
+      key: 'estimatedPrice',
+      title: t('items.estimatedPrice'),
+      width: 130,
+      type: 'number',
+      get: (r) => (r.estimatedPrice > 0 ? r.estimatedPrice : ''),
+      text: (r) => (r.estimatedPrice > 0 ? formatMoney(r.estimatedPrice) : ''),
+    },
+    {
+      key: 'soldAmount',
+      title: t('items.soldAmount'),
+      width: 130,
+      type: 'number',
+      draft: false,
+      get: (r) => (r.soldAmount > 0 ? r.soldAmount : ''),
+      text: (r) => (r.soldAmount > 0 ? formatMoney(r.soldAmount) : ''),
+    },
+    {
+      key: 'recipient',
+      title: t('items.recipient'),
+      width: 120,
+      type: 'text',
+      draft: false,
+      get: (r) => r.recipient || '',
+      text: (r) => r.recipient || '',
+    },
+    {
+      key: 'date',
+      title: t('common.date'),
+      width: 160,
+      type: 'text',
+      draft: false,
+      get: (r) => r.acquiredAt || r.createdAt || '',
+      text: (r) => formatDateTime(r.acquiredAt || r.createdAt, lang),
+    },
+    {
+      key: 'notes',
+      title: t('common.notes'),
+      width: 170,
+      type: 'text',
+      get: (r) => r.notes || '',
+      text: (r) => r.notes || '',
+    },
+  ];
+
+  const draft = {
+    defaults: {},
+    canSave: (v) => !!String(v.name || '').trim(),
+    save: async (v) => {
+      await api.post('/items', {
+        itemName: String(v.name).trim(),
+        estimatedPrice: v.estimatedPrice || null,
+        notes: v.notes || '',
+      });
+    },
+  };
+
   return (
     <div>
-      {loadError && <LoadError onRetry={load} />}
+      {loadError && <LoadError onRetry={() => load()} />}
       <div className="row-between" style={{ marginBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {onBack && (
@@ -54,14 +151,6 @@ export default function Items({ onBack = null }) {
           )}
           <h1 className="page-title" style={{ marginBottom: 0 }}>{t('items.title')}</h1>
         </div>
-        <button
-          className="icon-btn"
-          style={{ background: 'var(--text)', color: 'var(--card)', border: 'none', fontSize: 21, boxShadow: 'var(--shadow-btn)' }}
-          aria-label={t('common.add')}
-          onClick={() => setCreating(true)}
-        >
-          +
-        </button>
       </div>
 
       <div className="summary-card" style={{ marginTop: 12 }}>
@@ -78,69 +167,30 @@ export default function Items({ onBack = null }) {
 
       <div className="segment">
         <button className={status === 'available' ? 'active' : ''} onClick={() => setStatus('available')}>
-          {t('items.available')}
+          {t('items.status.available')}
         </button>
         <button className={status === 'all' ? 'active' : ''} onClick={() => setStatus('all')}>
           {t('finance.all')}
         </button>
         <button className={status === 'sold' ? 'active' : ''} onClick={() => setStatus('sold')}>
-          {t('items.sold')}
+          {t('items.status.sold')}
         </button>
-      </div>
-
-      <div className="search">
-        <span className="search-icon">⌕</span>
-        <input
-          value={search}
-          placeholder={t('items.searchPlaceholder')}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && load()}
-        />
-        <button className="btn btn-sm" onClick={load}>{t('common.search').replace('...', '')}</button>
       </div>
 
       {loading ? (
         <Spinner />
-      ) : items.length === 0 ? (
-        <div className="empty">{t('items.empty')}</div>
       ) : (
-        items.map((item) => (
-          <ItemCard
-            key={item._id}
-            item={item}
-            onClick={() => setDetail(item)}
-            t={t}
-            lang={lang}
-          />
-        ))
-      )}
-
-      {creating && (
-        <ItemFormModal
-          onClose={() => setCreating(false)}
-          onSaved={() => {
-            setCreating(false);
-            load();
-          }}
-        />
-      )}
-
-      {detail && (
-        <ItemDetailModal
-          item={detail}
-          onClose={() => setDetail(null)}
-          onSell={(item) => {
-            setDetail(null);
-            setSelling(item);
-          }}
-          onGive={(item) => {
-            setDetail(null);
-            setGiving(item);
-          }}
-          onDelete={(item) => {
-            setDetail(null);
-            setDeleting(item);
-          }}
+        <SheetTable
+          id="items"
+          columns={columns}
+          rows={items}
+          rowKey={(r) => r._id}
+          onChanged={() => load(true)}
+          draft={draft}
+          onDelete={setDeleting}
+          rowDetail={(r) => <ItemDetail item={r} />}
+          emptyText={t('items.empty')}
+          t={t}
         />
       )}
 
@@ -150,7 +200,7 @@ export default function Items({ onBack = null }) {
           onClose={() => setSelling(null)}
           onDone={() => {
             setSelling(null);
-            load();
+            load(true);
           }}
         />
       )}
@@ -161,7 +211,7 @@ export default function Items({ onBack = null }) {
           onClose={() => setGiving(null)}
           onDone={() => {
             setGiving(null);
-            load();
+            load(true);
           }}
         />
       )}
@@ -173,7 +223,7 @@ export default function Items({ onBack = null }) {
           onConfirm={async (code) => {
             await api.del(`/items/${deleting._id}`, { confirmationCode: code });
             setDeleting(null);
-            load();
+            load(true);
           }}
         />
       )}
@@ -181,105 +231,19 @@ export default function Items({ onBack = null }) {
   );
 }
 
-function ItemCard({ item, onClick, t, lang }) {
-  const initial = (item.name || '?').trim().charAt(0).toUpperCase() || '?';
-  return (
-    <button className={`list-item ${item.status !== 'available' ? 'is-done' : ''}`} type="button" onClick={onClick} style={{ width: '100%', textAlign: 'left' }}>
-      <div className="job-card">
-        <div className="avatar">{initial}</div>
-        <div className="job-main">
-          <div className="job-name">{item.name}</div>
-          <div className="job-sub">{formatDateTime(item.acquiredAt || item.createdAt, lang)}</div>
-          {item.estimatedPrice > 0 && <div className="job-price">{formatMoney(item.estimatedPrice)}</div>}
-        </div>
-        <span className={`badge ${item.status === 'available' ? 'badge-pending' : item.status === 'sold' ? 'badge-done' : 'badge-muted'}`}>
-          {t(`items.status.${item.status}`)}
-        </span>
-      </div>
-    </button>
-  );
-}
-
-function ItemFormModal({ onClose, onSaved }) {
-  const { t } = useApp();
-  const [form, setForm] = useState({ itemName: '', estimatedPrice: '', notes: '' });
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api.post('/items', {
-        itemName: form.itemName,
-        estimatedPrice: form.estimatedPrice || null,
-        notes: form.notes,
-      });
-      onSaved();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={t('items.add')} onClose={onClose}>
-      <label className="label">{t('items.itemName')}</label>
-      <input className="input" value={form.itemName} onChange={(e) => setForm({ ...form, itemName: e.target.value })} />
-      <label className="label">{t('items.estimatedPrice')}</label>
-      <input className="input" type="number" value={form.estimatedPrice} onChange={(e) => setForm({ ...form, estimatedPrice: e.target.value })} />
-      <label className="label">{t('common.notes')}</label>
-      <textarea className="input" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !form.itemName.trim()}>
-        {busy ? '...' : t('common.save')}
-      </button>
-    </Modal>
-  );
-}
-
-function ItemDetailModal({ item, onClose, onSell, onGive, onDelete }) {
-  const { t, lang } = useApp();
+// Yoyiladigan tafsilot: asl ovoz (qayta eshitish) va asl matn.
+function ItemDetail({ item }) {
   const audioUrl = item.voice?.telegramFileId
     ? `${api.baseUrl}/api/items/audio/${encodeURIComponent(item.voice.telegramFileId)}?initData=${encodeURIComponent(getInitData())}`
     : null;
+  if (!audioUrl && !item.sourceText) return null;
   return (
-    <Modal title={item.name} onClose={onClose}>
-      <div className="mb-8">
-        <span className={`badge ${item.status === 'available' ? 'badge-pending' : item.status === 'sold' ? 'badge-done' : 'badge-muted'}`}>
-          {t(`items.status.${item.status}`)}
-        </span>
-      </div>
-      <div className="card">
-        <Row label={t('common.date')} value={formatDateTime(item.acquiredAt || item.createdAt, lang)} />
-        {item.estimatedPrice > 0 && <Row label={t('items.estimatedPrice')} value={formatMoney(item.estimatedPrice)} />}
-        {item.soldAmount > 0 && <Row label={t('items.soldAmount')} value={formatMoney(item.soldAmount)} />}
-        {item.recipient && <Row label={t('items.recipient')} value={item.recipient} />}
-        {item.notes && <Row label={t('common.notes')} value={item.notes} />}
-      </div>
-
-      {(item.sourceText || audioUrl) && (
-        <div className="card">
-          <div className="section-title compact">{t('items.source')}</div>
-          {audioUrl && <audio controls src={audioUrl} style={{ width: '100%', marginBottom: 10 }} />}
-          {item.sourceText && <div className="muted" style={{ whiteSpace: 'pre-wrap' }}>{item.sourceText}</div>}
-        </div>
+    <div>
+      {audioUrl && <audio controls src={audioUrl} style={{ width: '100%', marginBottom: item.sourceText ? 8 : 0 }} />}
+      {item.sourceText && (
+        <div className="muted" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>🎙 {item.sourceText}</div>
       )}
-
-      {item.status === 'available' && (
-        <>
-          <div className="btn-row mb-8">
-            <button className="btn btn-primary btn-block" onClick={() => onSell(item)}>
-              {t('items.markSold')}
-            </button>
-            <button className="btn btn-block" onClick={() => onGive(item)}>
-              {t('items.giveAway')}
-            </button>
-          </div>
-          <button className="btn btn-danger btn-block" onClick={() => onDelete(item)}>
-            {t('common.delete')}
-          </button>
-        </>
-      )}
-    </Modal>
+    </div>
   );
 }
 
@@ -308,9 +272,9 @@ function SellModal({ item, onClose, onDone }) {
   };
 
   return (
-    <Modal title={t('items.markSold')} onClose={onClose}>
+    <Modal title={`${item.name} — ${t('items.markSold')}`} onClose={onClose}>
       <label className="label">{t('common.amount')}</label>
-      <input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      <input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
       <label className="label">{t('items.recipient')}</label>
       <input className="input" value={recipient} onChange={(e) => setRecipient(e.target.value)} />
       <label className="label">{t('common.date')}</label>
@@ -340,21 +304,12 @@ function GiveModal({ item, onClose, onDone }) {
   };
 
   return (
-    <Modal title={t('items.giveAway')} onClose={onClose}>
+    <Modal title={`${item.name} — ${t('items.giveAway')}`} onClose={onClose}>
       <label className="label">{t('items.recipient')}</label>
       <input className="input" value={recipient} onChange={(e) => setRecipient(e.target.value)} />
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
         {busy ? '...' : t('common.save')}
       </button>
     </Modal>
-  );
-}
-
-function Row({ label, value }) {
-  return (
-    <div className="card-row" style={{ padding: '4px 0' }}>
-      <span className="muted">{label}</span>
-      <span style={{ textAlign: 'right', fontWeight: 500, overflowWrap: 'anywhere' }}>{value}</span>
-    </div>
   );
 }

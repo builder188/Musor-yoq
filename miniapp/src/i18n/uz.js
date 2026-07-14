@@ -70,10 +70,6 @@ export default {
     countSuffix: 'ta',
     addClientBig: "Yangi mijoz qo'shish",
     searchPlaceholder: 'Mijozni qidirish...',
-    aiChat: 'AI yordamchi',
-    aiPlaceholder: "Savol bering: 15 mart kuni qayerga borganman?",
-    aiThinking: "O'ylanyapti...",
-    ask: 'So\'rash',
     noResults: 'Natija topilmadi',
     failedTitle: 'Yuborilmagan eslatmalar',
     failedDesc: '3 marta urinishdan keyin ham yuborilmadi. Qo\'lda hal qiling.',
@@ -139,10 +135,10 @@ export default {
     searchPlaceholder: 'Buyumni qidirish...',
     empty: 'Kerakli buyumlar yo\'q',
     status: {
-      available: 'Bor',
-      sold: 'Sotildi',
-      given_away: 'Berildi',
-      discarded: 'O\'chirildi',
+      available: 'Mavjud',
+      sold: 'Sotilgan',
+      given_away: 'Berib yuborilgan',
+      discarded: 'O\'chirilgan',
     },
   },
 
@@ -351,6 +347,16 @@ export default {
     kutilmoqda: 'Kutilmoqda',
     bajarildi: 'Bajarildi',
     bekor_qilindi: 'Bekor qilindi',
+  },
+
+  // Umumiy jadval (spreadsheet) ko'rinishi matnlari.
+  sheet: {
+    search: "Qidirish — barcha ustunlar bo'yicha...",
+    addRow: 'Yangi qator',
+    statusRevert: "Holatni orqaga qaytarib bo'lmaydi",
+    partialPaid: "To'langan summa (so'm)",
+    special: 'Maxsus',
+    open: 'Ochish',
   },
 
   confirm: {

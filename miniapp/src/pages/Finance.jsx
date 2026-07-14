@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+// Moliya sahifasi: balans/diagramma kartalari saqlanadi, Kirim va Chiqim ro'yxatlari
+// umumiy jadval (spreadsheet) ko'rinishida. Tahrirlar PUT /transactions/:id orqali —
+// biznes qoidalar backendda (xizmatga bog'langan daromad summasi o'zgartirilmaydi,
+// kategoriya avtomatik yaratiladi/kanonlashadi, bot xabar oladi).
+import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatDate, formatDateTime, formatMonthName, formatMonthYear, toInputDateTime } from '../utils/format.js';
+import { formatMoney, formatDateTime, formatMonthName, formatMonthYear, toInputDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
-import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
+import SheetTable from '../components/SheetTable.jsx';
 import LoadError from '../components/LoadError.jsx';
 
 const PERIODS = ['today', 'month', 'year'];
@@ -21,13 +25,11 @@ export default function Finance() {
   const [stockItems, setStockItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [adding, setAdding] = useState(null);
-  const [editingTx, setEditingTx] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [downloading, setDownloading] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [s, c, tx, mat, src, items] = await Promise.all([
         api.get(`/finance/summary?period=${period}`),
@@ -45,8 +47,7 @@ export default function Finance() {
       setStockItems(Array.isArray(items) ? items : []);
       setLoadError(false);
     } catch {
-      // Yuklash xatosi bo'sh ro'yxatga aylanmasin — foydalanuvchi "yozuvim yo'qolibdi"
-      // deb o'ylamasligi uchun aniq banner ko'rsatamiz (yozuvlar bazada turibdi).
+      // Yuklash xatosi bo'sh ro'yxatga aylanmasin — aniq banner (yozuvlar bazada turibdi).
       setLoadError(true);
       setSummary(null);
       setChart(null);
@@ -55,7 +56,7 @@ export default function Finance() {
       setIncomeSources(null);
       setStockItems([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -65,12 +66,14 @@ export default function Finance() {
   }, [period]);
 
   const bars = makeBars(chart, lang);
+  const incomes = transactions.filter((tx) => tx.type === 'income');
+  const expenses = transactions.filter((tx) => tx.type === 'expense');
 
   return (
     <div>
       <h1 className="page-title" style={{ marginBottom: 6 }}>{t('finance.title')}</h1>
 
-      {loadError && <LoadError onRetry={load} />}
+      {loadError && <LoadError onRetry={() => load()} />}
 
       <BalanceCard summary={summary} />
 
@@ -96,15 +99,6 @@ export default function Finance() {
         <>
           <IncomeExpenseRow summary={summary} />
 
-          <div className="btn-row" style={{ marginBottom: 16 }}>
-            <button className="btn btn-block" onClick={() => setAdding('income')}>
-              ➕ {t('finance.income')}
-            </button>
-            <button className="btn btn-block" onClick={() => setAdding('expense')}>
-              ➖ {t('finance.expense')}
-            </button>
-          </div>
-
           {bars && (
             <div className="card">
               <div style={{ fontWeight: 600, fontSize: 14 }}>{t('finance.last6')}</div>
@@ -125,39 +119,28 @@ export default function Finance() {
 
           {stockItems.length > 0 && <StockItemsCard items={stockItems} t={t} />}
 
-          <div className="section-title">{t('finance.recentActions')}</div>
-          {transactions.length === 0 ? (
-            <div className="empty">{t('common.noData')}</div>
-          ) : (
-            <TransactionGroups groups={groupTransactions(transactions, lang)} t={t} lang={lang} onEdit={setEditingTx} onDelete={setDeleting} />
-          )}
+          <div className="section-title">↑ {t('finance.income')}</div>
+          <TransactionsSheet
+            id="finance-income"
+            type="income"
+            rows={incomes}
+            t={t}
+            lang={lang}
+            onChanged={() => load(true)}
+            onDelete={setDeleting}
+          />
+
+          <div className="section-title">↓ {t('finance.expense')}</div>
+          <TransactionsSheet
+            id="finance-expense"
+            type="expense"
+            rows={expenses}
+            t={t}
+            lang={lang}
+            onChanged={() => load(true)}
+            onDelete={setDeleting}
+          />
         </>
-      )}
-
-      {adding && (
-        <AddTransactionModal
-          initialType={adding}
-          onClose={() => setAdding(null)}
-          onDone={() => {
-            setAdding(null);
-            load();
-          }}
-        />
-      )}
-
-      {editingTx && (
-        <EditTransactionModal
-          tx={editingTx}
-          onClose={() => setEditingTx(null)}
-          onDelete={(tx) => {
-            setEditingTx(null);
-            setDeleting(tx);
-          }}
-          onDone={() => {
-            setEditingTx(null);
-            load();
-          }}
-        />
       )}
 
       {deleting && (
@@ -167,13 +150,97 @@ export default function Finance() {
           onConfirm={async (code) => {
             await api.del(`/transactions/${deleting._id}`, { confirmationCode: code });
             setDeleting(null);
-            load();
+            load(true);
           }}
         />
       )}
 
       {downloading && <DownloadReportModal onClose={() => setDownloading(false)} />}
     </div>
+  );
+}
+
+// Kirim yoki Chiqim jadvali. Yangi qator o'sha turdagi tranzaksiya sifatida saqlanadi
+// (tur jadvalning o'zi bilan belgilangan — keyin o'zgartirish shart emas).
+function TransactionsSheet({ id, type, rows, t, lang, onChanged, onDelete }) {
+  const columns = useMemo(
+    () => [
+      {
+        key: 'date',
+        title: t('common.date'),
+        width: 170,
+        type: 'datetime',
+        get: (r) => (r.date ? toInputDateTime(r.date) : ''),
+        text: (r) => (r.date ? formatDateTime(r.date, lang) : ''),
+        apply: (r, v) => {
+          if (!v) return null;
+          return api.put(`/transactions/${r._id}`, { date: new Date(v).toISOString() });
+        },
+      },
+      {
+        key: 'amount',
+        title: t('common.amount'),
+        width: 120,
+        type: 'number',
+        get: (r) => (r.amount > 0 ? r.amount : ''),
+        text: (r) => (r.amount > 0 ? formatMoney(r.amount) : ''),
+        // Xizmatga bog'langan daromadda backend aniq xabar bilan rad etadi.
+        apply: (r, v) => {
+          if (v === '' || v === null) return null;
+          return api.put(`/transactions/${r._id}`, { amount: Number(v) });
+        },
+      },
+      {
+        key: 'category',
+        title: t('finance.category'),
+        width: 130,
+        type: 'text',
+        get: (r) => r.category || '',
+        text: (r) => categoryLabel(t, r.category),
+        // Erkin kategoriya: yangi nom backendda avtomatik yaratiladi (bot xabar beradi).
+        apply: (r, v) => api.put(`/transactions/${r._id}`, { category: v }),
+      },
+      {
+        key: 'description',
+        title: t('common.notes'),
+        width: 200,
+        type: 'text',
+        get: (r) => r.description || r.note || '',
+        text: (r) => r.description || r.note || '',
+        apply: (r, v) => api.put(`/transactions/${r._id}`, { description: v }),
+      },
+    ],
+    [t, lang]
+  );
+
+  const draft = {
+    defaults: {},
+    // Har maydon ixtiyoriy: birinchi mazmunli qiymat kiritilganda saqlanadi (summa 0 =
+    // "hali aytilmagan" — balansga ta'sir qilmaydi, keyin tahrirda kiritiladi).
+    canSave: (v) =>
+      !!(String(v.amount || '').trim() || String(v.category || '').trim() || String(v.description || '').trim()),
+    save: async (v) => {
+      const payload = { type };
+      if (v.amount) payload.amount = Number(v.amount);
+      if (v.category) payload.category = v.category;
+      if (v.description) payload.description = v.description;
+      if (v.date) payload.date = new Date(v.date).toISOString();
+      await api.post('/transactions', payload);
+    },
+  };
+
+  return (
+    <SheetTable
+      id={id}
+      columns={columns}
+      rows={rows}
+      rowKey={(r) => r._id}
+      onChanged={onChanged}
+      draft={draft}
+      onDelete={onDelete}
+      emptyText={t('common.noData')}
+      t={t}
+    />
   );
 }
 
@@ -328,7 +395,6 @@ function IncomeExpenseRow({ summary }) {
 }
 
 // Daromad MANBALARI bo'yicha ajratish (davr summasi): xizmat / material / buyum / boshqa.
-// Har manba — emoji + nomi + yozuvlar soni + jami summa. Faqat summasi bor manbalar.
 function IncomeSourcesCard({ data, t }) {
   const sources = (data.sources || []).filter((s) => s.total > 0);
   if (!sources.length) return null;
@@ -348,8 +414,7 @@ function IncomeSourcesCard({ data, t }) {
   );
 }
 
-// Kerakli buyumlar inventari qisqacha ko'rinishi: nechta buyum saqlanmoqda + qaysilari.
-// To'liq boshqaruv "Buyumlar" tabida; bu yerda faqat moliyaviy umumiy ko'rinish.
+// Kerakli buyumlar inventari qisqacha ko'rinishi (moliyaviy umumiy ko'rinish).
 function StockItemsCard({ items, t }) {
   const names = items.map((it) => it.name).filter(Boolean);
   const shown = names.slice(0, 15);
@@ -369,8 +434,7 @@ function StockItemsCard({ items, t }) {
   );
 }
 
-// Material sotuvi bo'yicha kategoriya statistikasi (davr summasi). Faqat material
-// sotilgan bo'lsa ko'rsatiladi. Har qator: material nomi, kg (bo'lsa), jami summa.
+// Material sotuvi bo'yicha kategoriya statistikasi (davr summasi).
 function MaterialsCard({ materials, t }) {
   return (
     <div className="card" style={{ marginBottom: 16 }}>
@@ -395,199 +459,6 @@ function formatNumber(n) {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
-function TransactionGroups({ groups, t, lang, onEdit, onDelete }) {
-  return (
-    <>
-      {groups.map((group) => (
-        <div key={group.dateLabel}>
-          <div className="section-title">{group.dateLabel}</div>
-          {group.items.map((tx) => (
-            <SwipeTransaction key={tx._id} tx={tx} t={t} lang={lang} onEdit={onEdit} onDelete={onDelete} />
-          ))}
-        </div>
-      ))}
-    </>
-  );
-}
-
-function SwipeTransaction({ tx, t, lang, onEdit, onDelete }) {
-  const [offset, setOffset] = useState(0);
-  const startRef = useRef(null);
-  const swipedRef = useRef(false);
-
-  const down = (e) => {
-    startRef.current = e.clientX;
-    swipedRef.current = false;
-  };
-
-  const move = (e) => {
-    if (startRef.current === null) return;
-    const delta = e.clientX - startRef.current;
-    setOffset(Math.max(-82, Math.min(0, delta)));
-    if (delta < -36) swipedRef.current = true;
-  };
-
-  const up = () => {
-    if (offset < -44) setOffset(-82);
-    else setOffset(0);
-    startRef.current = null;
-  };
-
-  return (
-    <div className="tx-wrap">
-      <button className="tx-delete" onClick={() => onDelete(tx)}>
-        {t('common.delete')}
-      </button>
-      <div
-        className="tx-card"
-        style={{ transform: `translateX(${offset}px)` }}
-        onPointerDown={down}
-        onPointerMove={move}
-        onPointerUp={up}
-        onPointerCancel={up}
-        onClick={() => {
-          if (!swipedRef.current) onEdit(tx);
-          swipedRef.current = false;
-        }}
-      >
-        <div className={`tx-icon ${tx.type === 'income' ? 'in' : 'out'}`}>{tx.type === 'income' ? '↑' : '↓'}</div>
-        <div className="tx-main">
-          <div className="row-between">
-            <div className="title" style={{ fontSize: '14.5px' }}>{transactionTitle(tx, t)}</div>
-            <span className={tx.type === 'income' ? 'text-income' : 'text-expense'}>
-              {tx.type === 'income' ? '+' : '−'}{formatNumber(tx.amount)}
-            </span>
-          </div>
-          <div className="sub">{formatDateTime(tx.date, lang)} · {tx.description || tx.note || t('category.boshqa')}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AddTransactionModal({ initialType = 'expense', onClose, onDone }) {
-  const { t, lang } = useApp();
-  const [type, setType] = useState(initialType);
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState(() => defaultTransactionCategory(initialType));
-  const [note, setNote] = useState('');
-  const [date, setDate] = useState(toInputDateTime(new Date()));
-  const [busy, setBusy] = useState(false);
-  const [confirmPayload, setConfirmPayload] = useState(null);
-
-  const submit = async () => {
-    setConfirmPayload({
-      type,
-      amount: Number(amount),
-      category,
-      description: note,
-      date: new Date(date).toISOString(),
-    });
-  };
-
-  const chooseType = (nextType) => {
-    setType(nextType);
-    setCategory(defaultTransactionCategory(nextType));
-  };
-
-  const confirmSave = async () => {
-    if (!confirmPayload) return;
-    setBusy(true);
-    try {
-      await api.post('/transactions', confirmPayload);
-      setConfirmPayload(null);
-      onDone();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={type === 'income' ? `+ ${t('finance.income')}` : `+ ${t('finance.expense')}`} onClose={onClose}>
-      <div className="segment">
-        <button className={type === 'income' ? 'active' : ''} onClick={() => chooseType('income')}>
-          {t('finance.income')}
-        </button>
-        <button className={type === 'expense' ? 'active' : ''} onClick={() => chooseType('expense')}>
-          {t('finance.expense')}
-        </button>
-      </div>
-      <label className="label">{t('common.amount')} *</label>
-      <input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
-      <CategorySelect t={t} type={type} value={category} onChange={setCategory} />
-      <label className="label">{t('common.notes')}</label>
-      <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
-      <label className="label">{t('common.date')}</label>
-      <input className="input" type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
-      <button className="btn btn-primary btn-block" onClick={submit} disabled={busy || !amount}>
-        {busy ? '...' : t('common.save')}
-      </button>
-      {confirmPayload && (
-        <FinalConfirmModal
-          rows={transactionConfirmRows(confirmPayload, t, lang)}
-          busy={busy}
-          onClose={() => setConfirmPayload(null)}
-          onConfirm={confirmSave}
-        />
-      )}
-    </Modal>
-  );
-}
-
-function transactionConfirmRows(payload, t, lang) {
-  return [
-    { label: t('finance.type'), value: t(`finance.${payload.type === 'income' ? 'income' : 'expense'}`) },
-    { label: t('common.amount'), value: formatMoney(payload.amount) },
-    { label: t('finance.category'), value: categoryLabel(t, payload.category) },
-    { label: t('common.notes'), value: payload.description },
-    { label: t('common.date'), value: formatDateTime(payload.date, lang) },
-  ].filter(Boolean);
-}
-
-function EditTransactionModal({ tx, onClose, onDelete, onDone }) {
-  const { t } = useApp();
-  const [amount, setAmount] = useState(tx.amount);
-  const [note, setNote] = useState(tx.description || tx.note || '');
-  const [category, setCategory] = useState(tx.category || defaultTransactionCategory(tx.type));
-  const [date, setDate] = useState(toInputDateTime(tx.date));
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api.put(`/transactions/${tx._id}`, {
-        amount: Number(amount),
-        description: note,
-        category,
-        date: new Date(date).toISOString(),
-      });
-      onDone();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={t('common.edit')} onClose={onClose}>
-      <label className="label">{t('common.amount')}</label>
-      <input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
-      <CategorySelect t={t} type={tx.type} value={category} onChange={setCategory} />
-      <label className="label">{t('common.date')}</label>
-      <input className="input" type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
-      <label className="label">{t('common.notes')}</label>
-      <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
-      <button className="btn btn-primary btn-block mb-8" onClick={save} disabled={busy || !amount}>
-        {busy ? '...' : t('common.save')}
-      </button>
-      <button className="btn btn-danger btn-block" onClick={() => onDelete(tx)} disabled={busy}>
-        {t('common.delete')}
-      </button>
-    </Modal>
-  );
-}
-
 // Kategoriya yorlig'i: tanilgan slug tarjima qilinadi, DINAMIK nom o'z holicha ko'rsatiladi
 // (t() kaliti topilmasa kalitni o'zini qaytaradi — uni ko'rsatmaymiz).
 function categoryLabel(t, category) {
@@ -596,108 +467,7 @@ function categoryLabel(t, category) {
   return translated === `category.${category}` ? category : translated;
 }
 
-function defaultTransactionCategory(type) {
-  return type === 'income' ? 'boshqa_kirim' : 'yoqilgi';
-}
-
-// Kirim/chiqim toifasi tanlovi: tanilgan statik + dinamik kategoriyalar va erkin yangi nom.
-function CategorySelect({ t, type, value, onChange }) {
-  const [dynamic, setDynamic] = useState([]);
-
-  useEffect(() => {
-    let alive = true;
-    api
-      .get('/categories')
-      .then((res) => {
-        const key = type === 'income' ? 'incomes' : 'expenses';
-        if (alive) setDynamic(Array.isArray(res?.[key]) ? res[key] : []);
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [type]);
-
-  const staticOptions = type === 'income'
-    ? [
-        { value: 'boshqa_kirim', label: t('category.boshqa_kirim') },
-      ]
-    : [
-        { value: 'yoqilgi', label: t('category.yoqilgi') },
-        { value: 'tamirlash', label: t('category.tamirlash') },
-        { value: 'oziq-ovqat', label: t('category.oziq-ovqat') },
-        { value: 'svalka', label: t('category.svalka') },
-        { value: 'boshqa_chiqim', label: t('category.boshqa_chiqim') },
-      ];
-  const staticValues = new Set(staticOptions.map((o) => o.value));
-  const extra = dynamic.filter((c) => !staticValues.has(c.value));
-  // Tahrirlanayotgan yozuvning toifasi ro'yxatda bo'lmasa ham ko'rsatilsin.
-  const hasValue = staticValues.has(value) || extra.some((c) => c.value === value);
-  const selectValue = hasValue ? value : '__custom';
-  const customValue = hasValue ? '' : value || '';
-
-  return (
-    <>
-      <label className="label">{t('finance.category')}</label>
-      <select
-        className="select"
-        value={selectValue}
-        onChange={(e) => {
-          if (e.target.value === '__custom') onChange('');
-          else onChange(e.target.value);
-        }}
-      >
-        {staticOptions.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-        {extra.map((c) => (
-          <option key={c.value} value={c.value}>{c.name}</option>
-        ))}
-        <option value="__custom">{t('categories.customCategory')}</option>
-      </select>
-      {selectValue === '__custom' && (
-        <input
-          className="input"
-          value={customValue}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={t('categories.customPlaceholder')}
-        />
-      )}
-    </>
-  );
-}
-
-function transactionTitle(tx, t) {
-  if (tx.type === 'income') {
-    if (tx.serviceId) return `Xizmat: ${tx.serviceId}`;
-    const label = categoryLabel(t, tx.category) || t('finance.income');
-    return `${label}${tx.description ? ` - ${tx.description}` : ''}`;
-  }
-  return `${categoryLabel(t, tx.category)} ${tx.description ? `- ${tx.description}` : ''}`;
-}
-
-function groupTransactions(items, lang) {
-  const groups = new Map();
-  items.forEach((tx) => {
-    const label = groupDateLabel(tx.date, lang);
-    if (!groups.has(label)) groups.set(label, []);
-    groups.get(label).push(tx);
-  });
-  return Array.from(groups, ([dateLabel, items]) => ({ dateLabel, items }));
-}
-
-function groupDateLabel(date, lang) {
-  const d = new Date(date);
-  const today = new Date();
-  const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
-  if (sameDay) return lang === 'ru' ? '\u0421\u0435\u0433\u043e\u0434\u043d\u044f' : 'Bugun';
-
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-  const wasYesterday = d.getFullYear() === yesterday.getFullYear() && d.getMonth() === yesterday.getMonth() && d.getDate() === yesterday.getDate();
-  if (wasYesterday) return lang === 'ru' ? '\u0412\u0447\u0435\u0440\u0430' : 'Kecha';
-
-  return formatDate(d, lang);
-}
-// Oxirgi 6 oy uchun yengil CSS bar grafigi (Chart.js o'rniga). Joriy oy — siyoh, qolgani yumshoq yashil.
+// Oxirgi 6 oy uchun yengil CSS bar grafigi. Joriy oy — siyoh, qolgani yumshoq yashil.
 function makeBars(chart, lang) {
   if (!chart || !chart.income) return null;
   const now = new Date();

@@ -1,5 +1,19 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-14 Spreadsheet ko'rinishi (Mini App ro'yxat sahifalari)
+- **`SheetTable.jsx` umumiy komponent** — Xizmatlar/Moliya(Kirim+Chiqim)/Kategoriyalar/Mijozlar/Buyumlar endi Google Sheets uslubidagi jadval: joyida tahrirlash, enum dropdownlar, ustun resize (localStorage), barcha ustunlar bo'yicha qidiruv, "+" bo'sh qator (formasiz, immediate-save), sticky birinchi ustun, 1990-kod o'chirish o'zgarmagan. Sozlamalar/Eslatmalar/Hisobotlar tegilmagan.
+- **Barcha tahrirlar mavjud API orqali** (PUT/PATCH) — narx→daromad qayta hisob, holat→complete/cancel, to'lov holati→paidAmount, buyum sotildi→SellModal; bot notifikatsiyasi server tomonda avtomatik.
+- **Tekshirildi:** mock API bilan preview'da inline edit/dropdown/qidiruv/draft/resize/sticky/delete oqimlari + `npm run build` OK. Real backend bilan smoke-test qilinmagan (bot 409 tuzog'i tufayli lokal ishga tushirilmadi).
+- **Diqqat:** eski forma-modallar o'chirildi (ServiceFormModal, AddTransactionModal, EditTransactionModal, AddClientModal, CreateCategoryModal, ItemFormModal); Clients'da EditClientModal (murakkab maydonlar) va detail modallari qoldi.
+
+## 2026-07-06 Audit tuzatishlari (read-only audit → 16 banddan iborat tuzatish to'plami)
+- **Zombi daromad (🔴):** income qasddan o'chirilsa `Service.incomeManuallyRemoved=true` — purge'dan keyin repair qayta yaratmaydi; faol income topilsa/tiklansa/yangi bajarilsa bayroq avtomatik tozalanadi (`serviceService`, `financeService`, `deleteService`).
+- **Mini App AI panel o'chirildi:** `routes/ai.js` (query-mode yozuv guardsiz edi) + Home.jsx panel + streamPost. Bot NLU'siga tegilmadi.
+- **Bulk/purge/restore izchil:** services target faqat xizmat+bog'liq tx; all targetda Reminder ham; purgeOld Reminder/DebtPayment/kategoriyalarni ham tozalaydi; listDeleted/restore reminders'ni biladi.
+- **Boshqalar:** insights null-sana xatosi yopildi ("Sana kiritilmagan" guruhi); editSavedEntry editedKey/valyuta-meta fix; Reminder.skipBalance persist; AUTH_DEV_BYPASS prod-block; cancelService serviceId bo'yicha reverse + repair CANCELLED sweep; i18n parity; findServiceByIdentifier ISO-only; "N soat oldin" → o'tmish; serviceDateTime "30-iyun" qabul; jarima stats double-count yo'q; universal "bekor" 10 daqiqa oynasi; mapClientRows batch.
+- **Diqqat (yangi maydonlar):** `Service.incomeManuallyRemoved`, `Reminder.skipBalance`, `Conversation.collected.savedAt` — eski yozuvlarda default false/yo'q, xavfsiz.
+- **Testlar:** `test:write-read`, `test:small-talk` PASS; miniapp build OK.
+
 ## 2026-07-05 Davom: ensureIncomeCategory mojibake fix
 - `categoryService.js ensureIncomeCategory`: apostrof regexi va bot xabari buzuq kodlashda edi ("рџ†•..." mojibake egaga ketardi) — expense variantiga tenglashtirildi. Erkin kirim/chiqim kategoriya + Svalka funksiyasi avvaldan to'liq; `test:write-read` 41/41, `test:small-talk` 67/67 PASS.
 

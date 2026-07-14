@@ -1,7 +1,11 @@
+// Mijozlar sahifasi — umumiy jadval (spreadsheet) ko'rinishi.
+// Katak tahrirlari PUT /clients/:id orqali (telefon validatsiyasi, hamkor qoidalari
+// backendda), yangi qator POST /clients, o'chirish 1990-kod bilan. Tafsilot (xizmatlar
+// tarixi) ℹ️ orqali ochiladi.
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatPhone, formatDateTime, formatMonthName, toInputDateTime } from '../utils/format.js';
+import { formatMoney, formatPhone, formatDateTime, formatMonthName } from '../utils/format.js';
 import { shouldWarnMapUrl } from '../utils/mapUrl.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
@@ -9,32 +13,31 @@ import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
 import MapQuickLinks from '../components/MapQuickLinks.jsx';
-import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
+import SheetTable from '../components/SheetTable.jsx';
 import LoadError from '../components/LoadError.jsx';
 
 export default function Clients({ focusClientId, openAddClient, onAddClientHandled, onFocusHandled }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const [clients, setClients] = useState([]);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [detail, setDetail] = useState(null);
   const [editing, setEditing] = useState(null);
-  const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
+  const [draftSignal, setDraftSignal] = useState(0);
 
-  const load = async (q = '') => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      setClients(normalizeClients(await api.get(`/clients${q ? `?search=${encodeURIComponent(q)}` : ''}`)));
+      setClients(normalizeClients(await api.get('/clients')));
       setLoadError(false);
     } catch {
       // Xato = bo'sh ro'yxat EMAS — banner ko'rsatamiz (yozuvlar bazada turibdi).
       setLoadError(true);
       setClients([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -51,41 +54,148 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusClientId]);
 
+  // Bosh sahifadagi "Yangi mijoz" — jadval oxirida bo'sh qator ochadi (forma yo'q).
   useEffect(() => {
     if (!openAddClient) return;
-    setAdding(true);
+    setDraftSignal((n) => n + 1);
     onAddClientHandled?.();
   }, [openAddClient, onAddClientHandled]);
 
+  const putClient = (row, body) => api.put(`/clients/${row._id}`, body);
+  const loc0 = (row) => row.locations?.[0] || null;
+
+  const columns = [
+    {
+      key: 'name',
+      title: t('common.name'),
+      width: 140,
+      type: 'text',
+      get: (r) => r.name || '',
+      text: (r) => r.name || '',
+      apply: (r, v) => {
+        if (!v.trim()) return null; // ism bo'sh bo'lolmaydi — jim o'tkazamiz
+        return putClient(r, { name: v });
+      },
+    },
+    {
+      key: 'phone',
+      title: t('common.phone'),
+      width: 140,
+      type: 'text',
+      get: (r) => r.phone || '',
+      text: (r) => (r.phone ? formatPhone(r.phone) : ''),
+      // Bo'sh telefon hamkorda ruxsat, oddiy mijozda backend aniq xato beradi.
+      apply: (r, v) => putClient(r, { phone: v }),
+    },
+    {
+      key: 'location',
+      title: t('common.location'),
+      width: 170,
+      type: 'text',
+      get: (r) => loc0(r)?.address || '',
+      text: (r) => loc0(r)?.address || '',
+      apply: (r, v) =>
+        putClient(r, {
+          location: { address: v, mapUrl: loc0(r)?.mapUrl || '', coordinates: loc0(r)?.coordinates || null },
+        }),
+    },
+    {
+      key: 'mapUrl',
+      title: t('common.mapUrl'),
+      width: 130,
+      type: 'text',
+      get: (r) => loc0(r)?.mapUrl || '',
+      text: (r) => loc0(r)?.mapUrl || '',
+      apply: (r, v) =>
+        putClient(r, {
+          location: { address: loc0(r)?.address || '', mapUrl: v, coordinates: loc0(r)?.coordinates || null },
+        }),
+    },
+    {
+      key: 'isPartner',
+      title: t('clients.partner'),
+      width: 110,
+      type: 'select',
+      options: [
+        { value: 'false', label: t('common.no') },
+        { value: 'true', label: t('common.yes') },
+      ],
+      get: (r) => (r.isPartner ? 'true' : 'false'),
+      text: (r) => (r.isPartner ? `🤝 ${t('common.yes')}` : t('common.no')),
+      apply: (r, v) => putClient(r, { isPartner: v === 'true' }),
+    },
+    {
+      key: 'partnerPrice',
+      title: t('clients.standardPrice'),
+      width: 130,
+      type: 'number',
+      editable: (r) => !!r.isPartner,
+      get: (r) => (r.partnerPrice > 0 ? r.partnerPrice : ''),
+      text: (r) => (r.isPartner && r.partnerPrice > 0 ? formatMoney(r.partnerPrice) : ''),
+      apply: (r, v) => {
+        if (v === '' || v === null) return null;
+        return putClient(r, { partnerPrice: Number(v) || 0 });
+      },
+    },
+    {
+      key: 'createdAt',
+      title: t('common.createdAt'),
+      width: 150,
+      type: 'text',
+      draft: false,
+      get: (r) => r.createdAt || '',
+      text: (r) => (r.createdAt ? formatDateTime(r.createdAt, lang) : ''),
+      // read-only: apply yo'q
+    },
+  ];
+
+  // Yangi qator: hamkorda ism yetarli, oddiy mijozda ism + telefon (backend qoidasi).
+  const draft = {
+    defaults: { isPartner: 'false' },
+    canSave: (v) => {
+      const name = String(v.name || '').trim();
+      if (v.isPartner === 'true') return !!name;
+      return !!name && !!String(v.phone || '').trim();
+    },
+    save: async (v) => {
+      const isPartner = v.isPartner === 'true';
+      const payload = { name: v.name, phone: v.phone || '', isPartner };
+      const location = v.location ? { address: v.location, mapUrl: v.mapUrl || '' } : null;
+      if (isPartner) {
+        payload.partnerPrice = Number(v.partnerPrice) || 0;
+        if (location) payload.partnerLocation = location;
+      } else if (location) {
+        payload.location = location;
+      }
+      await api.post('/clients', payload);
+    },
+  };
+
   return (
     <div>
-      {loadError && <LoadError onRetry={() => load(search)} />}
-      <div className="row-between">
-        <h1 className="page-title">{t('clients.title')}</h1>
-        <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>
-          + {t('clients.addClient')}
-        </button>
-      </div>
-
-      <div className="search-box">
-        <input
-          className="input"
-          placeholder={t('home.searchPlaceholder')}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && load(search)}
-        />
-        <button className="btn btn-primary" onClick={() => load(search)}>
-          {t('common.search').replace('...', '')}
-        </button>
-      </div>
+      {loadError && <LoadError onRetry={() => load()} />}
+      <h1 className="page-title">{t('clients.title')}</h1>
 
       {loading ? (
         <Spinner />
-      ) : clients.length === 0 ? (
-        <div className="empty">{t('clients.noClients')}</div>
       ) : (
-        clients.map((client) => <ClientCard key={client._id} client={client} onOpen={() => openDetail(client._id)} />)
+        <SheetTable
+          id="clients"
+          columns={columns}
+          rows={clients}
+          rowKey={(r) => r._id}
+          onChanged={() => load(true)}
+          draft={draft}
+          draftSignal={draftSignal}
+          onDelete={setDeleting}
+          actions={(row) => (
+            <button type="button" aria-label={t('services.detail')} onClick={() => openDetail(row._id)}>
+              ℹ️
+            </button>
+          )}
+          emptyText={t('clients.noClients')}
+          t={t}
+        />
       )}
 
       {detail && (
@@ -105,18 +215,7 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
           onSaved={(updated) => {
             setEditing(null);
             setDetail((d) => (d ? { ...d, ...updated } : d));
-            load(search);
-          }}
-        />
-      )}
-
-      {adding && (
-        <AddClientModal
-          onClose={() => setAdding(false)}
-          onSaved={() => {
-            setAdding(false);
-            setSearch('');
-            load();
+            load(true);
           }}
         />
       )}
@@ -130,7 +229,7 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
             await api.del(`/clients/${deleting._id}`, { confirmationCode: code });
             setDeleting(null);
             setDetail(null);
-            load(search);
+            load(true);
           }}
         />
       )}
@@ -146,31 +245,6 @@ export default function Clients({ focusClientId, openAddClient, onAddClientHandl
       /* ignore */
     }
   }
-}
-
-function ClientCard({ client, onOpen }) {
-  const { t, lang } = useApp();
-  const lastServiceAt = client.lastServiceAt || client.services?.[0]?.serviceDateTime;
-  const debt = client.unpaidTotal || client.totalDebt || client.unpaidAmount;
-
-  return (
-    <div className={`list-item ${client.isDeleted ? 'deleted-item' : ''}`} onClick={onOpen}>
-      <div className="row-between">
-        <div className="title">{client.name}</div>
-        <div>
-          {client.isPartner && <span className="badge badge-partner">🤝 {t('clients.partner')}</span>}
-          {client.isDeleted && <span className="badge badge-muted">{t('ui.deleted')}</span>}
-        </div>
-      </div>
-      {client.phone && <div className="sub">{formatPhone(client.phone)}</div>}
-      {client.isPartner && client.partnerPrice > 0 && (
-        <div className="sub">{t('clients.standardPrice')}: {formatMoney(client.partnerPrice)}</div>
-      )}
-      {lastServiceAt && <div className="sub">{t('ui.lastService')}: {formatDateTime(lastServiceAt, lang)}</div>}
-      {debt > 0 && <div className="sub debt-text">Qarz: {formatMoney(debt)}</div>}
-      {!lastServiceAt && !debt && !client.isPartner && <div className="sub">{t('clients.noHistory')}</div>}
-    </div>
-  );
 }
 
 function ClientDetailModal({ client, onClose, onEdit, onDelete, onOpenService }) {
@@ -258,170 +332,8 @@ function ClientDetailModal({ client, onClose, onEdit, onDelete, onOpenService })
   );
 }
 
-function AddClientModal({ onClose, onSaved }) {
-  const { t, lang } = useApp();
-  const initialDateTime = toInputDateTime(new Date(Date.now() + 60 * 60 * 1000));
-  const [datePart, timePart] = initialDateTime.split('T');
-  const [form, setForm] = useState({
-    name: '',
-    phone: '',
-    locationName: '',
-    locationMapUrl: '',
-    date: datePart,
-    time: timePart,
-    price: '',
-    isPartner: false,
-  });
-  const [busy, setBusy] = useState(false);
-  const [confirmPayload, setConfirmPayload] = useState(null);
-
-  const save = async () => {
-    if (!form.locationName.trim()) return alert(t('common.locationRequired'));
-    if (shouldWarnMapUrl(form.locationMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
-
-    // Hamkor rejimi: xizmat emas, shartnomaviy mijoz yaratiladi (standart narx/manzil).
-    if (form.isPartner) {
-      setBusy(true);
-      try {
-        await api.post('/clients', {
-          isPartner: true,
-          name: form.name,
-          phone: form.phone,
-          partnerPrice: Number(form.price) || 0,
-          partnerLocation: { address: form.locationName, mapUrl: form.locationMapUrl },
-        });
-        onSaved();
-      } catch (e) {
-        alert(e.message);
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
-
-    setConfirmPayload({
-      clientName: form.name,
-      clientPhone: form.phone,
-      location: { address: form.locationName, mapUrl: form.locationMapUrl },
-      serviceDateTime: new Date(`${form.date}T${form.time}`).toISOString(),
-      price: Number(form.price),
-      paymentMethod: 'naqd',
-    });
-  };
-
-  const confirmSave = async () => {
-    if (!confirmPayload) return;
-    setBusy(true);
-    try {
-      await api.post('/services', confirmPayload);
-      setConfirmPayload(null);
-      onSaved();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const canSave = form.isPartner
-    ? !busy && form.name && form.locationName
-    : !busy && form.name && form.phone && form.locationName && form.date && form.time && form.price;
-
-  return (
-    <Modal title={t('clients.addClient')} onClose={onClose}>
-      <label className="label partner-toggle">
-        <input
-          type="checkbox"
-          checked={form.isPartner}
-          onChange={(e) => setForm({ ...form, isPartner: e.target.checked })}
-        />{' '}
-        🤝 {t('clients.partnerToggle')}
-      </label>
-      {form.isPartner && <div className="sub partner-hint">{t('clients.partnerHint')}</div>}
-      <label className="label">{t('common.name')}</label>
-      <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-      <label className="label">{t('common.phone')}{form.isPartner ? ` (${t('clients.optional')})` : ''}</label>
-      <input
-        className="input"
-        type="tel"
-        inputMode="tel"
-        placeholder="+998..."
-        value={form.phone}
-        onChange={(e) => setForm({ ...form, phone: e.target.value })}
-      />
-      <label className="label">{form.isPartner ? t('clients.standardLocation') : t('common.locationName')}</label>
-      <input className="input" value={form.locationName} onChange={(e) => setForm({ ...form, locationName: e.target.value })} />
-      <label className="label">{t('common.mapUrl')}</label>
-      <input
-        className="input"
-        type="text"
-        inputMode="url"
-        placeholder={t('common.mapUrlPlaceholder')}
-        value={form.locationMapUrl}
-        onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })}
-      />
-      <MapQuickLinks />
-      {!form.isPartner && (
-        <div className="date-range">
-          <div>
-            <label className="label">{t('common.date')}</label>
-            <input className="input" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-          </div>
-          <div>
-            <label className="label">{t('common.time')}</label>
-            <input className="input" type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
-          </div>
-        </div>
-      )}
-      <label className="label">{form.isPartner ? t('clients.standardPrice') : t('common.serviceFee')}</label>
-      <div className="input-with-action">
-        <input
-          type="number"
-          inputMode="numeric"
-          value={form.price}
-          onChange={(e) => setForm({ ...form, price: e.target.value })}
-        />
-        <span>so'm</span>
-      </div>
-      {!form.isPartner && (
-        <div className="reminder-banner">
-          <span>🔔</span>
-          <span>{reminderText(form.date, form.time, t, lang)}</span>
-        </div>
-      )}
-      <button className="btn btn-primary btn-block premium-save" onClick={save} disabled={!canSave}>
-        {busy ? '...' : t('common.save')}
-      </button>
-      {confirmPayload && (
-        <FinalConfirmModal
-          rows={serviceConfirmRows(confirmPayload, t, lang)}
-          busy={busy}
-          onClose={() => setConfirmPayload(null)}
-          onConfirm={confirmSave}
-        />
-      )}
-    </Modal>
-  );
-}
-
-function serviceConfirmRows(payload, t, lang) {
-  return [
-    { label: t('common.name'), value: payload.clientName },
-    { label: t('common.phone'), value: formatPhone(payload.clientPhone) },
-    { label: t('common.location'), value: payload.location?.address },
-    { label: t('common.date'), value: formatDateTime(payload.serviceDateTime, lang) },
-    { label: t('common.serviceFee'), value: formatMoney(payload.price) },
-    { label: t('common.paymentMethod'), value: t(`payment.${payload.paymentMethod}`) },
-  ];
-}
-
-function reminderText(date, time, t, lang) {
-  if (!date || !time) return t('clients.reminderDefault');
-  const value = new Date(`${date}T${time}`);
-  if (Number.isNaN(value.getTime())) return t('clients.reminderDefault');
-  return t('clients.reminderAt').replace('{time}', formatDateTime(value, lang));
-}
-
+// To'liq tahrir formasi (xarita havolasi, hamkor standart manzili kabi murakkab
+// maydonlar uchun) — tafsilot oynasidan ochiladi. Oddiy tahrirlar jadvalda.
 function EditClientModal({ client, onClose, onSaved }) {
   const { t } = useApp();
   const [form, setForm] = useState({

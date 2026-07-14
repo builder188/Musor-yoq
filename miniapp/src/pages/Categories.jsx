@@ -1,31 +1,28 @@
+// "Kategoriyalar" bo'limi — umumiy jadval (spreadsheet) ko'rinishi.
+// Asosiy jadval: Kerakli buyumlar + material/kirim/chiqim kategoriyalari + "Boshqa".
+// Har kategoriya ichidagi yozuvlar ham jadval: sana/summa/izoh joyida tahrirlanadi
+// (PUT /transactions/:id — biznes mantiq backendda), ovoz yozuvi qatordan yoyiladi.
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { getInitData } from '../telegram.js';
-import { formatMoney, formatDateTime } from '../utils/format.js';
+import { formatMoney, formatDateTime, toInputDateTime } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
-import Modal from '../components/Modal.jsx';
+import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
+import SheetTable from '../components/SheetTable.jsx';
 import Items from './Items.jsx';
 import LoadError from '../components/LoadError.jsx';
 
-// "Kategoriyalar" bo'limi: material kategoriyalari (Paxta, Taxta, ...) + "Kerakli buyumlar" +
-// XARAJAT kategoriyalari (dinamik: Yoqilg'i, Benzin, Svalka, ...) + "Boshqa kirim-chiqimlar".
-// Har bir kategoriyaga kirilganda — yozuvlar (sana, summa, izoh va asl ovoz — qayta
-// eshitish mumkin). "Kerakli buyumlar" → buyumlar inventari (Items).
 export default function Categories() {
   const { t, lang } = useApp();
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [selectedMaterial, setSelectedMaterial] = useState(null);
-  const [selectedIncome, setSelectedIncome] = useState(null);
-  const [selectedExpense, setSelectedExpense] = useState(null);
-  const [showOther, setShowOther] = useState(false);
+  const [selected, setSelected] = useState(null); // { kind, name, value }
   const [showItems, setShowItems] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       setOverview(await api.get('/categories'));
       setLoadError(false);
@@ -34,7 +31,7 @@ export default function Categories() {
       setLoadError(true);
       setOverview(null);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -43,19 +40,21 @@ export default function Categories() {
   }, []);
 
   if (showItems) {
-    return <Items onBack={() => setShowItems(false)} />;
+    return <Items onBack={() => { setShowItems(false); load(true); }} />;
   }
-  if (selectedMaterial) {
-    return <MaterialDetail name={selectedMaterial} lang={lang} onBack={() => { setSelectedMaterial(null); load(); }} />;
-  }
-  if (selectedIncome) {
-    return <IncomeDetail category={selectedIncome} lang={lang} onBack={() => { setSelectedIncome(null); load(); }} />;
-  }
-  if (selectedExpense) {
-    return <ExpenseDetail category={selectedExpense} lang={lang} onBack={() => { setSelectedExpense(null); load(); }} />;
-  }
-  if (showOther) {
-    return <OtherDetail lang={lang} onBack={() => { setShowOther(false); load(); }} />;
+  if (selected) {
+    return (
+      <CategoryRecords
+        kind={selected.kind}
+        name={selected.name}
+        value={selected.value}
+        lang={lang}
+        onBack={() => {
+          setSelected(null);
+          load(true);
+        }}
+      />
+    );
   }
 
   const materials = overview?.materials || [];
@@ -64,185 +63,271 @@ export default function Categories() {
   const expenses = overview?.expenses || [];
   const other = overview?.other || { count: 0, totalIncome: 0, totalExpense: 0 };
 
+  // Barcha kategoriya turlari bitta jadvalda; ochish (›) tegishli yozuvlar jadvaliga olib kiradi.
+  const rows = [
+    {
+      kind: 'items',
+      key: '__items',
+      name: t('categories.usefulItems'),
+      typeLabel: t('sheet.special'),
+      count: items.total,
+      totalText: `${items.available} ${t('items.available').toLowerCase()}`,
+    },
+    ...materials.map((m) => ({
+      kind: 'material',
+      key: `m:${m.name}`,
+      name: m.name,
+      typeLabel: t('categories.materials'),
+      count: m.count || 0,
+      totalText: m.total > 0 ? `+${formatNumber(m.total)}` : '',
+      totalClass: 'text-income',
+    })),
+    ...incomes.map((c) => ({
+      kind: 'income',
+      key: `i:${c.value || c.name}`,
+      name: c.name,
+      value: c.value || c.name,
+      typeLabel: t('finance.income'),
+      count: c.count || 0,
+      totalText: c.total > 0 ? `+${formatNumber(c.total)}` : '',
+      totalClass: 'text-income',
+    })),
+    ...expenses.map((c) => ({
+      kind: 'expense',
+      key: `e:${c.value || c.name}`,
+      name: c.name,
+      value: c.value || c.name,
+      typeLabel: t('finance.expense'),
+      count: c.count || 0,
+      totalText: c.total > 0 ? `−${formatNumber(c.total)}` : '',
+      totalClass: 'text-expense',
+    })),
+    {
+      kind: 'other',
+      key: '__other',
+      name: t('categories.other'),
+      typeLabel: t('sheet.special'),
+      count: other.count || 0,
+      totalText: [
+        other.totalIncome > 0 ? `+${formatNumber(other.totalIncome)}` : '',
+        other.totalExpense > 0 ? `−${formatNumber(other.totalExpense)}` : '',
+      ]
+        .filter(Boolean)
+        .join(' / '),
+    },
+  ];
+
+  // Kategoriya nomini o'zgartirish API'si yo'q — ustunlar faqat o'qish uchun;
+  // yangi qator esa POST /categories (material kategoriyasi) orqali saqlanadi.
+  const columns = [
+    {
+      key: 'name',
+      title: t('categories.name'),
+      width: 170,
+      type: 'text',
+      get: (r) => r.name || '',
+      text: (r) => r.name || '',
+    },
+    {
+      key: 'typeLabel',
+      title: t('finance.type'),
+      width: 120,
+      type: 'text',
+      draft: false,
+      draftText: t('categories.materials'),
+      get: (r) => r.typeLabel || '',
+      text: (r) => r.typeLabel || '',
+    },
+    {
+      key: 'count',
+      title: t('categories.recordsCount'),
+      width: 100,
+      type: 'number',
+      draft: false,
+      get: (r) => r.count ?? '',
+      text: (r) => String(r.count ?? 0),
+    },
+    {
+      key: 'totalText',
+      title: t('common.total'),
+      width: 140,
+      type: 'text',
+      draft: false,
+      get: (r) => r.totalText || '',
+      text: (r) => r.totalText || '',
+      render: (r) => <span className={r.totalClass || ''}>{r.totalText || ''}</span>,
+    },
+  ];
+
+  const draft = {
+    defaults: {},
+    canSave: (v) => !!String(v.name || '').trim(),
+    save: async (v) => {
+      await api.post('/categories', { name: String(v.name).trim() });
+    },
+  };
+
+  const openRow = (row) => {
+    if (row.kind === 'items') setShowItems(true);
+    else setSelected({ kind: row.kind, name: row.name, value: row.value });
+  };
+
   return (
     <div>
-      {loadError && <LoadError onRetry={load} />}
-      <div className="row-between" style={{ marginBottom: 10 }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>{t('categories.title')}</h1>
-        <button
-          className="icon-btn"
-          style={{ background: 'var(--text)', color: 'var(--card)', border: 'none', fontSize: 21, boxShadow: 'var(--shadow-btn)' }}
-          aria-label={t('categories.create')}
-          onClick={() => setCreating(true)}
-        >
-          +
-        </button>
-      </div>
+      {loadError && <LoadError onRetry={() => load()} />}
+      <h1 className="page-title">{t('categories.title')}</h1>
 
       {loading ? (
         <Spinner />
       ) : (
-        <>
-          {/* Kerakli buyumlar — alohida maxsus kategoriya */}
-          <button className="list-item" type="button" onClick={() => setShowItems(true)} style={{ width: '100%', textAlign: 'left' }}>
-            <div className="job-card">
-              <div className="avatar">📦</div>
-              <div className="job-main">
-                <div className="job-name">{t('categories.usefulItems')}</div>
-                <div className="job-sub">{items.available} {t('items.available').toLowerCase()} · {items.total} {t('home.countSuffix')}</div>
-              </div>
-              <span className="chevron">›</span>
-            </div>
-          </button>
-
-          <div className="section-title">{t('categories.materials')}</div>
-          {materials.length === 0 ? (
-            <div className="empty">{t('common.noData')}</div>
-          ) : (
-            materials.map((m) => (
-              <button key={m.name} className="list-item" type="button" onClick={() => setSelectedMaterial(m.name)} style={{ width: '100%', textAlign: 'left' }}>
-                <div className="job-card">
-                  <div className="avatar">{(m.name || '?').trim().charAt(0).toUpperCase()}</div>
-                  <div className="job-main">
-                    <div className="job-name">{m.name}</div>
-                    <div className="job-sub">
-                      {m.count > 0
-                        ? `${m.count} ${t('categories.salesCount')}${m.totalKg > 0 ? ` · ${formatNumber(m.totalKg)} kg` : ''}`
-                        : t('categories.noSales')}
-                    </div>
-                  </div>
-                  {m.total > 0 && <span className="text-income">+{formatNumber(m.total)}</span>}
-                </div>
-              </button>
-            ))
+        <SheetTable
+          id="categories"
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.key}
+          onChanged={() => load(true)}
+          draft={draft}
+          actions={(row) => (
+            <button type="button" aria-label={t('sheet.open')} onClick={() => openRow(row)}>
+              ›
+            </button>
           )}
-
-          {/* Kirim kategoriyalari — bot/Mini App'da uchragan erkin daromad manbalari */}
-          <div className="section-title">{t('categories.incomes')}</div>
-          {incomes.length === 0 ? (
-            <div className="empty">{t('common.noData')}</div>
-          ) : (
-            incomes.map((c) => (
-              <button key={c.name} className="list-item" type="button" onClick={() => setSelectedIncome(c)} style={{ width: '100%', textAlign: 'left' }}>
-                <div className="job-card">
-                  <div className="avatar">💰</div>
-                  <div className="job-main">
-                    <div className="job-name">{c.name}</div>
-                    <div className="job-sub">
-                      {c.count > 0 ? `${c.count} ${t('categories.recordsCount')}` : t('categories.noRecords')}
-                    </div>
-                  </div>
-                  {c.total > 0 && <span className="text-income">+{formatNumber(c.total)}</span>}
-                </div>
-              </button>
-            ))
-          )}
-
-          {/* Xarajat kategoriyalari — dinamik: bot/Mini App'da uchragan har bir nom */}
-          <div className="section-title">{t('categories.expenses')}</div>
-          {expenses.length === 0 ? (
-            <div className="empty">{t('common.noData')}</div>
-          ) : (
-            expenses.map((c) => (
-              <button key={c.name} className="list-item" type="button" onClick={() => setSelectedExpense(c)} style={{ width: '100%', textAlign: 'left' }}>
-                <div className="job-card">
-                  <div className="avatar">💸</div>
-                  <div className="job-main">
-                    <div className="job-name">{c.name}</div>
-                    <div className="job-sub">
-                      {c.count > 0 ? `${c.count} ${t('categories.recordsCount')}` : t('categories.noRecords')}
-                    </div>
-                  </div>
-                  {c.total > 0 && <span className="text-expense">−{formatNumber(c.total)}</span>}
-                </div>
-              </button>
-            ))
-          )}
-
-          {/* Boshqa kirim-chiqimlar — toifasiz kirim va chiqimlar shu bo'limda saqlanadi */}
-          <div className="section-title">{t('categories.other')}</div>
-          <button className="list-item" type="button" onClick={() => setShowOther(true)} style={{ width: '100%', textAlign: 'left' }}>
-            <div className="job-card">
-              <div className="avatar">🗂</div>
-              <div className="job-main">
-                <div className="job-name">{t('categories.other')}</div>
-                <div className="job-sub">
-                  {other.count > 0 ? `${other.count} ${t('categories.recordsCount')}` : t('categories.noRecords')}
-                </div>
-              </div>
-              <span style={{ textAlign: 'right' }}>
-                {other.totalIncome > 0 && <div className="text-income">+{formatNumber(other.totalIncome)}</div>}
-                {other.totalExpense > 0 && <div className="text-expense">−{formatNumber(other.totalExpense)}</div>}
-              </span>
-            </div>
-          </button>
-        </>
-      )}
-
-      {creating && (
-        <CreateCategoryModal
-          onClose={() => setCreating(false)}
-          onSaved={() => {
-            setCreating(false);
-            load();
-          }}
+          emptyText={t('common.noData')}
+          t={t}
         />
       )}
     </div>
   );
 }
 
-function CreateCategoryModal({ onClose, onSaved }) {
-  const { t } = useApp();
-  const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api.post('/categories', { name: name.trim() });
-      onSaved();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={t('categories.create')} onClose={onClose}>
-      <label className="label">{t('categories.name')}</label>
-      <input className="input" value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder={t('categories.namePlaceholder')} />
-      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !name.trim()}>
-        {busy ? '...' : t('common.save')}
-      </button>
-    </Modal>
-  );
-}
-
-// Bitta material kategoriyasi: sotuv yozuvlari (sana, kg, kilo narxi, jami, balans, ovoz).
-function MaterialDetail({ name, lang, onBack }) {
+// Bitta kategoriya yozuvlari jadvali (material/kirim/chiqim/boshqa).
+// Yozuvlar — tranzaksiyalar: sana/summa/izoh (materialda kg va 1 kg narxi ham)
+// joyida tahrirlanadi; ovozli yozuv qator ostida yoyilib eshitiladi; o'chirish 1990-kod.
+function CategoryRecords({ kind, name, value, lang, onBack }) {
   const { t } = useApp();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
+  const [deleting, setDeleting] = useState(null);
 
-  const load = async () => {
-    setLoading(true);
+  const recordsUrl = () => {
+    if (kind === 'material') return `/categories/material/${encodeURIComponent(name)}/records`;
+    if (kind === 'income') return `/categories/income/${encodeURIComponent(value || name)}/records`;
+    if (kind === 'expense') return `/categories/expense/${encodeURIComponent(value || name)}/records`;
+    return '/categories/other/records';
+  };
+
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      const res = await api.get(`/categories/material/${encodeURIComponent(name)}/records`);
+      const res = await api.get(recordsUrl());
       setRecords(Array.isArray(res?.records) ? res.records : []);
     } catch {
       setRecords([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name]);
+  }, [kind, name, value]);
+
+  const putTx = (row, body) => api.put(`/transactions/${row.id}`, body);
+
+  const columns = [
+    {
+      key: 'date',
+      title: t('common.date'),
+      width: 170,
+      type: 'datetime',
+      get: (r) => (r.date ? toInputDateTime(r.date) : ''),
+      text: (r) => (r.date ? formatDateTime(r.date, lang) : ''),
+      apply: (r, v) => {
+        if (!v) return null;
+        return putTx(r, { date: new Date(v).toISOString() });
+      },
+    },
+    {
+      key: 'amount',
+      title: t('common.amount'),
+      width: 120,
+      type: 'number',
+      get: (r) => (r.amount > 0 ? r.amount : ''),
+      text: (r) => {
+        if (!(r.amount > 0)) return '';
+        const sign = r.type === 'expense' || kind === 'expense' ? '−' : '+';
+        return `${sign}${formatNumber(r.amount)}`;
+      },
+      apply: (r, v) => {
+        if (v === '' || v === null) return null;
+        return putTx(r, { amount: Number(v) });
+      },
+    },
+    ...(kind === 'material'
+      ? [
+          {
+            key: 'quantityKg',
+            title: t('categories.kg'),
+            width: 100,
+            type: 'number',
+            get: (r) => (r.quantityKg > 0 ? r.quantityKg : ''),
+            text: (r) => (r.quantityKg > 0 ? `${formatNumber(r.quantityKg)} kg` : ''),
+            apply: (r, v) => putTx(r, { quantityKg: v === '' ? null : Number(v) }),
+          },
+          {
+            key: 'pricePerKg',
+            title: t('categories.perKg'),
+            width: 110,
+            type: 'number',
+            get: (r) => (r.pricePerKg > 0 ? r.pricePerKg : ''),
+            text: (r) => (r.pricePerKg > 0 ? `${formatNumber(r.pricePerKg)}/kg` : ''),
+            apply: (r, v) => putTx(r, { pricePerKg: v === '' ? null : Number(v) }),
+          },
+        ]
+      : []),
+    {
+      key: 'description',
+      title: t('common.notes'),
+      width: 200,
+      type: 'text',
+      get: (r) => r.description || '',
+      text: (r) => r.description || r.sourceText || '',
+      apply: (r, v) => putTx(r, { description: v }),
+    },
+  ];
+
+  // Yangi yozuv: material sotuvida material nomi bilan, kirim/chiqimda kategoriya bilan.
+  // "Boshqa" bo'limida yangi yozuv Moliya jadvalidan qo'shiladi (toifasiz yozuvlar).
+  const draft =
+    kind === 'other'
+      ? null
+      : {
+          defaults: {},
+          canSave: (v) => !!(String(v.amount || '').trim() || String(v.quantityKg || '').trim() || String(v.description || '').trim()),
+          save: async (v) => {
+            if (kind === 'material') {
+              await api.post('/finance/transactions', {
+                type: 'income',
+                category: 'material',
+                materialName: name,
+                amount: v.amount ? Number(v.amount) : 0,
+                quantityKg: v.quantityKg ? Number(v.quantityKg) : null,
+                pricePerKg: v.pricePerKg ? Number(v.pricePerKg) : null,
+                // O'tgan sana ham kiritilishi mumkin — hisobot o'sha oyga tushadi.
+                date: v.date ? new Date(v.date).toISOString() : undefined,
+              });
+              return;
+            }
+            await api.post('/transactions', {
+              type: kind === 'income' ? 'income' : 'expense',
+              category: value || name,
+              amount: v.amount ? Number(v.amount) : 0,
+              description: v.description || '',
+              date: v.date ? new Date(v.date).toISOString() : undefined,
+            });
+          },
+        };
 
   const total = records.reduce((sum, r) => sum + (r.amount || 0), 0);
 
@@ -253,43 +338,48 @@ function MaterialDetail({ name, lang, onBack }) {
           <button className="btn btn-sm" onClick={onBack}>← {t('common.back')}</button>
           <h1 className="page-title" style={{ marginBottom: 0 }}>{name}</h1>
         </div>
-        <button
-          className="icon-btn"
-          style={{ background: 'var(--text)', color: 'var(--card)', border: 'none', fontSize: 21, boxShadow: 'var(--shadow-btn)' }}
-          aria-label={t('categories.addSale')}
-          onClick={() => setAdding(true)}
-        >
-          +
-        </button>
       </div>
 
       <div className="summary-card" style={{ marginBottom: 12 }}>
         <div className="summary-col">
-          <div className="summary-label">{t('categories.salesCount')}</div>
+          <div className="summary-label">{t('categories.recordsCount')}</div>
           <div className="summary-value">{records.length}</div>
         </div>
         <div className="summary-divider" />
         <div className="summary-col wide">
-          <div className="summary-label">{t('finance.income')}</div>
-          <div className="summary-value accent">{formatNumber(total)}<span className="unit"> {t('common.soum')}</span></div>
+          <div className="summary-label">{kind === 'expense' ? t('finance.expense') : t('finance.income')}</div>
+          <div className={`summary-value ${kind === 'expense' ? '' : 'accent'}`}>
+            {kind === 'expense' ? '−' : '+'}{formatNumber(total)}
+            <span className="unit"> {t('common.soum')}</span>
+          </div>
         </div>
       </div>
 
       {loading ? (
         <Spinner />
-      ) : records.length === 0 ? (
-        <div className="empty">{t('categories.noSales')}</div>
       ) : (
-        records.map((r) => <MaterialRecordCard key={r.id} record={r} t={t} lang={lang} />)
+        <SheetTable
+          id={`category-records-${kind}`}
+          columns={columns}
+          rows={records}
+          rowKey={(r) => r.id}
+          onChanged={() => load(true)}
+          draft={draft}
+          onDelete={setDeleting}
+          rowDetail={(r) => <RecordDetail record={r} />}
+          emptyText={t('categories.noRecords')}
+          t={t}
+        />
       )}
 
-      {adding && (
-        <AddMaterialSaleModal
-          name={name}
-          onClose={() => setAdding(false)}
-          onSaved={() => {
-            setAdding(false);
-            load();
+      {deleting && (
+        <ConfirmDeleteModal
+          message={formatMoney(deleting.amount)}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (code) => {
+            await api.del(`/transactions/${deleting.id}`, { confirmationCode: code });
+            setDeleting(null);
+            load(true);
           }}
         />
       )}
@@ -297,266 +387,20 @@ function MaterialDetail({ name, lang, onBack }) {
   );
 }
 
-// Bitta KIRIM kategoriyasi: yozuvlar (sana, summa, izoh, asl ovoz).
-function IncomeDetail({ category, lang, onBack }) {
-  const { t } = useApp();
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await api.get(`/categories/income/${encodeURIComponent(category.value || category.name)}/records`);
-        if (alive) setRecords(Array.isArray(res?.records) ? res.records : []);
-      } catch {
-        if (alive) setRecords([]);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [category]);
-
-  const total = records.reduce((sum, r) => sum + (r.amount || 0), 0);
-
-  return (
-    <div>
-      <div className="row-between" style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button className="btn btn-sm" onClick={onBack}>← {t('common.back')}</button>
-          <h1 className="page-title" style={{ marginBottom: 0 }}>{category.name}</h1>
-        </div>
-      </div>
-
-      <div className="summary-card" style={{ marginBottom: 12 }}>
-        <div className="summary-col">
-          <div className="summary-label">{t('categories.recordsCount')}</div>
-          <div className="summary-value">{records.length}</div>
-        </div>
-        <div className="summary-divider" />
-        <div className="summary-col wide">
-          <div className="summary-label">{t('finance.income')}</div>
-          <div className="summary-value accent">+{formatNumber(total)}<span className="unit"> {t('common.soum')}</span></div>
-        </div>
-      </div>
-
-      {loading ? (
-        <Spinner />
-      ) : records.length === 0 ? (
-        <div className="empty">{t('categories.noRecords')}</div>
-      ) : (
-        records.map((r) => <TxRecordCard key={r.id} record={r} t={t} lang={lang} />)
-      )}
-    </div>
-  );
-}
-
-// Bitta XARAJAT kategoriyasi: yozuvlar (sana, summa, izoh, asl ovoz — qayta eshitiladi).
-function ExpenseDetail({ category, lang, onBack }) {
-  const { t } = useApp();
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await api.get(`/categories/expense/${encodeURIComponent(category.value || category.name)}/records`);
-        if (alive) setRecords(Array.isArray(res?.records) ? res.records : []);
-      } catch {
-        if (alive) setRecords([]);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [category]);
-
-  const total = records.reduce((sum, r) => sum + (r.amount || 0), 0);
-
-  return (
-    <div>
-      <div className="row-between" style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button className="btn btn-sm" onClick={onBack}>← {t('common.back')}</button>
-          <h1 className="page-title" style={{ marginBottom: 0 }}>{category.name}</h1>
-        </div>
-      </div>
-
-      <div className="summary-card" style={{ marginBottom: 12 }}>
-        <div className="summary-col">
-          <div className="summary-label">{t('categories.recordsCount')}</div>
-          <div className="summary-value">{records.length}</div>
-        </div>
-        <div className="summary-divider" />
-        <div className="summary-col wide">
-          <div className="summary-label">{t('finance.expense')}</div>
-          <div className="summary-value">−{formatNumber(total)}<span className="unit"> {t('common.soum')}</span></div>
-        </div>
-      </div>
-
-      {loading ? (
-        <Spinner />
-      ) : records.length === 0 ? (
-        <div className="empty">{t('categories.noRecords')}</div>
-      ) : (
-        records.map((r) => <TxRecordCard key={r.id} record={r} t={t} lang={lang} />)
-      )}
-    </div>
-  );
-}
-
-// "Boshqa kirim-chiqimlar": toifasiz kirim va chiqimlar bitta ro'yxatda (ovoz bilan).
-function OtherDetail({ lang, onBack }) {
-  const { t } = useApp();
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await api.get('/categories/other/records');
-        if (alive) setRecords(Array.isArray(res?.records) ? res.records : []);
-      } catch {
-        if (alive) setRecords([]);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
-
-  const totalIncome = records.filter((r) => r.type === 'income').reduce((s, r) => s + (r.amount || 0), 0);
-  const totalExpense = records.filter((r) => r.type === 'expense').reduce((s, r) => s + (r.amount || 0), 0);
-
-  return (
-    <div>
-      <div className="row-between" style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button className="btn btn-sm" onClick={onBack}>← {t('common.back')}</button>
-          <h1 className="page-title" style={{ marginBottom: 0 }}>{t('categories.other')}</h1>
-        </div>
-      </div>
-
-      <div className="summary-card" style={{ marginBottom: 12 }}>
-        <div className="summary-col">
-          <div className="summary-label">{t('finance.income')}</div>
-          <div className="summary-value accent">+{formatNumber(totalIncome)}</div>
-        </div>
-        <div className="summary-divider" />
-        <div className="summary-col">
-          <div className="summary-label">{t('finance.expense')}</div>
-          <div className="summary-value">−{formatNumber(totalExpense)}</div>
-        </div>
-      </div>
-
-      {loading ? (
-        <Spinner />
-      ) : records.length === 0 ? (
-        <div className="empty">{t('categories.noRecords')}</div>
-      ) : (
-        records.map((r) => <TxRecordCard key={r.id} record={r} t={t} lang={lang} />)
-      )}
-    </div>
-  );
-}
-
-// Kirim/chiqim yozuvi kartasi: summa (+/-), sana, izoh, asl ovoz (bo'lsa) va matn.
-function TxRecordCard({ record, t, lang }) {
+// Yoyiladigan tafsilot: asl ovoz (qayta eshitish) va asl matn. Ovoz ham matn ham
+// bo'lmasa detail ko'rsatilmaydi (SheetTable null'ni tugmasiz qoldiradi).
+function RecordDetail({ record }) {
   const audioUrl = record.voiceFileId
     ? `${api.baseUrl}/api/items/audio/${encodeURIComponent(record.voiceFileId)}?initData=${encodeURIComponent(getInitData())}`
     : null;
-  const isIncome = record.type === 'income';
+  if (!audioUrl && !record.sourceText) return null;
   return (
-    <div className="card" style={{ marginBottom: 10 }}>
-      <div className="row-between">
-        <div style={{ fontWeight: 600 }} className={isIncome ? 'text-income' : 'text-expense'}>
-          {isIncome ? '+' : '−'}{formatMoney(record.amount)}
-        </div>
-        <span className="muted" style={{ fontSize: 13 }}>{formatDateTime(record.date, lang)}</span>
-      </div>
-      {record.description && (
-        <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>{record.description}</div>
-      )}
-      {audioUrl && <audio controls src={audioUrl} style={{ width: '100%', marginTop: 8 }} />}
-      {record.sourceText && record.sourceText !== record.description && (
-        <div className="muted" style={{ fontSize: 13, marginTop: 6, whiteSpace: 'pre-wrap' }}>🎙 {record.sourceText}</div>
+    <div>
+      {audioUrl && <audio controls src={audioUrl} style={{ width: '100%', marginBottom: record.sourceText ? 8 : 0 }} />}
+      {record.sourceText && (
+        <div className="muted" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>🎙 {record.sourceText}</div>
       )}
     </div>
-  );
-}
-
-function MaterialRecordCard({ record, t, lang }) {
-  const audioUrl = record.voiceFileId
-    ? `${api.baseUrl}/api/items/audio/${encodeURIComponent(record.voiceFileId)}?initData=${encodeURIComponent(getInitData())}`
-    : null;
-  return (
-    <div className="card" style={{ marginBottom: 10 }}>
-      <div className="row-between">
-        <div style={{ fontWeight: 600 }}>{formatMoney(record.amount)}</div>
-        <span className={`badge ${record.balanceAdded ? 'badge-done' : 'badge-muted'}`}>
-          {record.balanceAdded ? t('categories.inBalance') : t('categories.notInBalance')}
-        </span>
-      </div>
-      <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-        {formatDateTime(record.date, lang)}
-        {record.quantityKg > 0 ? ` · ${formatNumber(record.quantityKg)} kg` : ''}
-        {record.pricePerKg > 0 ? ` · ${formatMoney(record.pricePerKg)}/kg` : ''}
-      </div>
-      {audioUrl && <audio controls src={audioUrl} style={{ width: '100%', marginTop: 8 }} />}
-      {record.sourceText && <div className="muted" style={{ fontSize: 13, marginTop: 6, whiteSpace: 'pre-wrap' }}>{record.sourceText}</div>}
-    </div>
-  );
-}
-
-function AddMaterialSaleModal({ name, onClose, onSaved }) {
-  const { t } = useApp();
-  const [amount, setAmount] = useState('');
-  const [quantityKg, setQuantityKg] = useState('');
-  const [pricePerKg, setPricePerKg] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api.post('/finance/transactions', {
-        type: 'income',
-        category: 'material',
-        materialName: name,
-        amount: Number(amount),
-        quantityKg: quantityKg ? Number(quantityKg) : null,
-        pricePerKg: pricePerKg ? Number(pricePerKg) : null,
-        // O'tgan sana ham kiritilishi mumkin — hisobot o'sha oyga tushadi.
-        date: date ? new Date(date).toISOString() : undefined,
-      });
-      onSaved();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={`${name} — ${t('categories.addSale')}`} onClose={onClose}>
-      <label className="label">{t('common.amount')} *</label>
-      <input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
-      <label className="label">{t('categories.kg')}</label>
-      <input className="input" type="number" value={quantityKg} onChange={(e) => setQuantityKg(e.target.value)} />
-      <label className="label">{t('categories.perKg')}</label>
-      <input className="input" type="number" value={pricePerKg} onChange={(e) => setPricePerKg(e.target.value)} />
-      <label className="label">{t('common.date')}</label>
-      <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !(Number(amount) > 0)}>
-        {busy ? '...' : t('common.save')}
-      </button>
-    </Modal>
   );
 }
 

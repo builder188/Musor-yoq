@@ -1815,3 +1815,184 @@ textarea.input {
   background: var(--accent-soft);
   outline: none;
 }
+
+/* === Sheet (Google Sheets uslubidagi jadval) === */
+.sheet {
+  margin-bottom: 18px;
+}
+.sheet-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.sheet-search input {
+  flex: 1;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-input);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.sheet-search input:focus {
+  border-color: var(--accent);
+}
+.sheet-search button {
+  height: 38px;
+  width: 38px;
+  border: 1px solid var(--border-input);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.sheet-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  -webkit-overflow-scrolling: touch;
+}
+.sheet-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 13px;
+}
+.sheet-table th,
+.sheet-table td {
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  background: var(--card);
+  padding: 0;
+  height: 34px;
+}
+.sheet-table thead th {
+  position: relative;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 12px;
+  text-align: left;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  user-select: none;
+}
+.sheet-th-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheet-resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 6;
+}
+.sheet-rownum {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg) !important;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: center;
+}
+/* thead th "position: relative" dan ustun bo'lishi uchun aniqroq selektor. */
+.sheet-table thead th.sheet-rownum {
+  position: sticky;
+  z-index: 4;
+}
+.sheet-pin {
+  position: sticky;
+  left: 40px;
+  z-index: 2;
+  box-shadow: 1px 0 0 var(--border);
+}
+.sheet-table thead th.sheet-pin {
+  position: sticky;
+  left: 40px;
+  z-index: 3;
+}
+.sheet-cellv {
+  padding: 0 8px;
+  height: 34px;
+  line-height: 34px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheet-cell.editable {
+  cursor: text;
+}
+.sheet-cell.editable:hover .sheet-cellv {
+  background: var(--accent-soft);
+}
+.sheet-editor {
+  display: block;
+  width: 100%;
+  height: 34px;
+  border: none;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: 0;
+}
+.sheet-actions {
+  text-align: center;
+  white-space: nowrap;
+}
+.sheet-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  color: var(--text-muted);
+}
+.sheet-add td {
+  background: var(--card);
+}
+.sheet-add button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.sheet-draft td {
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--card));
+}
+.sheet-busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.sheet-empty {
+  padding: 16px !important;
+  text-align: center;
+  color: var(--text-muted);
+}
+.sheet-detail {
+  padding: 10px 12px !important;
+  height: auto !important;
+  white-space: normal;
+}

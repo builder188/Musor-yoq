@@ -13,6 +13,8 @@ export default {
     reminders: 'Напоминания',
     reports: 'Отчёты',
     settings: 'Настройки',
+    expandSidebar: 'Открыть меню',
+    collapseSidebar: 'Свернуть меню',
   },
 
   common: {
@@ -50,6 +52,10 @@ export default {
     error: 'Ошибка',
     saved: 'Сохранено',
     soum: 'сум',
+    finalConfirm: 'Финальное подтверждение',
+    checkBeforeSave: 'Проверьте данные. Если всё верно — сохраните.',
+    saveConfirm: 'Подтвердить сохранение',
+    backToEdit: 'Вернуться к редактированию',
     notFilled: 'Не указано',
     createdAt: '\u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e',
     loadError: '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0434\u0430\u043d\u043d\u044b\u0435 \u2014 \u043f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u0438\u043d\u0442\u0435\u0440\u043d\u0435\u0442 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435. \u0412\u0430\u0448\u0438 \u0437\u0430\u043f\u0438\u0441\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b \u0432 \u0431\u0430\u0437\u0435.',
@@ -64,13 +70,7 @@ export default {
     addClientBig: 'Добавить клиента',
     searchPlaceholder: 'Поиск клиента...',
     todayJobs: 'Работы сегодня',
-    pendingJobs: 'Ожидается',
-    expectedIncome: 'Ожидаемый доход',
-    monthBalance: 'Баланс за месяц',
-    aiChat: 'AI помощник',
-    aiPlaceholder: 'Задайте вопрос...',
-    aiThinking: 'Думаю...',
-    ask: 'Спросить',
+    balance: 'Баланс',
     noResults: 'Ничего не найдено',
     failedTitle: 'Неотправленные напоминания',
     failedDesc: 'Не отправлено даже после 3 попыток. Решите вручную.',
@@ -114,6 +114,10 @@ export default {
     noServices: 'Нет услуг',
     all: 'Все',
     detail: 'Подробнее',
+    reschedule: 'Перенести',
+    cancelConfirm: 'Подтверждаете отмену этой услуги?',
+    paymentStatus: 'Статус оплаты',
+    isHistorical: 'Историческая услуга',
   },
 
   finance: {
@@ -143,8 +147,6 @@ export default {
     recentActions: 'Последние операции',
     addPayment: 'Добавить оплату',
     addTransaction: 'Добавить',
-    debtors: 'Должники',
-    remaining: 'Остаток долга',
     type: 'Тип',
     category: 'Категория',
     payment: 'Сумма оплаты',
@@ -274,6 +276,8 @@ export default {
     reports: 'Отчёты',
     exportPdf: 'Скачать PDF',
     exportExcel: 'Экспорт Excel',
+    dataExport: 'Экспорт данных',
+    deletedAt: 'Дата удаления',
     beforeDelete: 'перед удалением',
     dangerZone: 'Опасная зона',
     deleteData: 'Удалить данные',
@@ -338,6 +342,22 @@ export default {
     end: 'Конец',
     limit: 'Лимит',
     download: 'Скачать PDF',
+    latest: 'Последние N',
+    month: 'Месяц',
+    downloadPdf: 'Скачать PDF',
+    downloadExcel: 'Скачать Excel',
+    sendToBot: 'Отправить в бот',
+    sentToBot: 'Отправлено в бот',
+  },
+
+  // Тексты табличного (spreadsheet) вида.
+  sheet: {
+    search: 'Поиск — по всем столбцам...',
+    addRow: 'Новая строка',
+    statusRevert: 'Статус нельзя вернуть назад',
+    partialPaid: 'Оплаченная сумма (сум)',
+    special: 'Специальный',
+    open: 'Открыть',
   },
 
   confirm: {
@@ -345,6 +365,9 @@ export default {
     warning: 'Это действие необратимо.',
     enterPin: 'Введите 4-значный код',
     wrongCode: 'Неверный код ❌',
+    backupQuestion: 'Скачать резервную копию PDF перед удалением?',
+    backupYes: 'Да, скачать PDF',
+    backupNo: 'Нет, удалить сразу',
   },
 
   ui: {

@@ -1,17 +1,20 @@
+// Xizmatlar sahifasi — umumiy jadval (spreadsheet) ko'rinishi.
+// Har bir katak tahriri mavjud biznes mantiqdan o'tadi:
+//  - narx tahriri -> PUT /services/:id (bajarilgan xizmatda daromad qayta hisoblanadi)
+//  - holat dropdown -> complete/cancel endpointlari (daromad yoziladi/qaytariladi)
+//  - to'lov holati dropdown -> paidAmount orqali (paymentStatus backend'da hisoblanadi)
+// Server tomonda notifyMiniAppUpdated bot xabarini yuboradi.
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { formatMoney, formatDateTime, formatWeekdayDate, toInputDateTime } from '../utils/format.js';
-import { shouldWarnMapUrl } from '../utils/mapUrl.js';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
-import FinalConfirmModal from '../components/FinalConfirmModal.jsx';
-import MapQuickLinks from '../components/MapQuickLinks.jsx';
+import AmountPromptModal from '../components/AmountPromptModal.jsx';
+import SheetTable from '../components/SheetTable.jsx';
 import LoadError from '../components/LoadError.jsx';
-
-const STATUSES = ['kutilmoqda', 'bajarildi', 'bekor_qilindi'];
 
 export default function Services() {
   const { t, lang } = useApp();
@@ -19,21 +22,12 @@ export default function Services() {
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [filterStatus, setFilterStatus] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [searchText, setSearchText] = useState('');
   const [detail, setDetail] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
-  const [editing, setEditing] = useState(null);
-  const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(null);
-  const [completing, setCompleting] = useState(null);
-  const [rescheduling, setRescheduling] = useState(null);
-  const [canceling, setCanceling] = useState(null);
+  const [partialFor, setPartialFor] = useState(null);
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = serviceParamsForView(view);
       const data = await api.get(`/services${params.toString() ? `?${params.toString()}` : ''}`);
@@ -44,7 +38,7 @@ export default function Services() {
       setLoadError(true);
       setServices([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -53,20 +47,181 @@ export default function Services() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
+  const putService = (row, body) => api.put(`/services/${row._id}`, body);
+
+  // Holat dropdown: faqat backend qo'llaydigan o'tishlar taklif qilinadi.
+  const statusOptions = (row) => {
+    if (row.status === 'kutilmoqda') {
+      return [
+        { value: 'kutilmoqda', label: t('status.kutilmoqda') },
+        { value: 'bajarildi', label: t('status.bajarildi') },
+        { value: 'bekor_qilindi', label: t('status.bekor_qilindi') },
+      ];
+    }
+    if (row.status === 'bajarildi') {
+      return [
+        { value: 'bajarildi', label: t('status.bajarildi') },
+        { value: 'bekor_qilindi', label: t('status.bekor_qilindi') },
+      ];
+    }
+    return [{ value: 'bekor_qilindi', label: t('status.bekor_qilindi') }];
+  };
+
+  const columns = [
+    {
+      key: 'clientName',
+      title: t('common.name'),
+      width: 140,
+      type: 'text',
+      get: (r) => r.clientName || '',
+      text: (r) => r.clientName || '',
+      apply: (r, v) => putService(r, { clientName: v }),
+    },
+    {
+      key: 'clientPhone',
+      title: t('common.phone'),
+      width: 130,
+      type: 'text',
+      get: (r) => r.clientPhone || '',
+      text: (r) => r.clientPhone || '',
+      apply: (r, v) => {
+        if (!v.trim()) return null; // bo'sh telefon xato emas — shunchaki o'zgartirmaymiz
+        return putService(r, { clientPhone: v, clientName: r.clientName });
+      },
+    },
+    {
+      key: 'location',
+      title: t('common.location'),
+      width: 160,
+      type: 'text',
+      get: (r) => r.location?.address || '',
+      text: (r) => r.location?.address || '',
+      apply: (r, v) =>
+        putService(r, {
+          location: { address: v, mapUrl: r.location?.mapUrl || '', coordinates: r.location?.coordinates || null },
+        }),
+    },
+    {
+      key: 'mapUrl',
+      title: t('common.mapUrl'),
+      width: 130,
+      type: 'text',
+      get: (r) => r.location?.mapUrl || '',
+      text: (r) => r.location?.mapUrl || '',
+      apply: (r, v) =>
+        putService(r, {
+          location: { address: r.location?.address || '', mapUrl: v, coordinates: r.location?.coordinates || null },
+        }),
+    },
+    {
+      key: 'serviceDateTime',
+      title: t('common.date'),
+      width: 170,
+      type: 'datetime',
+      get: (r) => (r.serviceDateTime ? toInputDateTime(r.serviceDateTime) : ''),
+      text: (r) => (r.serviceDateTime ? formatDateTime(r.serviceDateTime, lang) : ''),
+      apply: (r, v) => {
+        if (!v) return null;
+        return putService(r, { serviceDateTime: new Date(v).toISOString() });
+      },
+    },
+    {
+      key: 'price',
+      title: t('common.price'),
+      width: 110,
+      type: 'number',
+      get: (r) => (r.price > 0 ? r.price : ''),
+      text: (r) => (r.price > 0 ? formatMoney(r.price) : ''),
+      apply: (r, v) => {
+        if (v === '' || v === null) return null;
+        return putService(r, { price: Number(v) });
+      },
+    },
+    {
+      key: 'status',
+      title: t('common.status'),
+      width: 120,
+      type: 'select',
+      options: statusOptions,
+      draft: false,
+      draftText: t('status.kutilmoqda'),
+      get: (r) => r.status || '',
+      text: (r) => (r.status ? t(`status.${r.status}`) : ''),
+      apply: async (r, v) => {
+        if (v === r.status) return;
+        // Bajarildi — daromad yoziladi; bekor — daromad qaytariladi (backend mantiq).
+        if (v === 'bajarildi') await api.patch(`/services/${r._id}/complete`, { markPaid: true });
+        else if (v === 'bekor_qilindi') await api.patch(`/services/${r._id}/cancel`, {});
+        else throw new Error(t('sheet.statusRevert'));
+      },
+    },
+    {
+      key: 'paymentMethod',
+      title: t('common.paymentMethod'),
+      width: 110,
+      type: 'select',
+      options: [
+        { value: 'naqd', label: t('payment.naqd') },
+        { value: 'karta', label: t('payment.karta') },
+        { value: 'otkazma', label: t('payment.otkazma') },
+      ],
+      get: (r) => r.paymentMethod || 'naqd',
+      text: (r) => (r.paymentMethod ? t(`payment.${r.paymentMethod}`) : ''),
+      apply: (r, v) => putService(r, { paymentMethod: v }),
+    },
+    {
+      key: 'paymentStatus',
+      title: t('services.paymentStatus'),
+      width: 120,
+      type: 'select',
+      draft: false,
+      draftText: t('paymentStatus.tolanmagan'),
+      options: [
+        { value: 'tolangan', label: t('paymentStatus.tolangan') },
+        { value: 'qisman', label: t('paymentStatus.qisman') },
+        { value: 'tolanmagan', label: t('paymentStatus.tolanmagan') },
+      ],
+      get: (r) => r.paymentStatus || 'tolanmagan',
+      text: (r) => (r.paymentStatus ? t(`paymentStatus.${r.paymentStatus}`) : ''),
+      apply: async (r, v) => {
+        if (v === r.paymentStatus) return;
+        // paymentStatus backendda paidAmount dan hisoblanadi — shunga mos yozamiz.
+        if (v === 'tolangan') await putService(r, { paidAmount: r.price || 0 });
+        else if (v === 'tolanmagan') await putService(r, { paidAmount: 0 });
+        else setPartialFor(r); // qisman: summa so'raladi (modal)
+      },
+    },
+    {
+      key: 'notes',
+      title: t('common.notes'),
+      width: 160,
+      type: 'text',
+      get: (r) => r.notes || '',
+      text: (r) => r.notes || '',
+      apply: (r, v) => putService(r, { notes: v }),
+    },
+  ];
+
+  // Yangi qator: minimal identifikatsiya (ism YOKI telefon) to'planganda avtomatik saqlanadi.
+  const draft = {
+    defaults: { paymentMethod: 'naqd' },
+    canSave: (v) => !!(String(v.clientName || '').trim() || String(v.clientPhone || '').trim()),
+    save: async (v) => {
+      const payload = { paymentMethod: v.paymentMethod || 'naqd' };
+      if (v.clientName) payload.clientName = v.clientName;
+      if (v.clientPhone) payload.clientPhone = v.clientPhone;
+      if (v.location || v.mapUrl) payload.location = { address: v.location || '', mapUrl: v.mapUrl || '' };
+      if (v.serviceDateTime) payload.serviceDateTime = new Date(v.serviceDateTime).toISOString();
+      if (v.price) payload.price = Number(v.price);
+      if (v.notes) payload.notes = v.notes;
+      await api.post('/services', payload);
+    },
+  };
+
   return (
     <div>
-      {loadError && <LoadError onRetry={load} />}
-      <div className="row-between" style={{ marginBottom: 4 }}>
-        <h1 className="page-title" style={{ marginBottom: 0 }}>{t('services.title')}</h1>
-        <button
-          className="icon-btn"
-          style={{ background: 'var(--text)', color: 'var(--card)', border: 'none', fontSize: 21, boxShadow: 'var(--shadow-btn)' }}
-          aria-label={t('common.add')}
-          onClick={() => setCreating(true)}
-        >
-          ＋
-        </button>
-      </div>
+      {loadError && <LoadError onRetry={() => load()} />}
+      <h1 className="page-title">{t('services.title')}</h1>
 
       <div className="segment">
         <button className={view === 'today' ? 'active' : ''} onClick={() => setView('today')}>
@@ -78,98 +233,44 @@ export default function Services() {
         <button className={view === 'done' ? 'active' : ''} onClick={() => setView('done')}>
           {t('status.bajarildi')}
         </button>
+        <button className={view === 'all' ? 'active' : ''} onClick={() => setView('all')}>
+          {t('services.all')}
+        </button>
       </div>
 
       <div className="section-title compact">{serviceSectionLabel(view, t, lang)}</div>
 
       {loading ? (
         <Spinner />
-      ) : services.length === 0 ? (
-        <div className="empty">{t('services.noServices')}</div>
       ) : (
-        services.map((service) => {
-          const expanded = expandedId === service._id;
-          return (
-            <ServiceCard
-              key={service._id}
-              service={service}
-              expanded={expanded}
-              onToggle={() => setExpandedId(expanded ? null : service._id)}
-              onDetail={() => setDetail(service)}
-              onComplete={() => setCompleting(service)}
-              onReschedule={() => setRescheduling(service)}
-              onCancel={() => setCanceling(service)}
-            />
-          );
-        })
-      )}
-
-      {detail && (
-        <ServiceDetailBottomSheet
-          service={detail}
-          onClose={() => setDetail(null)}
-          onComplete={setCompleting}
-          onReschedule={setRescheduling}
-          onCancel={setCanceling}
-          onEdit={(service) => {
-            setDetail(null);
-            setEditing(service);
-          }}
-          onDelete={(service) => {
-            setDetail(null);
-            setDeleting(service);
-          }}
+        <SheetTable
+          id="services"
+          columns={columns}
+          rows={services}
+          rowKey={(r) => r._id}
+          onChanged={() => load(true)}
+          draft={draft}
+          onDelete={setDeleting}
+          actions={(row) => (
+            <button type="button" aria-label={t('services.detail')} onClick={() => setDetail(row)}>
+              ℹ️
+            </button>
+          )}
+          emptyText={t('services.noServices')}
+          t={t}
         />
       )}
 
-      {completing && (
-        <CompleteModal
-          service={completing}
-          onClose={() => setCompleting(null)}
-          onDone={() => {
-            setCompleting(null);
-            setDetail(null);
-            load();
-          }}
-        />
-      )}
+      {detail && <ServiceDetailSheet service={detail} onClose={() => setDetail(null)} onDelete={(s) => { setDetail(null); setDeleting(s); }} />}
 
-      {rescheduling && (
-        <RescheduleModal
-          service={rescheduling}
-          onClose={() => setRescheduling(null)}
-          onDone={() => {
-            setRescheduling(null);
-            setDetail(null);
-            load();
-          }}
-        />
-      )}
-
-      {canceling && (
-        <CancelModal
-          service={canceling}
-          onClose={() => setCanceling(null)}
-          onDone={() => {
-            setCanceling(null);
-            setDetail(null);
-            load();
-          }}
-        />
-      )}
-
-      {(editing || creating) && (
-        <ServiceFormModal
-          service={editing}
-          onClose={() => {
-            setEditing(null);
-            setCreating(false);
-          }}
-          onSaved={() => {
-            setEditing(null);
-            setCreating(false);
-            setDetail(null);
-            load();
+      {partialFor && (
+        <AmountPromptModal
+          title={t('paymentStatus.qisman')}
+          label={t('sheet.partialPaid')}
+          onClose={() => setPartialFor(null)}
+          onSubmit={async (value) => {
+            await api.put(`/services/${partialFor._id}`, { paidAmount: Number(value) || 0 });
+            load(true);
           }}
         />
       )}
@@ -181,8 +282,7 @@ export default function Services() {
           onConfirm={async (code) => {
             await api.del(`/services/${deleting._id}`, { confirmationCode: code });
             setDeleting(null);
-            setDetail(null);
-            load();
+            load(true);
           }}
         />
       )}
@@ -213,6 +313,7 @@ function todayRange() {
 function serviceSectionLabel(view, t, lang) {
   if (view === 'pending') return t('status.kutilmoqda');
   if (view === 'done') return t('status.bajarildi');
+  if (view === 'all') return t('services.all');
   return `${t('services.today')} · ${formatWeekdayDate(new Date(), lang)}`;
 }
 
@@ -231,400 +332,31 @@ function sortServicesForView(items, view) {
   });
 }
 
-function FilterBar({
-  t,
-  filterStatus,
-  dateFrom,
-  dateTo,
-  searchText,
-  onStatus,
-  onDateFrom,
-  onDateTo,
-  onSearchText,
-  onSearch,
-  onReset,
-}) {
-  return (
-    <div className="card filter-card">
-      <label className="label">{t('common.status')}</label>
-      <select className="select" value={filterStatus} onChange={(e) => onStatus(e.target.value)}>
-        <option value="">{t('services.all')}</option>
-        {STATUSES.map((status) => (
-          <option key={status} value={status}>
-            {t(`status.${status}`)}
-          </option>
-        ))}
-      </select>
-
-      <div className="btn-row mb-8">
-        <div style={{ flex: 1 }}>
-          <label className="label">{t('common.date')} (dan)</label>
-          <input className="input" type="date" style={{ marginBottom: 0 }} value={dateFrom} onChange={(e) => onDateFrom(e.target.value)} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label className="label">{t('common.date')} (gacha)</label>
-          <input className="input" type="date" style={{ marginBottom: 0 }} value={dateTo} onChange={(e) => onDateTo(e.target.value)} />
-        </div>
-      </div>
-
-      <label className="label">{t('clients.title')} / {t('common.phone')} / {t('common.location')}</label>
-      <input className="input" value={searchText} onChange={(e) => onSearchText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onSearch()} />
-
-      <div className="btn-row">
-        <button className="btn btn-block" onClick={onReset}>
-          {t('common.cancel')}
-        </button>
-        <button className="btn btn-primary btn-block" onClick={onSearch}>
-          {t('common.search').replace('...', '')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ServiceCard({ service, expanded, onToggle, draggable = false, onDetail, onComplete, onReschedule, onCancel, onQuickComplete }) {
-  const { t, lang } = useApp();
-  const isPending = service.status === 'kutilmoqda';
-  const isDone = service.status === 'bajarildi';
-  const isCancelled = service.status === 'bekor_qilindi';
-  const initial = (service.clientName || '?').trim().charAt(0).toUpperCase() || '?';
-  // Checkbox bosilganda "bajarildi" oqimi: kanban'da onQuickComplete, ro'yxatda onComplete.
-  const completeAction = onComplete || onQuickComplete;
-  const stop = (fn) => (e) => {
-    e.stopPropagation();
-    fn?.();
-  };
-  return (
-    <div
-      className={`list-item ${isDone ? 'is-done' : ''} ${service.isDeletedByClientDeletion ? 'deleted-item' : ''}`}
-      draggable={draggable}
-      onDragStart={(e) => e.dataTransfer.setData('text/service-id', service._id)}
-      onClick={onToggle}
-    >
-      <div className={`job-card ${isDone ? 'is-done' : ''}`}>
-        <div className="avatar">{initial}</div>
-        <div className="job-main">
-          <div className="job-name">{service.clientName}</div>
-          <div className="job-sub">
-            {formatDateTime(service.serviceDateTime, lang)}
-            {service.location?.address ? (
-              <>
-                {' · '}
-                <LocationDisplay location={service.location} inline />
-              </>
-            ) : null}
-          </div>
-          <div className="job-price">{formatMoney(service.price)}</div>
-        </div>
-        {isDone ? (
-          <div className="check-circle done" aria-label={t('status.bajarildi')}>✓</div>
-        ) : isCancelled ? (
-          <span className="badge badge-cancelled">{t('status.bekor_qilindi')}</span>
-        ) : completeAction ? (
-          <button className="check-circle" aria-label={t('services.markDone')} onClick={stop(completeAction)} />
-        ) : (
-          <div className="check-circle" />
-        )}
-      </div>
-      {expanded && (
-        <div className="service-expanded">
-          <div className="sub">{t('common.phone')}: {service.clientPhone}</div>
-          <div className="sub">{t('common.paymentMethod')}: {t(`payment.${service.paymentMethod}`)}</div>
-          {service.paymentStatus && (
-            <div className="sub">{t('services.paymentStatus')}: {t(`paymentStatus.${service.paymentStatus}`)}</div>
-          )}
-          {service.notes && <div className="sub">{service.notes}</div>}
-          {/* Tezkor amallar — har bir kartochkadan to'g'ridan-to'g'ri. */}
-          <div className="btn-row mt-8">
-            {isPending && onComplete && (
-              <button className="btn btn-primary btn-sm btn-block" onClick={stop(onComplete)}>
-                ✅ {t('services.markDone')}
-              </button>
-            )}
-            {isPending && onReschedule && (
-              <button className="btn btn-sm btn-block" onClick={stop(onReschedule)}>
-                📅 {t('services.reschedule')}
-              </button>
-            )}
-          </div>
-          <div className="btn-row mt-8">
-            {onDetail && (
-              <button className="btn btn-sm btn-block" onClick={stop(onDetail)}>
-                ℹ️ {t('services.detail')}
-              </button>
-            )}
-            {isPending && onCancel && (
-              <button className="btn btn-sm btn-block" onClick={stop(onCancel)}>
-                ❌ {t('services.cancelled')}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ServiceDetailBottomSheet({ service, onClose, onComplete, onReschedule, onCancel, onEdit, onDelete }) {
+// Tafsilot (faqat ko'rish): xarita havolalari, kiritilgan sana va h.k.
+// Tahrir jadvalning o'zida; o'chirish 1990-kod bilan.
+function ServiceDetailSheet({ service, onClose, onDelete }) {
   const { t, lang } = useApp();
   return (
-    <Modal title={service.clientName} onClose={onClose}>
+    <Modal title={service.clientName || t('services.detail')} onClose={onClose}>
       <div className="mb-8">
         <span className={`badge badge-${badgeOf(service.status)}`}>{t(`status.${service.status}`)}</span>
       </div>
-
       <div className="card">
         <Row label={t('common.phone')} value={service.clientPhone} />
         <Row label={t('common.location')} value={<LocationDisplay location={service.location} />} />
         <Row label={t('common.date')} value={formatDateTime(service.serviceDateTime, lang)} />
         {service.createdAt ? <Row label={t('common.createdAt')} value={formatDateTime(service.createdAt, lang)} /> : null}
         <Row label={t('common.price')} value={formatMoney(service.price)} />
-        <Row label={t('common.paymentMethod')} value={t(`payment.${service.paymentMethod}`)} />
-        <Row label={t('services.paymentStatus')} value={t(`paymentStatus.${service.paymentStatus}`)} />
+        <Row label={t('common.paymentMethod')} value={service.paymentMethod ? t(`payment.${service.paymentMethod}`) : ''} />
+        <Row label={t('services.paymentStatus')} value={service.paymentStatus ? t(`paymentStatus.${service.paymentStatus}`) : ''} />
         {service.notes ? <Row label={t('common.notes')} value={service.notes} /> : null}
         {service.clientDeletionNote ? <Row label={t('common.notes')} value={service.clientDeletionNote} /> : null}
       </div>
-
-      <div className="btn-row mb-8">
-        {service.status === 'kutilmoqda' && (
-          <button className="btn btn-primary btn-block" onClick={() => onComplete(service)}>
-            ✅ {t('services.markDone')}
-          </button>
-        )}
-      </div>
-      <div className="btn-row mb-8">
-        <button className="btn btn-block" onClick={() => onReschedule(service)}>
-          📅 {t('services.reschedule')}
-        </button>
-        {service.status === 'kutilmoqda' && (
-          <button className="btn btn-block" onClick={() => onCancel(service)}>
-            ❌ {t('services.cancelled')}
-          </button>
-        )}
-      </div>
-      <div className="btn-row mb-8">
-        <button className="btn btn-block" onClick={() => onEdit(service)}>
-          ✏️ {t('common.edit')}
-        </button>
-        <button className="btn btn-danger btn-block" onClick={() => onDelete(service)}>
-          🗑️ {t('common.delete')}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-function CompleteModal({ service, onClose, onDone }) {
-  const { t } = useApp();
-  const [busy, setBusy] = useState(false);
-
-  const confirm = async () => {
-    setBusy(true);
-    try {
-      await api.patch(`/services/${service._id}/complete`, { markPaid: true });
-      onDone();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={t('services.markDone')} onClose={onClose}>
-      <p>
-        Bu xizmatni bajarildi deb belgilab,
-        <br />
-        {formatMoney(service.price)} so'mni balansga qo'shamiz. Tasdiqlaysizmi?
-      </p>
-      <div className="btn-row">
-        <button className="btn btn-primary btn-block" onClick={confirm} disabled={busy}>
-          ✅ Ha, bajardim
-        </button>
-        <button className="btn btn-block" onClick={onClose} disabled={busy}>
-          ❌ Bekor
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-function RescheduleModal({ service, onClose, onDone }) {
-  const { t } = useApp();
-  const [date, setDate] = useState(toInputDateTime(service.serviceDateTime));
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api.patch(`/services/${service._id}/reschedule`, { newDateTime: new Date(date).toISOString() });
-      onDone();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={t('services.reschedule')} onClose={onClose}>
-      <label className="label">{t('common.date')}</label>
-      <input className="input" type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
-      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !date}>
-        {busy ? '...' : t('common.save')}
+      <button className="btn btn-danger btn-block" onClick={() => onDelete(service)}>
+        🗑️ {t('common.delete')}
       </button>
     </Modal>
   );
-}
-
-function CancelModal({ service, onClose, onDone }) {
-  const { t } = useApp();
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const cancel = async () => {
-    setBusy(true);
-    try {
-      await api.patch(`/services/${service._id}/cancel`, { reason });
-      onDone();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={t('services.cancelled')} onClose={onClose}>
-      <p>{t('services.cancelConfirm')}</p>
-      <label className="label">{t('common.notes')}</label>
-      <textarea className="input" value={reason} onChange={(e) => setReason(e.target.value)} />
-      <div className="btn-row">
-        <button className="btn btn-danger btn-block" onClick={cancel} disabled={busy}>
-          ❌ {t('services.cancelled')}
-        </button>
-        <button className="btn btn-block" onClick={onClose} disabled={busy}>
-          {t('common.cancel')}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-function ServiceFormModal({ service, onClose, onSaved }) {
-  const { t, lang } = useApp();
-  const isEdit = !!service;
-  const [form, setForm] = useState({
-    clientName: service?.clientName || '',
-    clientPhone: service?.clientPhone || '',
-    locationName: service?.location?.address || '',
-    locationMapUrl: service?.location?.mapUrl || '',
-    locationCoordinates: service?.location?.coordinates || null,
-    serviceDateTime: toInputDateTime(service?.serviceDateTime),
-    price: service?.price ?? '',
-    paymentMethod: service?.paymentMethod || 'naqd',
-    notes: service?.notes || '',
-    isHistorical: service?.isHistorical || false,
-  });
-  const [busy, setBusy] = useState(false);
-  const [confirmPayload, setConfirmPayload] = useState(null);
-
-  const buildPayload = () => {
-    const { locationName, locationMapUrl, locationCoordinates, ...fields } = form;
-    return {
-      ...fields,
-      price: Number(form.price),
-      location: { address: locationName, mapUrl: locationMapUrl, coordinates: locationCoordinates },
-      serviceDateTime: new Date(form.serviceDateTime).toISOString(),
-    };
-  };
-
-  const save = async () => {
-    if (!form.locationName.trim()) return alert(t('common.locationRequired'));
-    if (shouldWarnMapUrl(form.locationMapUrl) && !window.confirm(t('common.mapUrlWarning'))) return;
-    const payload = buildPayload();
-    if (!isEdit) {
-      setConfirmPayload(payload);
-      return;
-    }
-
-    setBusy(true);
-    try {
-      await api.put(`/services/${service._id}`, payload);
-      onSaved();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const confirmSave = async () => {
-    if (!confirmPayload) return;
-    setBusy(true);
-    try {
-      await api.post('/services', confirmPayload);
-      setConfirmPayload(null);
-      onSaved();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={isEdit ? t('common.edit') : t('common.add')} onClose={onClose}>
-      <label className="label">{t('common.name')}</label>
-      <input className="input" value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} />
-      <label className="label">{t('common.phone')}</label>
-      <input className="input" placeholder="+998..." value={form.clientPhone} onChange={(e) => setForm({ ...form, clientPhone: e.target.value })} />
-      <label className="label">{t('common.locationName')}</label>
-      <input className="input" value={form.locationName} onChange={(e) => setForm({ ...form, locationName: e.target.value })} />
-      <label className="label">{t('common.mapUrl')}</label>
-      <input className="input" type="text" inputMode="url" placeholder={t('common.mapUrlPlaceholder')} value={form.locationMapUrl} onChange={(e) => setForm({ ...form, locationMapUrl: e.target.value })} />
-      <MapQuickLinks />
-      <label className="label">{t('common.date')}</label>
-      <input className="input" type="datetime-local" value={form.serviceDateTime} onChange={(e) => setForm({ ...form, serviceDateTime: e.target.value })} />
-      <label className="label">{t('common.price')}</label>
-      <input className="input" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
-      <label className="label">{t('common.paymentMethod')}</label>
-      <select className="select" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
-        <option value="naqd">{t('payment.naqd')}</option>
-        <option value="karta">{t('payment.karta')}</option>
-        <option value="otkazma">{t('payment.otkazma')}</option>
-      </select>
-      <label className="card-row">
-        <span>{t('services.isHistorical')}</span>
-        <input type="checkbox" checked={form.isHistorical} onChange={(e) => setForm({ ...form, isHistorical: e.target.checked })} />
-      </label>
-      <label className="label">{t('common.notes')}</label>
-      <textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-      <button className="btn btn-primary btn-block" onClick={save} disabled={busy || !form.clientName || !form.clientPhone || !form.locationName || !form.serviceDateTime || !form.price}>
-        {busy ? '...' : t('common.save')}
-      </button>
-      {confirmPayload && (
-        <FinalConfirmModal
-          rows={serviceFormConfirmRows(confirmPayload, t, lang)}
-          busy={busy}
-          onClose={() => setConfirmPayload(null)}
-          onConfirm={confirmSave}
-        />
-      )}
-    </Modal>
-  );
-}
-
-function serviceFormConfirmRows(payload, t, lang) {
-  return [
-    { label: t('common.name'), value: payload.clientName },
-    { label: t('common.phone'), value: payload.clientPhone },
-    { label: t('common.location'), value: payload.location?.address },
-    { label: t('common.date'), value: formatDateTime(payload.serviceDateTime, lang) },
-    { label: t('common.price'), value: formatMoney(payload.price) },
-    { label: t('common.paymentMethod'), value: t(`payment.${payload.paymentMethod}`) },
-    { label: t('common.notes'), value: payload.notes },
-  ];
 }
 
 function Row({ label, value }) {
