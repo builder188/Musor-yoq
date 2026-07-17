@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
-import { bulkDelete, listDeleted, restore, restoreByIds, restoreClientWithServices } from '../services/deleteService.js';
+import { bulkDelete, listDeleted, restore, restoreByIds } from '../services/deleteService.js';
 import { notifyMiniAppBulkDelete } from '../services/miniAppNotifyService.js';
 
 const router = Router();
@@ -37,18 +37,6 @@ router.post(
       return res.json({ ok: true, result });
     }
     const result = await restoreByIds(ids);
-    res.json({ ok: true, result });
-  })
-);
-
-router.post(
-  '/restore-client',
-  asyncHandler(async (req, res) => {
-    const result = await restoreClientWithServices(
-      req.body?.clientId,
-      req.body?.serviceIds || [],
-      req.body?.serviceEdits || {}
-    );
     res.json({ ok: true, result });
   })
 );

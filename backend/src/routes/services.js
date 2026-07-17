@@ -8,6 +8,7 @@ import {
   editService,
   completeService,
   cancelService,
+  setServiceStatus,
   rescheduleService,
   listUpcomingServices,
 } from '../services/serviceService.js';
@@ -19,13 +20,12 @@ import Service from '../models/Service.js';
 
 const router = Router();
 
-// GET /api/services?status=&clientId=&dateFrom=&dateTo=&search=
+// GET /api/services?status=&dateFrom=&dateTo=&search=
 router.get(
   '/',
   asyncHandler(async (req, res) => {
     const services = await listServices({
       status: req.query.status || null,
-      clientId: req.query.clientId || null,
       dateFrom: req.query.dateFrom || null,
       dateTo: req.query.dateTo || null,
       search: req.query.search || '',
@@ -107,6 +107,22 @@ router.patch(
     });
     notifyMiniAppUpdated('service', before, result?.service);
     res.json(result);
+  })
+);
+
+// PATCH /api/services/:id/status — 4 holatning istalgan biriga o'tkazish (dropdown).
+// body: { status: kutilmoqda|bajarildi|bajarilmadi|bekor_qilindi, reason? }
+// Daromad yozish/qaytarish backend mantiqda: bajarildi → income; qolganlari → income yo'q.
+router.patch(
+  '/:id/status',
+  asyncHandler(async (req, res) => {
+    const before = await Service.findOne({ _id: req.params.id }).lean();
+    const result = await setServiceStatus(req.params.id, req.body?.status, {
+      reason: req.body?.reason || null,
+    });
+    const service = result?.service || result;
+    notifyMiniAppUpdated('service', before, service);
+    res.json(service);
   })
 );
 

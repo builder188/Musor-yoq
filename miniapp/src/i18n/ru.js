@@ -5,7 +5,6 @@ export default {
 
   nav: {
     home: 'Главная',
-    clients: 'Клиенты',
     services: 'Услуги',
     categories: 'Категории',
     items: 'Предметы',
@@ -67,8 +66,8 @@ export default {
     greeting: 'Здравствуйте 👋',
     balanceNow: 'Текущий баланс',
     countSuffix: 'шт',
-    addClientBig: 'Добавить клиента',
-    searchPlaceholder: 'Поиск клиента...',
+    addServiceBig: 'Добавить строку услуги',
+    searchPlaceholder: 'Поиск: имя, тел, адрес или сумма...',
     todayJobs: 'Работы сегодня',
     balance: 'Баланс',
     noResults: 'Ничего не найдено',
@@ -82,29 +81,6 @@ export default {
     retried: 'Поставлено в очередь',
   },
 
-  clients: {
-    title: 'Клиенты',
-    totalSpent: 'Всего услуг',
-    history: 'История услуг',
-    noClients: 'Нет клиентов',
-    addClient: 'Добавить клиента',
-    mapButton: 'Карта',
-    reminderDefault: 'Напоминание будет отправлено ботом в выбранное время.',
-    reminderAt: 'Бот отправит напоминание в {time}.',
-    noHistory: 'Нет истории услуг',
-    partner: 'Партнёрство',
-    partnerStatus: 'Тип клиента',
-    partnerToggle: 'Партнёрство (договорной клиент)',
-    partnerHint: 'Постоянный партнёр: сохраняются стандартная цена и адрес. Скажите боту «сходил к X» — запишется автоматически.',
-    standardPrice: 'Стандартная цена',
-    standardLocation: 'Стандартный адрес',
-    monthVisits: 'Визитов за {month}',
-    visitTimes: 'раз',
-    optional: 'необязательно',
-    servicesCount: 'Число услуг',
-    totalPaid: 'Оплачено всего',
-    debt: 'Долг',
-  },
 
   services: {
     title: 'Услуги',
@@ -310,7 +286,6 @@ export default {
     confirmCode: 'Код подтверждения',
     enterCode: 'Введите код (1990)',
     deleteAll: 'Удалить всё',
-    deleteClients: 'Удалить клиентов',
     deleteServices: 'Удалить услуги',
     deleteFinance: 'Удалить финансы',
   },
@@ -350,6 +325,7 @@ export default {
   status: {
     kutilmoqda: 'Ожидает',
     bajarildi: 'Выполнено',
+    bajarilmadi: 'Не выполнено',
     bekor_qilindi: 'Отменено',
   },
 
@@ -372,6 +348,17 @@ export default {
     downloadExcel: 'Скачать Excel',
     sendToBot: 'Отправить в бот',
     sentToBot: 'Отправлено в бот',
+  },
+
+  // Вкладки таблиц (sheets).
+  sheets: {
+    add: 'Новая таблица',
+    addHint: 'Новая таблица станет активной — новые записи попадут сюда. Старая уйдёт в архив, но её можно открыть и редактировать в любой момент.',
+    rename: 'Переименовать таблицу',
+    name: 'Название таблицы',
+    namePlaceholder: 'например: Июль 2026',
+    archivedHint: 'Архивная таблица — можно открыть и редактировать любую ячейку',
+    activeHint: 'Активная таблица — новые строки попадают сюда (при 30 строках автоархив)',
   },
 
   // Тексты табличного (spreadsheet) вида.
@@ -403,6 +390,6 @@ export default {
     deleted: 'Удалён',
     lastService: 'Последняя услуга',
     notVisited: 'Сюда не выезжали',
-    clientsCount: 'клиентов',
+    rowsCount: 'записей',
   },
 };

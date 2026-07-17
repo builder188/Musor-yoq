@@ -79,7 +79,9 @@ subIntent meanings:
   ("narx"|"sana"|"manzil"), the new value in newValue.
 - CLIENT_EDIT    - change a client's OWN name or phone (not a service). targetIdentifier,
   editField ("ism"|"telefon"), newValue.
-- STATUS_UPDATE  - mark an existing service "bajarildi" or "bekor_qilindi" with no new job details.
+- STATUS_UPDATE  - mark an existing service "bajarildi", "bajarilmadi" or "bekor_qilindi" with
+  no new job details. "bajarilmadi" = the visit did not happen (e.g. "mashina buzilib bormadim",
+  "bora olmadim") — NOT fully cancelled, it can be rescheduled later; no money is recorded.
 - EXPENSE_ENTRY  - business SPENDING / money going OUT ("benzin oldim", "mashina tamiri",
   "sotib oldim"). NOTE: a car/traffic fine (shtraf/jarima) is NOT a plain expense — use
   FINE_ENTRY (it tracks payment deadline + reminder). CRITICAL: SELLING something is the
@@ -237,7 +239,7 @@ DATA EXTRACTION CONTRACT:
 - ITEM_GIVEAWAY: itemName (required), recipient, notes, date.
 - SERVICE_EDIT:  targetIdentifier, editField ("narx"|"sana"|"manzil"), newValue (normalized).
 - CLIENT_EDIT:   targetIdentifier, editField ("ism"|"telefon"), newValue (phone -> +998...).
-- STATUS_UPDATE: targetClientName/targetPhone, newStatus ("bajarildi"|"bekor_qilindi").
+- STATUS_UPDATE: targetClientName/targetPhone, newStatus ("bajarildi"|"bajarilmadi"|"bekor_qilindi").
 - PAYMENT_UPDATE: targetClientName/targetPhone, paymentAmount, currency.
 - DEBT_REMINDER: person (required), amount (if stated), currency, direction ("given"|"taken"),
   dueDate (future ISO, if stated), eventDate (loan day, today if not said), skipBalance (true only if asked).
@@ -374,6 +376,9 @@ Args: {"intent":"MOLIYA","subIntent":"ITEM_GIVEAWAY","confidence":0.95,"reason":
 
 Input: "Akmalning ishini bajardim deb belgila"
 Args: {"intent":"MIJOZ","subIntent":"STATUS_UPDATE","confidence":0.9,"reason":"mark existing service done","fields":{"targetClientName":"Akmal","newStatus":"bajarildi"}}
+
+Input: "Mashina buzilib qoldi, Akmalnikiga borolmadim"
+Args: {"intent":"MIJOZ","subIntent":"STATUS_UPDATE","confidence":0.9,"reason":"visit did not happen (not cancelled, reschedulable later)","fields":{"targetClientName":"Akmal","newStatus":"bajarilmadi"}}
 
 Input: "Sardor akaning narxini 500 mingga o'zgartir"
 Args: {"intent":"MIJOZ","subIntent":"SERVICE_EDIT","confidence":0.92,"reason":"edit service price","fields":{"targetIdentifier":"Sardor aka","editField":"narx","newValue":"500000"}}

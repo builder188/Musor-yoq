@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import Client from '../models/Client.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import Transaction, { TX_TYPES } from '../models/Transaction.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
@@ -62,6 +61,8 @@ router.get(
   })
 );
 
+// Eng ko'p pul to'lagan / eng ko'p chaqirgan mijozlar — endi alohida Client yozuvisiz:
+// xizmat daromadlari TELEFON (bo'lmasa ism) bo'yicha guruhlanadi.
 router.get(
   '/clients',
   asyncHandler(async (req, res) => {
@@ -88,32 +89,31 @@ router.get(
       { $unwind: '$service' },
       {
         $group: {
-          _id: '$service.clientId',
+          _id: {
+            $cond: [
+              { $gt: [{ $strLenCP: { $ifNull: ['$service.clientPhone', ''] } }, 0] },
+              { $concat: ['tel:', '$service.clientPhone'] },
+              { $concat: ['nom:', { $toLower: { $trim: { input: { $ifNull: ['$service.clientName', ''] } } } }] },
+            ],
+          },
           totalIncome: { $sum: '$amount' },
           servicesCount: { $sum: 1 },
-          clientName: { $first: '$service.clientName' },
-          clientPhone: { $first: '$service.clientPhone' },
+          clientName: { $last: '$service.clientName' },
+          clientPhone: { $last: '$service.clientPhone' },
         },
       },
       { $sort: { totalIncome: -1 } },
       { $limit: limit },
     ]);
 
-    const clientIds = rows.map((row) => row._id).filter(Boolean);
-    const clients = await Client.find({ _id: { $in: clientIds } }).select('name phone').lean();
-    const clientMap = new Map(clients.map((client) => [String(client._id), client]));
-
     res.json(
-      rows.map((row) => {
-        const client = clientMap.get(String(row._id));
-        return {
-          clientId: row._id,
-          clientName: client?.name || row.clientName || '',
-          clientPhone: client?.phone || row.clientPhone || '',
-          totalIncome: row.totalIncome,
-          servicesCount: row.servicesCount,
-        };
-      })
+      rows.map((row) => ({
+        clientKey: row._id,
+        clientName: row.clientName || '',
+        clientPhone: row.clientPhone || '',
+        totalIncome: row.totalIncome,
+        servicesCount: row.servicesCount,
+      }))
     );
   })
 );

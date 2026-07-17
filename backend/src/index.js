@@ -9,10 +9,13 @@ import { webhookCallback } from 'grammy';
 import env, { getEnvIssues, miniAppUrl } from './config/env.js';
 import { connectDB } from './db/connect.js';
 import { migrateTenancy } from './db/migrateTenancy.js';
+import { migrateClientsIntoServices } from './db/migrateClientsIntoServices.js';
+import { migrateSheets } from './db/migrateSheets.js';
 import apiRouter from './routes/index.js';
 import { attachReportBot } from './routes/reports.js';
 import { attachNotifierBot } from './bot/notify.js';
 import { repairMissingServiceIncome } from './services/serviceService.js';
+import { flushMiniAppNotifications } from './services/miniAppNotifyService.js';
 import { getUsdToUzsRate } from './services/exchangeRateService.js';
 import { startReminderCron } from './cron/reminders.js';
 import { startCleanupCron } from './cron/cleanup.js';
@@ -75,6 +78,22 @@ async function startRuntime(app) {
     await migrateTenancy();
   } catch (err) {
     console.error('Tenant migratsiya xatosi:', err.message);
+  }
+
+  // Mijozlar bo'limi bekor qilindi: eski `clients` kolleksiyasidagi barcha ma'lumot
+  // Xizmatlar qatorlariga ko'chiriladi (idempotent; kolleksiya zaxira sifatida qoladi).
+  try {
+    await migrateClientsIntoServices();
+  } catch (err) {
+    console.error('Mijozlarni xizmatlarga ko\'chirish xatosi:', err.message);
+  }
+
+  // Ko'p-jadval (sheets): mavjud qatorlarni 30 talik jadvallar bo'ylab taqsimlaydi
+  // (idempotent; mijozlar migratsiyasidan KEYIN — yangi profil qatorlari ham taqsimlansin).
+  try {
+    await migrateSheets();
+  } catch (err) {
+    console.error('Sheets migratsiya xatosi:', err.message);
   }
 
   const { bot } = await import('./bot/bot.js');
@@ -265,6 +284,12 @@ function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   runtime.ready = false;
+  // Batching buferidagi Mini App xabarlari yo'qolmasin — chiqishdan oldin yuboriladi.
+  try {
+    flushMiniAppNotifications();
+  } catch {
+    /* bildirishnoma asosiy oqimni to'xtatmaydi */
+  }
   console.log(`\n${signal} qabul qilindi — ${SHUTDOWN_GRACE_MS / 1000}s ichida boshlangan ishlar yakunlanadi...`);
   setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS).unref();
   // Event loop bo'shasa (hamma ish tugasa) undan oldin ham chiqib ketadi — .unref() shu uchun.

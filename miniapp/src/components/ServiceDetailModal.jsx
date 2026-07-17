@@ -18,6 +18,8 @@ export default function ServiceDetailModal({
   const statusClass =
     service.status === 'bajarildi'
       ? 'badge-done'
+      : service.status === 'bajarilmadi'
+      ? 'badge-notdone'
       : service.status === 'bekor_qilindi'
       ? 'badge-cancelled'
       : 'badge-pending';

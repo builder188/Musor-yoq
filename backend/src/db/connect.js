@@ -1,7 +1,7 @@
 // MongoDB connection (Mongoose).
 import mongoose from 'mongoose';
 import env from '../config/env.js';
-import Client from '../models/Client.js';
+import Service from '../models/Service.js';
 
 export async function connectDB() {
   mongoose.set('strictQuery', true);
@@ -25,11 +25,11 @@ export async function connectDB() {
   await ensureIndexes();
 }
 
-// Eski oddiy `phone_1` unique indexni partial unique index bilan almashtiradi.
-// syncIndexes schema'dagi indekslarni DB bilan moslaydi (mos kelmaganini qayta quradi).
+// syncIndexes schema'dagi indekslarni DB bilan moslaydi (mos kelmaganini qayta quradi) —
+// eski clientId indeksi o'chib, yangi clientPhone indeksi quriladi.
 async function ensureIndexes() {
   try {
-    await Client.syncIndexes();
+    await Service.syncIndexes();
   } catch (err) {
     console.error('Index sinxronizatsiyasi xatosi:', err.message);
   }

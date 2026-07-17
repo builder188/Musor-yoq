@@ -3,7 +3,6 @@ import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { runWithUser } from '../db/tenantScope.js';
 import statsRouter from './stats.js';
-import clientsRouter from './clients.js';
 import servicesRouter from './services.js';
 import financeRouter from './finance.js';
 import settingsRouter from './settings.js';
@@ -16,6 +15,7 @@ import exchangeRateRouter from './exchangeRate.js';
 import itemsRouter from './items.js';
 import categoriesRouter from './categories.js';
 import remindersRouter from './reminders.js';
+import sheetsRouter from './sheets.js';
 
 const router = Router();
 
@@ -35,7 +35,8 @@ router.use((req, res, next) => {
 });
 
 router.use('/stats', statsRouter);
-router.use('/clients', clientsRouter);
+// Eslatma: /clients endpointi OLIB TASHLANDI — mijoz ma'lumoti endi faqat
+// Xizmatlar jadvalining qatorlarida (/services) yashaydi.
 router.use('/services', servicesRouter);
 router.use('/finance', financeRouter);
 router.use('/transactions', transactionsRouter);
@@ -44,6 +45,7 @@ router.use('/exchange-rate', exchangeRateRouter);
 router.use('/items', itemsRouter);
 router.use('/categories', categoriesRouter);
 router.use('/reminders', remindersRouter);
+router.use('/sheets', sheetsRouter);
 router.use('/settings', settingsRouter);
 // Eslatma: /ai chat/search endpointi OLIB TASHLANDI — Mini App'dagi AI panel yozuv
 // amallarini (STATUS_UPDATE/PAYMENT_UPDATE) tasdiqsiz bajara olardi. Tabiiy-til

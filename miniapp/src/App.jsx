@@ -5,7 +5,6 @@ import BottomNav from './components/BottomNav.jsx';
 import SidebarNav from './components/SidebarNav.jsx';
 import Spinner from './components/Spinner.jsx';
 import Home from './pages/Home.jsx';
-import Clients from './pages/Clients.jsx';
 import Services from './pages/Services.jsx';
 import Categories from './pages/Categories.jsx';
 import Finance from './pages/Finance.jsx';
@@ -17,13 +16,16 @@ const DESKTOP_BREAKPOINT = 768;
 const SIDEBAR_STORAGE_KEY = 'miniapp.sidebarCollapsed';
 
 // Bot tugmasi ("📱 Ilovaga o'tish") ?tab= bilan tegishli sahifani ochadi.
-const VALID_TABS = ['home', 'clients', 'services', 'categories', 'finance', 'reminders', 'reports', 'settings'];
+// Eslatma: 'clients' tab OLIB TASHLANDI — mijoz ma'lumoti Xizmatlar jadvalida.
+const VALID_TABS = ['home', 'services', 'categories', 'finance', 'reminders', 'reports', 'settings'];
 
 function initialTab() {
   try {
     const fromQuery = new URLSearchParams(window.location.search).get('tab');
     const fromTelegram = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
     const candidate = fromQuery || fromTelegram;
+    // Eski bot xabarlaridagi ?tab=clients havolalari Xizmatlarga olib boradi.
+    if (candidate === 'clients') return 'services';
     return VALID_TABS.includes(candidate) ? candidate : 'home';
   } catch {
     return 'home';
@@ -72,9 +74,6 @@ export default function App() {
   const [tab, setTab] = useState(initialTab);
   const isDesktop = useResponsiveMode();
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentSidebar();
-  // Bosh sahifadagi qidiruvdan mijozni ochish uchun: Mijozlar tabiga o'tib detalni ochamiz.
-  const [focusClientId, setFocusClientId] = useState(null);
-  const [openAddClient, setOpenAddClient] = useState(false);
 
   const changeTab = useCallback(
     (nextTab) => {
@@ -83,12 +82,6 @@ export default function App() {
     },
     [clearNavigation]
   );
-
-  const openClient = (id) => {
-    clearNavigation();
-    setFocusClientId(id);
-    setTab('clients');
-  };
 
   if (!loaded) {
     return (
@@ -120,25 +113,7 @@ export default function App() {
               <small>Backend ishlamayotgan bo'lishi yoki avtorizatsiya muammosi mumkin.</small>
             </div>
           )}
-          {tab === 'home' && (
-            <Home
-              goToTab={changeTab}
-              onOpenClient={openClient}
-              onAddClient={() => {
-                clearNavigation();
-                setOpenAddClient(true);
-                setTab('clients');
-              }}
-            />
-          )}
-          {tab === 'clients' && (
-            <Clients
-              focusClientId={focusClientId}
-              openAddClient={openAddClient}
-              onAddClientHandled={() => setOpenAddClient(false)}
-              onFocusHandled={() => setFocusClientId(null)}
-            />
-          )}
+          {tab === 'home' && <Home goToTab={changeTab} />}
           {tab === 'services' && <Services />}
           {tab === 'categories' && <Categories />}
           {tab === 'finance' && <Finance />}

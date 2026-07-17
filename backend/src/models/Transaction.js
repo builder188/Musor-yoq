@@ -1,6 +1,7 @@
 // Moliyaviy tranzaksiya: daromad yoki xarajat.
 import mongoose from 'mongoose';
 import { tenantScopePlugin } from '../db/tenantScope.js';
+import { activeSheetIdFor, maybeArchiveFullSheet } from '../services/sheetService.js';
 
 export const TX_TYPES = {
   INCOME: 'income',
@@ -28,6 +29,9 @@ export const USEFUL_ITEM_CATEGORY = 'buyum';
 
 const transactionSchema = new mongoose.Schema(
   {
+    // Ko'p-jadval (sheets): kirim → 'income' scope faol jadvali, chiqim → 'expense'.
+    // Hisobot/balans/qidiruv sheetId'ga QARAMAYDI — barcha jadvallar birga hisoblanadi.
+    sheetId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     type: { type: String, enum: Object.values(TX_TYPES), required: true },
     amount: { type: Number, required: true, min: 0 }, // YAKUNIY summa — DOIM so'mda.
     // Asl valyuta (dollarda aytilgan bo'lsa) — faqat eslab qolish uchun; balansda so'm ishlatiladi.
@@ -86,5 +90,22 @@ transactionSchema.index({ serviceId: 1 });
 transactionSchema.index({ isDeleted: 1 });
 // Eng ko'p ishlatiladigan filtr/aggregatsiya: ega + sana oralig'i.
 transactionSchema.index({ telegramUserId: 1, date: -1 });
+
+// Sheets: yangi tranzaksiya turiga qarab (kirim/chiqim) FAOL jadvalga shtamplanadi.
+transactionSchema.pre('validate', async function stampSheet() {
+  if (this.isNew && !this.sheetId) {
+    try {
+      this.sheetId = await activeSheetIdFor(this.type === TX_TYPES.INCOME ? 'income' : 'expense', this.telegramUserId);
+    } catch (err) {
+      console.warn('Transaction sheet shtampida xato:', err.message);
+    }
+  }
+});
+transactionSchema.post('save', function checkSheetFull(doc) {
+  const scope = doc.type === TX_TYPES.INCOME ? 'income' : 'expense';
+  maybeArchiveFullSheet(scope, doc.telegramUserId).catch((err) =>
+    console.warn(`Sheets avto-arxiv xatosi (${scope}):`, err.message)
+  );
+});
 
 export default mongoose.model('Transaction', transactionSchema);

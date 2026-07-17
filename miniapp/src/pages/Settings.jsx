@@ -232,7 +232,6 @@ export default function Settings() {
       <div className="card danger-card">
         <div className="section-title compact danger-text">{t('settings.dangerZone')}</div>
         <div className="danger-targets">
-          <button className="btn" onClick={() => setBulkTarget('clients')}>{t('settings.deleteClients')}</button>
           <button className="btn" onClick={() => setBulkTarget('services')}>{t('settings.deleteServices')}</button>
           <button className="btn" onClick={() => setBulkTarget('finance')}>{t('settings.deleteFinance')}</button>
           <button className="btn btn-danger" onClick={() => setBulkTarget('all')}>{t('settings.deleteAll')}</button>
@@ -287,13 +286,12 @@ function CodeChangeModal({ t, oldDeleteCode, newDeleteCode, setOldDeleteCode, se
 
 function RestoreModal({ t, lang, onClose }) {
   const [data, setData] = useState(null);
-  const [clientForRestore, setClientForRestore] = useState(null);
 
   const load = async () => {
     try {
       setData(await api.get('/system/deleted'));
     } catch {
-      setData({ clients: [], services: [], transactions: [], clientRestoreServices: [] });
+      setData({ services: [], transactions: [] });
     }
   };
 
@@ -312,132 +310,13 @@ function RestoreModal({ t, lang, onClose }) {
         <div className="muted center">{t('common.loading')}</div>
       ) : (
         <>
-          {data.clients?.length > 0 && (
-            <>
-              <div className="section-title">{t('clients.title')}</div>
-              {data.clients.map((client) => (
-                <DeletedRow
-                  key={client._id}
-                  title={client.name}
-                  subtitle={`${t('settings.deletedAt')}: ${formatDateTime(client.deletedAt, lang)}`}
-                  onRestore={() => setClientForRestore(client)}
-                  t={t}
-                />
-              ))}
-            </>
-          )}
           <DeletedSection title={t('services.title')} items={data.services} t={t} lang={lang} onRestore={(item) => restore('service', item._id)} render={(s) => s.clientName || s.location?.address || '-'} />
           <DeletedSection title={t('finance.transactions')} items={data.transactions} t={t} lang={lang} onRestore={(item) => restore('transaction', item._id)} render={(tx) => `${tx.type} - ${tx.amount}`} />
           {isEmptyDeleted(data) && <div className="empty">{t('common.noData')}</div>}
         </>
       )}
-
-      {clientForRestore && (
-        <ClientRestoreModal
-          client={clientForRestore}
-          services={(data?.clientRestoreServices || []).filter((service) => service.clientId === clientForRestore._id)}
-          t={t}
-          lang={lang}
-          onClose={() => setClientForRestore(null)}
-          onDone={() => {
-            setClientForRestore(null);
-            load();
-          }}
-        />
-      )}
     </Modal>
   );
-}
-
-function ClientRestoreModal({ client, services, t, lang, onClose, onDone }) {
-  const [selected, setSelected] = useState(services.map((service) => service._id));
-  // Tiklashdan oldin tahrirlash: { [id]: { serviceDateTime(local), price } }
-  const [edits, setEdits] = useState(() =>
-    Object.fromEntries(
-      services.map((s) => [s._id, { serviceDateTime: toLocalInput(s.serviceDateTime), price: s.price ?? '' }])
-    )
-  );
-  const [busy, setBusy] = useState(false);
-
-  const toggle = (id) => {
-    setSelected((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
-  };
-
-  const setEdit = (id, field, value) => {
-    setEdits((current) => ({ ...current, [id]: { ...current[id], [field]: value } }));
-  };
-
-  const restore = async () => {
-    setBusy(true);
-    try {
-      const serviceEdits = {};
-      for (const id of selected) {
-        const e = edits[id] || {};
-        const entry = {};
-        if (e.serviceDateTime) {
-          const d = new Date(e.serviceDateTime);
-          if (!Number.isNaN(d.getTime())) entry.serviceDateTime = d.toISOString();
-        }
-        if (e.price !== '' && e.price !== null && e.price !== undefined) entry.price = Number(e.price);
-        if (Object.keys(entry).length) serviceEdits[id] = entry;
-      }
-      await api.post('/system/restore', { clientId: client._id, serviceIds: selected, serviceEdits });
-      onDone();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={client.name} onClose={onClose}>
-      {services.length === 0 ? (
-        <div className="muted mb-8">{t('services.noServices')}</div>
-      ) : (
-        services.map((service) => {
-          const isSelected = selected.includes(service._id);
-          return (
-            <div key={service._id} className="restore-item">
-              <label className="restore-check">
-                <span>{service.clientName || client.name} - {formatDateTime(service.serviceDateTime, lang)}</span>
-                <input type="checkbox" checked={isSelected} onChange={() => toggle(service._id)} />
-              </label>
-              {isSelected && (
-                <div className="restore-edit">
-                  <label className="label">{t('common.date')}</label>
-                  <input
-                    className="input"
-                    type="datetime-local"
-                    value={edits[service._id]?.serviceDateTime || ''}
-                    onChange={(e) => setEdit(service._id, 'serviceDateTime', e.target.value)}
-                  />
-                  <label className="label">{t('common.price')}</label>
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    value={edits[service._id]?.price ?? ''}
-                    onChange={(e) => setEdit(service._id, 'price', e.target.value)}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })
-      )}
-      <button className="btn btn-primary btn-block mt-12" onClick={restore} disabled={busy}>
-        {busy ? '...' : t('settings.restore')}
-      </button>
-    </Modal>
-  );
-}
-
-// ISO -> datetime-local input qiymati (YYYY-MM-DDTHH:mm).
-function toLocalInput(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function DeletedSection({ title, items = [], t, lang, onRestore, render }) {
@@ -517,14 +396,13 @@ function ReminderHoursRow({ title, description, emoji, value, busy, onShift, onC
 }
 
 function targetLabel(target, t) {
-  if (target === 'clients') return t('clients.title');
   if (target === 'services') return t('services.title');
   if (target === 'finance') return t('finance.title');
   return t('settings.deleteAll');
 }
 
 function isEmptyDeleted(data) {
-  return !data.clients?.length && !data.services?.length && !data.transactions?.length;
+  return !data.services?.length && !data.transactions?.length;
 }
 
 function saveBlob(blob, filename) {

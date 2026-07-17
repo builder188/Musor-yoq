@@ -144,7 +144,7 @@ const classifyTool = {
               recipient: { type: SchemaType.STRING, description: 'ITEM_SALE/ITEM_GIVEAWAY: who received or bought the item, if stated.' },
               targetClientName: { type: SchemaType.STRING },
               targetPhone: { type: SchemaType.STRING },
-              newStatus: { type: SchemaType.STRING, enum: ['bajarildi', 'bekor_qilindi'] },
+              newStatus: { type: SchemaType.STRING, enum: ['bajarildi', 'bajarilmadi', 'bekor_qilindi'] },
               paymentAmount: { type: SchemaType.NUMBER },
               targetIdentifier: { type: SchemaType.STRING, description: 'Name/phone/date pointing to the record to edit.' },
               editField: { type: SchemaType.STRING, description: 'narx|sana|manzil for service; ism|telefon for client.' },
@@ -212,7 +212,7 @@ const agentTools = {
         type: SchemaType.OBJECT,
         properties: {
           serviceIdentifier: { type: SchemaType.STRING, description: 'clientName, clientPhone, date, or short description' },
-          status: { type: SchemaType.STRING, enum: ['bajarildi', 'bekor_qilindi'] },
+          status: { type: SchemaType.STRING, enum: ['bajarildi', 'bajarilmadi', 'bekor_qilindi'] },
         },
         required: ['serviceIdentifier', 'status'],
       },

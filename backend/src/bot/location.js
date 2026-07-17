@@ -26,6 +26,14 @@ export function sameCoords(a, b) {
   return Math.abs(aLat - bLat) < 0.00002 && Math.abs(aLng - bLng) < 0.00002;
 }
 
+// Yandex Maps havolasi — pin biriktirilgan qatorlarda manzil TUGMA bo'lib shu havolani ochadi.
+export function yandexMapsUrl(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return `https://yandex.com/maps/?pt=${longitude.toFixed(6)},${latitude.toFixed(6)}&z=17&l=map`;
+}
+
 export function normalizeLocationData(address, coords) {
   const cleanAddress = String(address || '').trim() || 'Lokatsiya (xaritada)';
   const lat = Number(coords?.lat);

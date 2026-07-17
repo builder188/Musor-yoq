@@ -53,11 +53,13 @@ function conversionLineFor(rec = {}) {
 }
 
 // Tasdiqlash so'rovi (confirmAt kelganda) tugmalari — har xizmat o'z serviceId bilan.
+// "Bajarilmadi" — amalga oshmadi (bekor emas): balansga yozilmaydi, keyin qayta rejalash mumkin.
 export function confirmServiceKeyboard(serviceId) {
   return new InlineKeyboard()
     .text('✅ Bajarildi', `complete_${serviceId}`)
-    .text('❌ Bekor qilindi', `cancel_direct_${serviceId}`)
+    .text('⚠️ Bajarilmadi', `notdone_${serviceId}`)
     .row()
+    .text('❌ Bekor qilindi', `cancel_direct_${serviceId}`)
     .text('📅 Vaqt surildi', `reschedule_${serviceId}`);
 }
 
@@ -67,6 +69,54 @@ export function saveKeyboard() {
 
 export function locationQuestionKeyboard() {
   return new InlineKeyboard().text('Ha', 'location_service_yes').text("Yo'q", 'location_service_no');
+}
+
+// LOKATSIYANI MAVJUD QATORGA BOG'LASH: faol kirish oqimidan tashqarida kelgan pin uchun
+// "qaysi xizmatga tegishli?" savoli tugmalari. Javob matn/ovoz bilan ham beriladi
+// (ism / telefon / qator raqami — message.routeLocationBind).
+export function locationBindKeyboard() {
+  return new InlineKeyboard()
+    .text('🆕 Yangi xizmat uchun', 'locbind_new')
+    .row()
+    .text('Bekor qilish', 'locbind_cancel');
+}
+
+export const LOCATION_BIND_QUESTION =
+  "Bu manzil qaysi xizmatga tegishli, oka? Mijoz ismi, telefoni yoki qator raqamini yozing/ayting — yoki yangi xizmat bo'lsa tugmani bosing.";
+
+// Bir nechta mos xizmat topilganda tanlov tugmalari (nomzodlar conversation'da).
+export function locationBindPickKeyboard(candidates = []) {
+  const keyboard = new InlineKeyboard();
+  candidates.slice(0, 6).forEach((candidate, index) => {
+    keyboard.text(candidate.label, `locbind_pick_${index}`).row();
+  });
+  keyboard.text('Bekor qilish', 'locbind_cancel');
+  return keyboard;
+}
+
+// Nomzod yorlig'i: ism · sana (bo'lsa) · narx (bo'lsa).
+export function locationBindCandidateLabel(service) {
+  const parts = [service.clientName || service.clientPhone || 'Nomsiz'];
+  if (service.serviceDateTime) parts.push(formatDateTime(service.serviceDateTime));
+  if (service.price > 0) parts.push(formatMoney(service.price));
+  return parts.join(' · ');
+}
+
+// Bog'langandan keyingi javob: matn + manzil nomli TUGMA (Yandex Maps'ni ochadi).
+export function locationBoundText(service) {
+  return [
+    "Bo'ldi oka, manzilni xizmatga bog'ladim ✅",
+    `👤 ${service.clientName || '-'}`,
+    `📍 ${service.location?.address || '-'}`,
+    "Quyidagi tugma orqali xaritada ochiladi:",
+  ].join('\n');
+}
+
+export function locationBoundKeyboard(service) {
+  const url = service.location?.mapUrl;
+  const label = `📍 ${service.location?.address || 'Xaritada ochish'}`.slice(0, 60);
+  if (!url) return undefined;
+  return new InlineKeyboard().url(label, url);
 }
 
 export function locationConfirmKeyboard() {
@@ -269,7 +319,7 @@ export function savedSummaryText(intent, fields = {}, { stopped = false, edited 
 // Saqlangan yozuv uchun intentga mos Mini App sahifasi (tab) havolasi.
 const INTENT_TAB = {
   SERVICE_ENTRY: 'services',
-  PARTNER_CONTRACT: 'clients',
+  PARTNER_CONTRACT: 'services',
   EXPENSE_ENTRY: 'finance',
   INCOME_ENTRY: 'finance',
   MATERIAL_SALE: 'finance',
@@ -296,6 +346,15 @@ export function savedEntryKeyboard(intent) {
   const url = miniAppTabUrl(intent);
   if (url) keyboard.row().webApp("📱 Ilovaga o'tish", url);
   return keyboard;
+}
+
+// QAYTGAN MIJOZ taklifi tugmalari: oxirgi ma'lum ism/manzil/narxni ishlatish yoki
+// foydalanuvchi o'zi aytishi.
+export function returningClientKeyboard() {
+  return new InlineKeyboard()
+    .text("✅ Ha, shu ma'lumotlar", 'ret_use')
+    .row()
+    .text("✏️ Yo'q, o'zim aytaman", 'ret_skip');
 }
 
 // CLARIFY — niyat noaniq bo'lganda tezkor tanlov tugmalari.
@@ -328,20 +387,13 @@ export function paymentMethodKeyboard() {
     .text("O'tkazma", 'pm_otkazma');
 }
 
-export function clientChoiceKeyboard(clients) {
-  const keyboard = new InlineKeyboard();
-  clients.slice(0, 8).forEach((client) => {
-    keyboard.text(`${client.name} (${formatPhone(client.phone) || client.phone})`, `payment_client_${client._id}`).row();
-  });
-  keyboard.text('Bekor qilish', 'payment_confirm_no');
-  return keyboard;
-}
-
 // Generik mijoz tanlash (bir xil ismlilar uchun) — har qanday amalni davom ettiradi.
-export function clientPickKeyboard(clients) {
+// Nomzodlar conversation'da saqlanadi; callback faqat INDEKS yuboradi (pick_client_0, ...).
+export function clientPickKeyboard(candidates) {
   const keyboard = new InlineKeyboard();
-  clients.slice(0, 8).forEach((client) => {
-    keyboard.text(`${client.name} (${formatPhone(client.phone) || client.phone})`, `pick_client_${client._id}`).row();
+  candidates.slice(0, 8).forEach((candidate, index) => {
+    const phone = formatPhone(candidate.phone) || candidate.phone || '-';
+    keyboard.text(`${candidate.name} (${phone})`, `pick_client_${index}`).row();
   });
   keyboard.text('Bekor qilish', 'pick_cancel');
   return keyboard;

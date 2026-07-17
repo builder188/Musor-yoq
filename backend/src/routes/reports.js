@@ -1,8 +1,7 @@
 import { InputFile } from 'grammy';
 import express from 'express';
 import ExcelJS from 'exceljs';
-import Client from '../models/Client.js';
-import Service from '../models/Service.js';
+import Service, { SERVICE_STATUS } from '../models/Service.js';
 import Transaction, { TX_TYPES } from '../models/Transaction.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { createReportDoc } from '../utils/pdf.js';
@@ -10,7 +9,7 @@ import { formatDate, formatDateTime } from '../utils/dates.js';
 import { formatMoney } from '../utils/money.js';
 import { getMonthlyIncomeBreakdown } from '../services/incomeSourceService.js';
 import { getReportInsights } from '../services/reportInsightsService.js';
-import { getPartnerReportRows } from '../services/partnerService.js';
+import { getPartnerReportRows, CLIENT_KEY_EXPR } from '../services/partnerService.js';
 import { getMonthlyFineRows } from '../services/fineService.js';
 
 const router = express.Router();
@@ -166,8 +165,8 @@ const EXCEL_LABELS = {
     sheets: { clients: 'Mijozlar', partners: 'Hamkorlar', services: 'Xizmatlar', transactions: 'Tranzaksiyalar', summary: 'Xulosa', sourceAnalysis: 'Manba tahlili', insights: 'Tahlil', fines: 'Jarimalar' },
     fineHeaders: ['Oy', 'Jarimaga tushish soni', "To'lovlar soni", "To'langan jami", "To'lanmagan"],
     partnerHeaders: ['Nomi', 'Telefon', 'Standart narx', 'Standart manzil', 'Tashriflar (davr)', 'Jami daromad (davr)'],
-    clientHeaders: ['ID', 'Ism', 'Telefon', 'Manzillar', 'Yaratilgan sana', 'Yangilangan sana'],
-    serviceHeaders: ['ID', 'Client ID', 'Mijoz', 'Telefon', 'Manzil', 'Sana', 'Tarixiy', 'Narx', "To'langan", "To'lov usuli", "To'lov holati", 'Status', 'Bekor sababi', 'Bajarilgan sana', 'Izoh', 'Rasm fileIdlari', 'Income transaction ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana', 'Yangilangan sana'],
+    clientHeaders: ['Ism', 'Telefon', 'Manzillar', 'Xizmatlar soni', 'Oxirgi xizmat', "To'langan jami", "To'lanmagan"],
+    serviceHeaders: ['ID', 'Mijoz', 'Telefon', 'Manzil', 'Sana', 'Tarixiy', 'Narx', "To'langan", "To'lov usuli", "To'lov holati", 'Status', 'Bekor sababi', 'Bajarilgan sana', 'Izoh', 'Rasm fileIdlari', 'Income transaction ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana', 'Yangilangan sana'],
     txHeaders: ['ID', 'Sana', 'Turi', 'Kategoriya', 'Summa', 'Izoh', 'Service ID', "O'chirilgan", "O'chirilgan sana", 'Yaratilgan sana'],
     summaryHeaders: ['Oy', 'Jami kirim', 'Jami chiqim', 'Balans', 'Xizmatlar soni', "To'langan", "To'lanmagan"],
     sourceHeaders: ['Oy', 'Bajarilgan xizmat', 'Jami kirim', 'Xizmat', 'Xizmat %', 'Material', 'Material %', 'Buyum', 'Buyum %', 'Boshqa', 'Boshqa %', 'Xizmat ulushi'],
@@ -178,8 +177,8 @@ const EXCEL_LABELS = {
     sheets: { clients: 'Клиенты', partners: 'Партнёры', services: 'Услуги', transactions: 'Транзакции', summary: 'Сводка', sourceAnalysis: 'Источники', insights: 'Анализ', fines: 'Штрафы' },
     fineHeaders: ['Месяц', 'Получено штрафов', 'Оплат', 'Оплачено всего', 'Не оплачено'],
     partnerHeaders: ['Название', 'Телефон', 'Станд. цена', 'Станд. адрес', 'Визиты (период)', 'Доход (период)'],
-    clientHeaders: ['ID', 'Имя', 'Телефон', 'Адреса', 'Дата создания', 'Дата обновления'],
-    serviceHeaders: ['ID', 'Client ID', 'Клиент', 'Телефон', 'Адрес', 'Дата', 'Исторический', 'Цена', 'Оплачено', 'Способ оплаты', 'Статус оплаты', 'Статус', 'Причина отмены', 'Дата выполнения', 'Заметка', 'ID файлов фото', 'Income transaction ID', 'Удалён', 'Дата удаления', 'Дата создания', 'Дата обновления'],
+    clientHeaders: ['Имя', 'Телефон', 'Адреса', 'Кол-во услуг', 'Последняя услуга', 'Оплачено всего', 'Не оплачено'],
+    serviceHeaders: ['ID', 'Клиент', 'Телефон', 'Адрес', 'Дата', 'Исторический', 'Цена', 'Оплачено', 'Способ оплаты', 'Статус оплаты', 'Статус', 'Причина отмены', 'Дата выполнения', 'Заметка', 'ID файлов фото', 'Income transaction ID', 'Удалён', 'Дата удаления', 'Дата создания', 'Дата обновления'],
     txHeaders: ['ID', 'Дата', 'Тип', 'Категория', 'Сумма', 'Заметка', 'Service ID', 'Удалён', 'Дата удаления', 'Дата создания'],
     summaryHeaders: ['Месяц', 'Всего доход', 'Всего расход', 'Баланс', 'Кол-во услуг', 'Оплачено', 'Не оплачено'],
     sourceHeaders: ['Месяц', 'Выполнено услуг', 'Всего доход', 'Услуга', 'Услуга %', 'Материал', 'Материал %', 'Предмет', 'Предмет %', 'Прочее', 'Прочее %', 'Доля услуг'],
@@ -297,8 +296,8 @@ async function buildExcelPayload(body = {}) {
     txFilter.date = dateFilter;
   }
 
-  const [clients, services, transactions] = await Promise.all([
-    Client.find(notDeleted).sort({ createdAt: -1 }).lean(),
+  const [clientGroups, services, transactions] = await Promise.all([
+    clientGroupRows(),
     Service.find(serviceFilter).sort({ serviceDateTime: -1 }).lean(),
     Transaction.find(txFilter).sort({ date: -1 }).lean(),
   ]);
@@ -308,15 +307,18 @@ async function buildExcelPayload(body = {}) {
   workbook.created = new Date();
   workbook.modified = new Date();
 
+  // Mijozlar varag'i — endi alohida kolleksiya emas: xizmat qatorlari telefon
+  // (bo'lmasa ism) bo'yicha guruhlangan yig'indi.
   addSheet(workbook, L.sheets.clients, [
     L.clientHeaders,
-    ...clients.map((client) => [
-      String(client._id),
-      client.name || '',
-      client.phone || '',
-      (client.locations || []).map((loc) => loc.address).filter(Boolean).join('; '),
-      formatDateTime(client.createdAt, language),
-      formatDateTime(client.updatedAt, language),
+    ...clientGroups.map((group) => [
+      group.name || '',
+      group.phone || '',
+      (group.addresses || []).filter(Boolean).join('; '),
+      group.servicesCount || 0,
+      group.lastServiceAt ? formatDateTime(group.lastServiceAt, language) : '',
+      group.paidTotal || 0,
+      group.unpaidTotal || 0,
     ]),
   ]);
 
@@ -324,7 +326,6 @@ async function buildExcelPayload(body = {}) {
     L.serviceHeaders,
     ...services.map((service) => [
       String(service._id),
-      String(service.clientId || ''),
       service.clientName || '',
       service.clientPhone || '',
       service.location?.address || '',
@@ -553,7 +554,7 @@ async function buildReportData({ reportType, limit, range, language }) {
   const [
     servicesForSummary,
     financeRows,
-    clients,
+    clientGroups,
     services,
     transactions,
     monthlyChart,
@@ -563,9 +564,7 @@ async function buildReportData({ reportType, limit, range, language }) {
       { $match: txFilter },
       { $group: { _id: '$type', total: { $sum: '$amount' } } },
     ]),
-    includesClients
-      ? Client.find(notDeleted).sort({ updatedAt: -1 }).limit(limit).lean()
-      : [],
+    includesClients ? clientGroupRows(limit) : [],
     includesServices
       ? Service.find(serviceFilter).sort({ serviceDateTime: -1 }).limit(limit).lean()
       : [],
@@ -611,7 +610,7 @@ async function buildReportData({ reportType, limit, range, language }) {
     periodLabel: buildPeriodTitle(range, language),
     language,
     summary,
-    clients: includesClients ? await mapClientRows(clients, language) : [],
+    clients: includesClients ? mapClientRows(clientGroups, language) : [],
     partners,
     services: services.map((service) => mapServiceRow(service, language)),
     transactions: mergeFinanceRows(transactions, language).slice(0, limit),
@@ -635,39 +634,53 @@ function makeSummary(services, totalIncome, totalExpense, unpaidTotal) {
   };
 }
 
-// Barcha mijozlar statistikasi BITTA aggregatsiyada (avval har mijozga 3 ta alohida
-// so'rov — 200 mijozda ~600 query bo'lib hisobot sekinlashardi).
-async function mapClientRows(clients, language = 'uz') {
-  if (!clients.length) return [];
-  const stats = await Service.aggregate([
-    { $match: { clientId: { $in: clients.map((c) => c._id) }, ...notDeleted } },
+// Mijozlar — xizmat qatorlaridan telefon (bo'lmasa ism) bo'yicha guruhlangan yig'indi.
+// Bitta aggregatsiya: ism/telefon/manzillar + xizmatlar soni, oxirgi xizmat, to'lovlar.
+async function clientGroupRows(limit = 1000) {
+  return Service.aggregate([
+    { $match: { isDeleted: { $ne: true } } },
+    { $addFields: { clientKey: CLIENT_KEY_EXPR } },
+    { $match: { clientKey: { $nin: ['tel:', 'nom:'] } } },
+    { $sort: { createdAt: 1 } },
     {
       $group: {
-        _id: '$clientId',
+        _id: '$clientKey',
+        name: { $last: '$clientName' },
+        phone: { $last: '$clientPhone' },
+        addresses: { $addToSet: '$location.address' },
+        servicesCount: {
+          $sum: { $cond: [{ $ne: ['$status', SERVICE_STATUS.CANCELLED] }, 1, 0] },
+        },
         lastServiceAt: { $max: '$serviceDateTime' },
         paidTotal: {
-          $sum: { $cond: [{ $eq: ['$status', 'bajarildi'] }, { $ifNull: ['$price', 0] }, 0] },
+          $sum: { $cond: [{ $eq: ['$status', SERVICE_STATUS.DONE] }, { $ifNull: ['$price', 0] }, 0] },
         },
+        // Qarz — faqat BAJARILGAN xizmatning to'lanmagan qismi.
         unpaidTotal: {
           $sum: {
-            $max: [{ $subtract: [{ $ifNull: ['$price', 0] }, { $ifNull: ['$paidAmount', 0] }] }, 0],
+            $cond: [
+              { $eq: ['$status', SERVICE_STATUS.DONE] },
+              { $max: [0, { $subtract: [{ $ifNull: ['$price', 0] }, { $ifNull: ['$paidAmount', 0] }] }] },
+              0,
+            ],
           },
         },
+        lastUpdatedAt: { $max: '$updatedAt' },
       },
     },
+    { $sort: { lastUpdatedAt: -1 } },
+    { $limit: Math.max(1, limit) },
   ]);
-  const byClient = new Map(stats.map((row) => [String(row._id), row]));
+}
 
-  return clients.map((client) => {
-    const s = byClient.get(String(client._id)) || {};
-    return [
-      client.name || '',
-      client.phone || '',
-      s.lastServiceAt ? formatDateTime(s.lastServiceAt, language) : '',
-      formatMoney(s.paidTotal || 0),
-      formatMoney(s.unpaidTotal || 0),
-    ];
-  });
+function mapClientRows(groups, language = 'uz') {
+  return groups.map((group) => [
+    group.name || '',
+    group.phone || '',
+    group.lastServiceAt ? formatDateTime(group.lastServiceAt, language) : '',
+    formatMoney(group.paidTotal || 0),
+    formatMoney(group.unpaidTotal || 0),
+  ]);
 }
 
 function mapServiceRow(service, language = 'uz') {

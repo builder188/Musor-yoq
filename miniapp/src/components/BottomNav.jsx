@@ -3,7 +3,6 @@ import { haptic } from '../telegram.js';
 
 export const NAV_TABS = [
   { id: 'home', icon: '🏠' },
-  { id: 'clients', icon: '👥' },
   { id: 'services', icon: '🗑️' },
   { id: 'categories', icon: '🗂️' },
   { id: 'finance', icon: '💰' },

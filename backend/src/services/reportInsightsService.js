@@ -29,12 +29,26 @@ async function topByField(incomeMatch, category, field) {
 }
 
 // Eng ko'p pul to'lagan mijoz: xizmat daromadini mijoz bo'yicha yig'amiz (serviceId -> service).
+// Mijoz identifikatsiyasi = xizmat qatoridagi telefon (bo'lmasa ism) — alohida Client yozuvi yo'q.
 async function topClient(incomeMatch) {
   const rows = await Transaction.aggregate([
     { $match: { ...incomeMatch, category: 'xizmat', serviceId: { $ne: null } } },
     { $lookup: { from: 'services', localField: 'serviceId', foreignField: '_id', as: 'svc' } },
     { $unwind: '$svc' },
-    { $group: { _id: '$svc.clientId', total: { $sum: '$amount' }, name: { $first: '$svc.clientName' }, count: { $sum: 1 } } },
+    {
+      $group: {
+        _id: {
+          $cond: [
+            { $gt: [{ $strLenCP: { $ifNull: ['$svc.clientPhone', ''] } }, 0] },
+            { $concat: ['tel:', '$svc.clientPhone'] },
+            { $concat: ['nom:', { $toLower: { $trim: { input: { $ifNull: ['$svc.clientName', ''] } } } }] },
+          ],
+        },
+        total: { $sum: '$amount' },
+        name: { $last: '$svc.clientName' },
+        count: { $sum: 1 },
+      },
+    },
     { $sort: { total: -1 } },
     { $limit: 1 },
   ]);

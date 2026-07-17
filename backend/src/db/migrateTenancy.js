@@ -4,7 +4,6 @@
 // IDEMPOTENT - faqat telegramUserId yetishmagan yozuvlarga tegadi, shuning uchun startupda
 // har safar xavfsiz ishlaydi (birinchi safardan keyin no-op). Qo'lda "bir marta ishlatib
 // keyin o'chirish" o'rniga shunday qildik: hech narsa unutilmaydi, qayta deploy ham xavfsiz.
-import Client from '../models/Client.js';
 import Service from '../models/Service.js';
 import Transaction from '../models/Transaction.js';
 import DebtPayment from '../models/DebtPayment.js';
@@ -13,7 +12,6 @@ import { runGlobal } from './tenantScope.js';
 import { legacyOwnerId } from '../config/env.js';
 
 const TARGETS = [
-  ['clients', Client],
   ['services', Service],
   ['transactions', Transaction],
   ['debt_payments', DebtPayment],

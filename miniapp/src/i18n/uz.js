@@ -4,7 +4,6 @@ export default {
 
   nav: {
     home: 'Bosh sahifa',
-    clients: 'Mijozlar',
     services: 'Xizmatlar',
     categories: 'Kategoriyalar',
     items: 'Buyumlar',
@@ -68,8 +67,8 @@ export default {
     balance: 'Balans',
     balanceNow: 'Joriy balans',
     countSuffix: 'ta',
-    addClientBig: "Yangi mijoz qo'shish",
-    searchPlaceholder: 'Mijozni qidirish...',
+    addServiceBig: "Yangi xizmat qatori qo'shish",
+    searchPlaceholder: 'Qidirish: ism, tel, manzil yoki summa...',
     noResults: 'Natija topilmadi',
     nextClientTitle: 'Hozir kimga borish kerak?',
     allDoneToday: 'Bugun uchun barcha ishlar tugadi 🎉',
@@ -81,29 +80,6 @@ export default {
     retried: 'Qayta navbatga qo\'yildi',
   },
 
-  clients: {
-    title: 'Mijozlar',
-    totalSpent: 'Jami xizmat',
-    history: 'Xizmatlar tarixi',
-    noClients: 'Mijozlar yo\'q',
-    addClient: 'Mijoz qo\'shish',
-    mapButton: 'Xarita',
-    reminderDefault: 'Tanlangan vaqtda botda eslatma yuboriladi.',
-    reminderAt: '{time} da botda eslatma yuboriladi.',
-    noHistory: 'Xizmat tarixi yo\'q',
-    partner: 'Hamkorlik',
-    partnerStatus: 'Mijoz turi',
-    partnerToggle: 'Hamkorlik (shartnomaviy mijoz)',
-    partnerHint: 'Doimiy hamkor: standart narx va manzil saqlanadi. Botga "X ga bordim" desangiz — avtomatik yoziladi.',
-    standardPrice: 'Standart narx',
-    standardLocation: 'Standart manzil',
-    monthVisits: '{month} oyida borilgan',
-    visitTimes: 'marta',
-    optional: 'ixtiyoriy',
-    servicesCount: 'Xizmatlar soni',
-    totalPaid: "To'langan summa",
-    debt: 'Qarz',
-  },
 
   services: {
     title: 'Xizmatlar',
@@ -308,7 +284,6 @@ export default {
     confirmCode: 'Tasdiqlash kodi',
     enterCode: 'Kodni kiriting (1990)',
     deleteAll: 'Hammasini o\'chirish',
-    deleteClients: 'Mijozlarni o\'chirish',
     deleteServices: 'Xizmatlarni o\'chirish',
     deleteFinance: 'Moliyani o\'chirish',
     deletedAt: "O'chirilgan sana",
@@ -370,7 +345,19 @@ export default {
   status: {
     kutilmoqda: 'Kutilmoqda',
     bajarildi: 'Bajarildi',
+    bajarilmadi: 'Bajarilmadi',
     bekor_qilindi: 'Bekor qilindi',
+  },
+
+  // Ko'p-jadval (sheets) tab'lari.
+  sheets: {
+    add: 'Yangi jadval',
+    addHint: "Yangi jadval faol bo'ladi — yangi yozuvlar shu yerga tushadi. Eski jadval arxivga o'tadi, lekin uni istalgan vaqt ochib tahrirlash mumkin.",
+    rename: "Jadval nomini o'zgartirish",
+    name: 'Jadval nomi',
+    namePlaceholder: "masalan: Iyul 2026",
+    archivedHint: "Arxiv jadval — ochib istalgan katakni tahrirlash mumkin",
+    activeHint: "Faol jadval — yangi qatorlar shu yerga tushadi (30 qator to'lganda avtomatik arxivlanadi)",
   },
 
   // Umumiy jadval (spreadsheet) ko'rinishi matnlari.
@@ -403,6 +390,6 @@ export default {
     deleted: "O'chirilgan",
     lastService: "So'nggi xizmat",
     notVisited: 'Bu xizmatga borilmagan',
-    clientsCount: 'ta mijoz',
+    rowsCount: 'ta yozuv',
   },
 };

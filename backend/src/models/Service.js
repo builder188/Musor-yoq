@@ -1,12 +1,19 @@
 // Xizmat (musor olib ketish ishi) modeli.
 import mongoose from 'mongoose';
 import { tenantScopePlugin } from '../db/tenantScope.js';
+import { activeSheetIdFor, maybeArchiveFullSheet } from '../services/sheetService.js';
 
 export const SERVICE_STATUS = {
   PENDING: 'kutilmoqda',
   DONE: 'bajarildi',
+  // Vaqti keldi, lekin amalga oshmadi (mas. mashina buzildi). Bekor emas — keyin sana
+  // tahrirlanib qayta rejalashtirilishi mumkin. Balansga ta'sir qilmaydi.
+  NOT_DONE: 'bajarilmadi',
   CANCELLED: 'bekor_qilindi',
 };
+
+// Balansga daromad yozilMAYdigan holatlar (bajarilmadi ham bekor kabi — pul yo'q).
+export const NO_INCOME_STATUSES = [SERVICE_STATUS.NOT_DONE, SERVICE_STATUS.CANCELLED];
 
 export const PAYMENT_METHODS = ['naqd', 'karta', 'otkazma'];
 
@@ -25,12 +32,17 @@ const imageSchema = new mongoose.Schema(
 
 const serviceSchema = new mongoose.Schema(
   {
-    // Telefon aytilmagan bo'lsa xizmat mijozsiz (faqat clientName bilan) saqlanishi mumkin —
-    // keyin telefon kiritilganda editService mijozga bog'laydi.
-    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null, index: true },
-    // Tezkorlik uchun nusxa (denormalizatsiya).
+    // Ko'p-jadval (sheets): qator qaysi jadvalga (tab) tegishli. Yangi qator FAOL jadvalga
+    // tushadi; qidiruv/hisobotlar sheetId'ga QARAMAYDI (barcha jadvallar birga).
+    sheetId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+
+    // Mijoz ma'lumoti FAQAT shu qatorning o'zida saqlanadi — alohida Client kolleksiyasi YO'Q.
+    // Bir mijozning qatorlari telefon (bo'lmasa ism) bo'yicha guruhlanadi.
     clientName: { type: String },
     clientPhone: { type: String },
+    // Hamkor (shartnomaviy) mijoz qatori: "X ga bordim" deganda standart narx/manzil
+    // shu telefon/ismga tegishli ENG OXIRGI qatordan olinadi.
+    isPartner: { type: Boolean, default: false },
 
     // Manzil ixtiyoriy: aytilmagan bo'lsa address bo'sh qoladi.
     location: {
@@ -92,6 +104,7 @@ const serviceSchema = new mongoose.Schema(
     // aks holda purgeOld soft-deleted tranzaksiyani butunlay o'chirgach, "o'chirilgan income
     // bor" belgisi yo'qolib, repair uni qayta tiriltirardi (zombi daromad).
     incomeManuallyRemoved: { type: Boolean, default: false },
+    // Legacy (Client kolleksiyasi davridan qolgan) — eski yozuvlar tiklanganda tozalanadi.
     isDeletedByClientDeletion: { type: Boolean, default: false },
     clientDeletionNote: { type: String, default: '' },
 
@@ -101,12 +114,33 @@ const serviceSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Indekslar: clientId, status, serviceDateTime (yuqorida), isDeleted.
+// Indekslar: status, serviceDateTime (yuqorida), isDeleted.
 serviceSchema.index({ isDeleted: 1 });
 // Multi-tenant: telegramUserId maydoni + avtomatik scope (har bir query/aggregate/save).
 serviceSchema.plugin(tenantScopePlugin);
 // Eng ko'p ishlatiladigan filtrlar telegramUserId bilan birga keladi.
 serviceSchema.index({ telegramUserId: 1, serviceDateTime: -1 });
 serviceSchema.index({ telegramUserId: 1, status: 1 });
+// Mijoz guruhlash (hisobot/standartlar) telefon bo'yicha ishlaydi.
+serviceSchema.index({ telegramUserId: 1, clientPhone: 1 });
+
+// Sheets: yangi qator FAOL jadvalga shtamplanadi (tenant plugin telegramUserId'ni
+// pre('validate')da allaqachon yozgan — hook tartibi shuni kafolatlaydi).
+serviceSchema.pre('validate', async function stampSheet() {
+  if (this.isNew && !this.sheetId) {
+    try {
+      this.sheetId = await activeSheetIdFor('services', this.telegramUserId);
+    } catch (err) {
+      // Jadval aniqlanmasa ham yozuv YO'QOLMAYDI — sheetId'siz saqlanadi (hisobotlar baribir ko'radi).
+      console.warn('Service sheet shtampida xato:', err.message);
+    }
+  }
+});
+// Saqlangandan keyin: faol jadval to'lgan bo'lsa avto-arxiv (fire-and-forget).
+serviceSchema.post('save', function checkSheetFull(doc) {
+  maybeArchiveFullSheet('services', doc.telegramUserId).catch((err) =>
+    console.warn('Sheets avto-arxiv xatosi (services):', err.message)
+  );
+});
 
 export default mongoose.model('Service', serviceSchema);

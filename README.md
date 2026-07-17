@@ -15,7 +15,7 @@ ovoz, matn, rasm yoki lokatsiya yuboradi — **Google Gemini AI** uni tushunadi 
 - 🧠 **3 asosiy niyat**: MOLIYA, MIJOZ, SUXBAT; noaniq xabarda CLARIFY tugmalari
 - ❓ Yetishmayotgan maydonlarni **bittalab so'rash**
 - 🔔 **Aqlli eslatmalar**: xizmatdan X soat oldin oddiy eslatma, X soat keyin tugmali tasdiqlash
-- 📊 **Mini App** — 5 sahifa: Bosh sahifa, Mijozlar, Xizmatlar (Kanban/List), Moliya, Sozlamalar
+- 📊 **Mini App** — sahifalar: Bosh sahifa, Xizmatlar (jadval — mijoz ma'lumoti shu yerda), Kategoriyalar, Moliya, Eslatmalar, Hisobotlar, Sozlamalar
 - 💰 **Moliya mantig'i**: yagona balans = kirimlar - chiqimlar; alohida qarz moduli yo'q
 - 🗑 **Xavfsiz o'chirish**: 1990 kodi + 30 kunlik tiklash oynasi
 - 🌗 Yorug'/Tungi mavzu, 🇺🇿/🇷🇺 til (o'zbekcha asosiy, ruscha tayyor)

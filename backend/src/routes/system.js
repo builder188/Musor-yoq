@@ -3,7 +3,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
-import { bulkDelete, listDeleted, restore, restoreByIds, restoreClientWithServices } from '../services/deleteService.js';
+import { bulkDelete, listDeleted, restore, restoreByIds } from '../services/deleteService.js';
 import { notifyMiniAppBulkDelete } from '../services/miniAppNotifyService.js';
 
 const router = Router();
@@ -20,16 +20,6 @@ router.get(
 router.post(
   '/restore',
   asyncHandler(async (req, res) => {
-    if (req.body?.clientId) {
-      return res.json({
-        ok: true,
-        result: await restoreClientWithServices(
-          req.body.clientId,
-          req.body.serviceIds || [],
-          req.body.serviceEdits || {}
-        ),
-      });
-    }
     if (Array.isArray(req.body?.ids)) {
       return res.json({ ok: true, result: await restoreByIds(req.body.ids) });
     }
@@ -39,7 +29,7 @@ router.post(
 );
 
 // POST /api/system/bulk-delete  body: { target, confirmationCode }
-// target: clients | services | finance | all
+// target: services | finance | all
 router.post(
   '/bulk-delete',
   requireDeleteCode,

@@ -58,7 +58,12 @@ export function interpretConfirmAction(text) {
   if (/^(ha+|xa+|bajardim|bajarildi|bo'?ldi|bo'?pti|qildim|tugadi|oldim|bordim|tugatdim)\b/.test(v)) {
     return 'done';
   }
-  if (/^(yo'?q|yoq|bekor|bekor qil|bekorla|qilmadim|bajarmadim|bormadim|kerak emas|kerakmas)\b/.test(v)) {
+  // "Bormadim/qilmadim/yo'q" = BAJARILMADI (bekor emas): amalga oshmadi, keyin qayta
+  // rejalash mumkin, balansga yozilmaydi.
+  if (/^(yo'?q|yoq|qilmadim|bajarmadim|bajarilmadi|bormadim|borolmadim|bora olmadim|ulgurmadim)\b/.test(v)) {
+    return 'not_done';
+  }
+  if (/^(bekor|bekor qil|bekorla|kerak emas|kerakmas)\b/.test(v)) {
     return 'cancel';
   }
   return null;

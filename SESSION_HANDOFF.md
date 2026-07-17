@@ -1,5 +1,20 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-17 (2) Sheets + lokatsiya-bog'lash + batching + qaytgan mijoz
+- **Sheets:** Xizmatlar/Kirim/Chiqim/Kategoriyalar sahifalarida tab'lar; 30 qator → avto-arxiv + yangi faol jadval (bot xabar beradi); ➕ cheklovsiz yangi jadval (nomlanadi, yangisi faol); arxiv ham to'liq tahrirlanadi; QIDIRUV/HISOBOTLAR sheetga qaramaydi (hech narsa yashirilmaydi). Yangi qator stamping — model hook'larida; startup migratsiya `sheets_v1` legacy qatorlarni 30 taliklarga taqsimlaydi.
+- **Lokatsiya → qator:** kirish oqimidan tashqari pin: "qaysi xizmatga tegishli?" — ism/tel/qator-raqami (matn/ovoz), ko'p moslik tugmalar; mavjud manzil NOMI saqlanadi, Yandex Maps URL TUGMA bo'lib biriktiriladi (`location.mapUrl`).
+- **Batching:** Mini App o'zgarishlari 2 daqiqa yig'ilib bitta umumlashgan bot xabari; bulk-delete darhol; SIGTERM'da flush.
+- **Qaytgan mijoz:** yangi xizmatda telefon tanilsa oxirgi ism/manzil/narx TAKLIF (Ha/Yo'q), tasdiqda avtomatik to'ldiriladi.
+- **Tekshirildi:** write-read 81/81, small-talk 67/67, sheets-migratsiya 6/6 (in-memory), miniapp build + preview struktura OK. Real Mongo/bot bilan smoke yo'q (lokal env yo'q).
+- **Diqqat:** sheets RAW kolleksiya (mongoose modelsiz); avto-arxiv post-save fire-and-forget (test oxirida "client was closed" warning — zararsiz); LOCATION_QUESTION legacy holati saqlangan (ha/yo'q bo'lmagan javob bind'ga o'tadi).
+
+## 2026-07-17 Mijozlar bo'limi → Xizmatlar jadvaliga birlashtirildi
+- **Nima bo'ldi:** Client kolleksiyasi/sahifasi BUTUNLAY yo'q. Mijoz ma'lumoti faqat Service qatorida; guruhlash TELEFON (bo'lmasa ism) bo'yicha. Ustunlar: Ism | Tel | Sana | Manzil | Narx | To'lov turi | Izoh | Holat. Yangi holat `bajarilmadi` (balansga ta'sirsiz, qayta rejalash mumkin, `PATCH /services/:id/status`). Hamkor standarti = o'sha telefon/ismning ENG OXIRGI qatori (alohida saqlash yo'q; shartnoma = yangi qator). Barcha maydonlar ixtiyoriy bo'lib QOLDI.
+- **Deploy'da:** startup'da `migrateClientsIntoServices` (idempotent, o'z-o'zini tekshiradi, bayroq `migrations.clients_into_services_v1`) — clients ma'lumotini qatorlarga ko'chiradi; `clients` kolleksiyasi zaxira bo'lib qoladi. Service.syncIndexes eski clientId indeksini olib tashlaydi.
+- **API o'zgarishlari:** /clients yo'q; /analytics/clients telefon bo'yicha guruh; /system/restore clientId parametri yo'q; bulk 'clients'='services'. Bot: confirm'da "⚠️ Bajarilmadi" tugmasi; "bormadim/yo'q" → bajarilmadi (bekor emas); CLIENT_EDIT barcha qatorlarni yangilaydi; PAYMENT_UPDATE telefon/ism bo'yicha.
+- **Tekshirildi:** test:write-read 68/68 (yangi bo'limlar 8.5–8.7), test:small-talk 67/67, migratsiya in-memory sinovi 12/12 (backfill/profil/hamkor/idempotent), miniapp build OK. Real Mongo/bot bilan smoke qilinmagan (lokal env yo'q — bot 409 tuzog'i).
+- **Diqqat:** eski bot xabarlaridagi `?tab=clients` havolalar Xizmatlarga yo'naladi; DebtPayment modeli legacy (hech narsa yozmaydi, purge uchun qoladi); miniAppNotifyService'dagi 'client' entity shoxlari o'lik (zararsiz).
+
 ## 2026-07-14 (4) Bosh sahifa dashboard
 - /stats/home: +balance (all-time), +nextClient (getNextClient), +unpaidFines {count,total}; listClients raqamli qidiruvda xizmat narxi bo'yicha ham mijoz topadi.
 - Home.jsx: jonli sana/vaqt + CBU kursi, katta umumiy balans, "Hozir kimga borish kerak?" kartasi (bo'lmasa 🎉), bugungi barcha xizmatlar holat yorliqlari bilan, oy Kirim/Chiqim alohida, jarima ogohlantirishi (bor bo'lsagina), qidiruv. Yangi i18n: home.nextClientTitle/allDoneToday/monthSummary (uz+ru).

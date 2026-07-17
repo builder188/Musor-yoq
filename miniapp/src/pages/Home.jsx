@@ -1,7 +1,7 @@
 // Bosh sahifa — DASHBOARD (jadval EMAS): kun/vaqt, CBU kursi, umumiy balans,
 // "hozir kimga borish kerak" kartasi, bugungi xizmatlar (holat yorliqlari bilan),
-// shu oy kirim/chiqim, to'lanmagan jarima ogohlantirishi va mijoz qidiruvi.
-// Hamma bo'lim mavjud backend funksiyalaridan (/stats/home bitta so'rovda yig'adi).
+// shu oy kirim/chiqim, to'lanmagan jarima ogohlantirishi va qidiruv.
+// Qidiruv FAQAT Xizmatlar jadvali ichida (ism/tel/manzil/summa) — alohida mijozlar bo'limi yo'q.
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
@@ -13,13 +13,13 @@ import LoadError from '../components/LoadError.jsx';
 
 // Eslatma: AI chat paneli OLIB TASHLANDI — u backend'da yozuv amallarini tasdiqsiz
 // bajara olardi. Tabiiy-til muloqot faqat botda; bu yerda deterministik qidiruv qoladi.
-export default function Home({ onOpenClient, goToTab, onAddClient }) {
+export default function Home({ goToTab }) {
   const { t, lang } = useApp();
   const [stats, setStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(true);
   const [statsError, setStatsError] = useState(false);
   const [search, setSearch] = useState('');
-  const [clients, setClients] = useState([]);
+  const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
   const [completingServiceId, setCompletingServiceId] = useState(null);
@@ -57,17 +57,18 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
   useEffect(() => {
     const q = search.trim();
     if (!q) {
-      setClients([]);
+      setResults([]);
       return;
     }
 
+    // Qidiruv faqat Xizmatlar jadvalida: ism / telefon / manzil / izoh / summa.
     const timer = setTimeout(() => {
       setSearching(true);
       api
-        .get(`/clients?search=${encodeURIComponent(q)}`)
-        .then(normalizeClients)
-        .then(setClients)
-        .catch(() => setClients([]))
+        .get(`/services?search=${encodeURIComponent(q)}`)
+        .then(normalizeServices)
+        .then(setResults)
+        .catch(() => setResults([]))
         .finally(() => setSearching(false));
     }, 300);
 
@@ -111,7 +112,7 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
         </div>
       )}
 
-      {/* 8) Mijozlar qidiruvi — ism/telefon/manzil/summa (universal qidiruv mantig'i) */}
+      {/* 8) Qidiruv — ism/telefon/manzil/summa bo'yicha, FAQAT Xizmatlar jadvali ichida */}
       <div className="search">
         <span className="search-icon">🔍</span>
         <input
@@ -121,12 +122,12 @@ export default function Home({ onOpenClient, goToTab, onAddClient }) {
         />
       </div>
 
-      <button className="btn btn-primary btn-block add-client-cta" onClick={() => onAddClient?.() || goToTab?.('clients')}>
+      <button className="btn btn-primary btn-block add-client-cta" onClick={() => goToTab?.('services')}>
         <span className="cta-plus">+</span>
-        {t('home.addClientBig')}
+        {t('home.addServiceBig')}
       </button>
 
-      <SearchResults clients={clients} searching={searching} onOpenClient={onOpenClient} />
+      <SearchResults services={results} searching={searching} onOpenService={setSelectedService} />
 
       {!search.trim() && (
         <>
@@ -253,21 +254,42 @@ function RateChip() {
   );
 }
 
-function SearchResults({ clients, searching, onOpenClient }) {
-  const { t } = useApp();
+// Qidiruv natijalari — Xizmatlar jadvalidan topilgan qatorlar.
+function SearchResults({ services, searching, onOpenService }) {
+  const { t, lang } = useApp();
   if (searching) return <Spinner />;
-  if (!clients.length) return null;
+  if (!services.length) return null;
 
   return (
     <div className="card">
       <div className="row-between mb-8">
-        <strong>{clients.length} {t('ui.clientsCount')}</strong>
+        <strong>{services.length} {t('ui.rowsCount')}</strong>
       </div>
-      {clients.map((client) => (
-        <ClientCard key={client._id} client={client} onOpen={() => onOpenClient?.(client._id)} />
+      {services.slice(0, 20).map((service) => (
+        <div key={service._id} className="list-item" onClick={() => onOpenService?.(service)}>
+          <div className="row-between">
+            <div className="title">{service.clientName || '-'}</div>
+            <span className={`badge badge-${searchBadgeOf(service.status)}`}>
+              {t(`status.${service.status || 'kutilmoqda'}`)}
+            </span>
+          </div>
+          <div className="sub">{formatPhone(service.clientPhone) || service.clientPhone || ''}</div>
+          <div className="sub">
+            {service.serviceDateTime ? formatDateTime(service.serviceDateTime, lang) : ''}
+            {service.location?.address ? ` · ${service.location.address}` : ''}
+          </div>
+          {service.price > 0 && <div className="sub">{formatMoney(service.price)}</div>}
+        </div>
       ))}
     </div>
   );
+}
+
+function searchBadgeOf(status) {
+  if (status === 'bajarildi') return 'done';
+  if (status === 'bajarilmadi') return 'notdone';
+  if (status === 'bekor_qilindi') return 'cancelled';
+  return 'pending';
 }
 
 function TodayServices({ items, loading, busyId, onOpenService, onComplete }) {
@@ -302,8 +324,9 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
   const { t } = useApp();
   const isDone = service.status === 'bajarildi';
   const isCancelled = service.status === 'bekor_qilindi';
+  const isNotDone = service.status === 'bajarilmadi';
   const initial = (service.clientName || '?').trim().charAt(0).toUpperCase() || '?';
-  const badge = isDone ? 'done' : isCancelled ? 'cancelled' : 'pending';
+  const badge = isDone ? 'done' : isCancelled ? 'cancelled' : isNotDone ? 'notdone' : 'pending';
 
   const stopAndComplete = (e) => {
     e.stopPropagation();
@@ -334,7 +357,7 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
           <div className="check-circle done" aria-label={t('status.bajarildi')}>
             ✓
           </div>
-        ) : isCancelled ? null : (
+        ) : isCancelled || isNotDone ? null : (
           <button
             className="check-circle"
             aria-label={t('services.markDone')}
@@ -347,25 +370,7 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
   );
 }
 
-function ClientCard({ client, onOpen }) {
-  const { t, lang } = useApp();
-  const lastServiceAt = client.lastServiceAt || client.services?.[0]?.serviceDateTime;
-  const debt = client.currentDebt || client.unpaidTotal || client.totalDebt || client.unpaidAmount;
-
-  return (
-    <div className={`list-item ${client.isDeleted ? 'deleted-item' : ''}`} onClick={onOpen}>
-      <div className="row-between">
-        <div className="title">{client.name}</div>
-        {client.isDeleted && <span className="badge badge-muted">{t('ui.deleted')}</span>}
-      </div>
-      <div className="sub">{formatPhone(client.phone)}</div>
-      {lastServiceAt && <div className="sub">{t('ui.lastService')}: {formatDateTime(lastServiceAt, lang)}</div>}
-      {debt > 0 && <div className="sub debt-text">{formatMoney(debt)}</div>}
-    </div>
-  );
-}
-
-function normalizeClients(value) {
+function normalizeServices(value) {
   if (Array.isArray(value)) return value;
   if (value && Array.isArray(value.items)) return value.items;
   return [];

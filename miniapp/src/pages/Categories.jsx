@@ -11,17 +11,31 @@ import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import SheetTable from '../components/SheetTable.jsx';
+import SheetTabs, { rowMatchesSheet, activeSheetIdOf } from '../components/SheetTabs.jsx';
 import Items from './Items.jsx';
 import LoadError from '../components/LoadError.jsx';
 
 export default function Categories() {
   const { t, lang } = useApp();
   const [overview, setOverview] = useState(null);
+  const [sheets, setSheets] = useState([]);
+  const [selectedSheet, setSelectedSheet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState(null); // { kind, name, value }
   const [showItems, setShowItems] = useState(false);
   const [merging, setMerging] = useState(false);
+
+  const loadSheets = async () => {
+    try {
+      const res = await api.get('/sheets?scope=categories');
+      const list = Array.isArray(res?.sheets) ? res.sheets : [];
+      setSheets(list);
+      setSelectedSheet((prev) => (prev && list.some((s) => s._id === prev) ? prev : activeSheetIdOf(list)));
+    } catch {
+      setSheets([]);
+    }
+  };
 
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -35,6 +49,7 @@ export default function Categories() {
     } finally {
       if (!silent) setLoading(false);
     }
+    loadSheets();
   };
 
   useEffect(() => {
@@ -66,7 +81,7 @@ export default function Categories() {
   const other = overview?.other || { count: 0, totalIncome: 0, totalExpense: 0 };
 
   // Barcha kategoriya turlari bitta jadvalda; ochish (›) tegishli yozuvlar jadvaliga olib kiradi.
-  const rows = [
+  const allRows = [
     {
       kind: 'items',
       key: '__items',
@@ -79,6 +94,7 @@ export default function Categories() {
       kind: 'material',
       key: `m:${m.name}`,
       name: m.name,
+      sheetId: m.sheetId || null,
       typeLabel: t('categories.materials'),
       count: m.count || 0,
       totalKg: m.totalKg || 0,
@@ -90,6 +106,7 @@ export default function Categories() {
       key: `i:${c.value || c.name}`,
       name: c.name,
       value: c.value || c.name,
+      sheetId: c.sheetId || null,
       typeLabel: t('finance.income'),
       count: c.count || 0,
       totalText: c.total > 0 ? `+${formatNumber(c.total)}` : '',
@@ -100,6 +117,7 @@ export default function Categories() {
       key: `e:${c.value || c.name}`,
       name: c.name,
       value: c.value || c.name,
+      sheetId: c.sheetId || null,
       typeLabel: t('finance.expense'),
       count: c.count || 0,
       totalText: c.total > 0 ? `−${formatNumber(c.total)}` : '',
@@ -119,6 +137,13 @@ export default function Categories() {
         .join(' / '),
     },
   ];
+
+  // Sheet tab'i: saqlangan kategoriya o'z jadvalida; maxsus/standart qatorlar (sheetId
+  // yo'q) FAOL tab'da ko'rinadi. Hech narsa yashirilmaydi — har qator bitta tab'da.
+  const activeSheetId = activeSheetIdOf(sheets);
+  const rows = selectedSheet
+    ? allRows.filter((r) => rowMatchesSheet(r.sheetId, selectedSheet, activeSheetId))
+    : allRows;
 
   // Kategoriya nomini o'zgartirish API'si yo'q — ustunlar faqat o'qish uchun;
   // yangi qator esa POST /categories (material kategoriyasi) orqali saqlanadi.
@@ -196,6 +221,16 @@ export default function Categories() {
         </button>
       </div>
 
+      {/* Jadval tab'lari (faol + arxiv) — kategoriya qatorlari jadvallar bo'ylab. */}
+      <SheetTabs
+        scope="categories"
+        sheets={sheets}
+        selected={selectedSheet}
+        onSelect={setSelectedSheet}
+        onChanged={() => load(true)}
+        t={t}
+      />
+
       {loading ? (
         <Spinner />
       ) : (
@@ -205,7 +240,7 @@ export default function Categories() {
           rows={rows}
           rowKey={(r) => r.key}
           onChanged={() => load(true)}
-          draft={draft}
+          draft={selectedSheet === activeSheetId ? draft : null}
           onRowOpen={openRow}
           actions={(row) => (
             <button type="button" aria-label={t('sheet.open')} onClick={() => openRow(row)}>

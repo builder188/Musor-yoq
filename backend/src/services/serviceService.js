@@ -3,11 +3,9 @@
 //  - Daromad faqat xizmat "bajarildi" bo'lganda yoziladi.
 //  - Bajarilgandan keyin narx tahrirlansa, bog'langan daromad qayta hisoblanadi.
 //  - To'lov holati faqat xizmat ichida: tolangan/tolanmagan/qisman.
-import Service, { SERVICE_STATUS, PAYMENT_STATUS } from '../models/Service.js';
+import Service, { SERVICE_STATUS, NO_INCOME_STATUSES, PAYMENT_STATUS } from '../models/Service.js';
 import Transaction, { TX_TYPES } from '../models/Transaction.js';
-import Client from '../models/Client.js';
-import { findOrCreateClient } from './clientService.js';
-import { findClientByExactName, syncPartnerDefaultsFromVisit } from './partnerService.js';
+import { findLatestServiceByIdentity, findClientRowByExactName } from './partnerService.js';
 import { computeServiceSchedule, applyServiceSchedule } from './reminderService.js';
 import { runGlobal } from '../db/tenantScope.js';
 import { startOfDay, endOfDay } from '../utils/dates.js';
@@ -114,47 +112,37 @@ async function buildScheduleFields(serviceDateTime, now = new Date()) {
 
 // Yangi xizmat yaratish. Faqat identifikatsiya (ism YOKI telefon) majburiy —
 // manzil/sana/narx aytilmagan bo'lsa bo'sh qoladi (keyin tahrir/Mini App'dan to'ldiriladi).
+// Alohida Client yozuvi YO'Q — ism/telefon shu qatorning o'zida saqlanadi.
 export async function createService(data) {
   let location = normalizeLocation(data.location);
-  const name = String(data.clientName || '').trim();
+  let name = String(data.clientName || '').trim();
   const normalizedPhone = normalizePhone(data.clientPhone);
   const hasPhone = !!normalizedPhone && /^\+998\d{9}$/.test(normalizedPhone);
   if (!name && !hasPhone) throw badRequest('Kamida mijoz ismi yoki telefon raqami kerak');
 
-  // Telefon bo'lsa — mijoz topiladi/yaratiladi (eski oqim). Telefon aytilmagan bo'lsa,
-  // ism bo'yicha mavjud mijozga bog'laymiz (katta-kichik harf farqisiz — AI ismni turli
-  // registrda berishi mumkin); topilmasa xizmat mijozsiz saqlanadi
-  // (telefon keyin kiritilganda editService bog'laydi).
-  let client = null;
-  if (hasPhone) {
-    client = await findOrCreateClient({
-      name,
-      phone: normalizedPhone,
-      location: location.address,
-      mapUrl: location.mapUrl,
-      coordinates: location.coordinates,
-    });
-  } else if (name) {
-    client = await findClientByExactName(name);
-  }
-
   const serviceDateTime = parseOptionalServiceDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
   let price = parseOptionalPositiveMoneyAmount(data.price, "Xizmat narxi noto'g'ri");
 
-  // Hamkor (shartnomaviy) mijoz: aytilmagan narx/manzil standartdan olinadi; aytilgan
-  // FARQLI qiymat esa shu tashrifga ishlatiladi VA standartni yangilaydi (spec #2, #3).
-  if (client?.isPartner) {
-    const statedPrice = price > 0;
-    const statedLocation = !!location.address;
-    if (!statedPrice && client.partnerPrice > 0) price = client.partnerPrice;
-    if (!statedLocation && client.partnerLocation?.address) {
-      location = normalizeLocation(client.partnerLocation);
-    }
-    if (statedPrice || statedLocation) {
-      await syncPartnerDefaultsFromVisit(client._id, {
-        price: statedPrice ? price : null,
-        location: statedLocation ? location : null,
-      });
+  // Shu mijozning (telefon, bo'lmasa ism bo'yicha) ENG OXIRGI qatori — kanonik nom va
+  // hamkor belgisining manbasi. Hamkor bo'lsa, aytilmagan narx/manzil o'sha qatordan
+  // meros qilinadi (standartni ALOHIDA saqlash shart emas: har yangi qator o'zi
+  // "eng oxirgi" bo'lib, keyingi tashrif uchun standart bo'lib xizmat qiladi).
+  let latest = null;
+  try {
+    latest = hasPhone
+      ? await findLatestServiceByIdentity({ name, phone: normalizedPhone })
+      : await findClientRowByExactName(name);
+  } catch (err) {
+    console.warn('Oldingi qatorni qidirishda xato:', err.message);
+  }
+  const isPartner = !!(data.isPartner || latest?.isPartner);
+  if (latest) {
+    if (!name && latest.clientName) name = latest.clientName;
+    if (isPartner) {
+      if (!(price > 0) && latest.price > 0) price = latest.price;
+      if (!location.address && latest.location?.address) {
+        location = normalizeLocation(latest.location);
+      }
     }
   }
 
@@ -165,10 +153,9 @@ export async function createService(data) {
     : await buildScheduleFields(serviceDateTime);
 
   const service = await Service.create({
-    // Mijoz bo'lsa egasi = mijoz egasi; bo'lmasa tenant plugin joriy foydalanuvchini qo'yadi.
-    ...(client ? { telegramUserId: client.telegramUserId, clientId: client._id } : {}),
-    clientName: client?.name || name,
-    clientPhone: client?.phone || (hasPhone ? normalizedPhone : ''),
+    clientName: name,
+    clientPhone: hasPhone ? normalizedPhone : latest?.clientPhone || '',
+    isPartner,
     location,
     serviceDateTime,
     price, // DOIM so'mda (agent dollarni oldindan aylantiradi); 0 = hali aytilmagan
@@ -275,16 +262,14 @@ export async function completeService(serviceId, { newPrice = null, markPaid = f
     if (!includeTransaction) return service;
     return { service, transaction, created };
   }
-  if (service.status === SERVICE_STATUS.CANCELLED) {
-    throw badRequest("Bekor qilingan xizmatni bajarib bo'lmaydi");
-  }
-
+  // Kutilmoqda / bajarilmadi / bekor qilingan — barchasidan "bajarildi"ga o'tish mumkin
+  // (har bir katak istalgan vaqt tahrirlanadi).
   service.status = SERVICE_STATUS.DONE;
   service.completedAt = completionDateFor(service);
   if (markPaid) service.paidAmount = service.price;
   service.paymentStatus = resolvePaymentStatus(service.paidAmount, service.price);
   const completed = await Service.findOneAndUpdate(
-    { _id: serviceId, ...notDeleted, status: SERVICE_STATUS.PENDING },
+    { _id: serviceId, ...notDeleted, status: { $ne: SERVICE_STATUS.DONE } },
     {
       status: SERVICE_STATUS.DONE,
       completedAt: service.completedAt,
@@ -351,10 +336,10 @@ export async function repairMissingServiceIncome() {
     }
     if (repaired > 0) console.log(`[REPAIR] ${repaired} ta bajarilgan xizmatga yo'qolgan daromad balansga tiklandi`);
 
-    // Teskari tozalash: BEKOR QILINGAN xizmatda faol income qolib ketgan bo'lsa
-    // (masalan bekor paytida link uzilgan edi) — balansdan qaytaramiz.
+    // Teskari tozalash: BEKOR QILINGAN yoki BAJARILMAGAN xizmatda faol income qolib
+    // ketgan bo'lsa (masalan o'tish paytida link uzilgan edi) — balansdan qaytaramiz.
     try {
-      const cancelledIds = await Service.find({ ...notDeleted, status: SERVICE_STATUS.CANCELLED })
+      const cancelledIds = await Service.find({ ...notDeleted, status: { $in: NO_INCOME_STATUSES } })
         .select('_id')
         .lean();
       if (cancelledIds.length) {
@@ -377,7 +362,7 @@ export async function repairMissingServiceIncome() {
   });
 }
 
-// Xizmatni bekor qilish. Bajarilgan bo'lsa - daromadni qaytaramiz.
+// Xizmatni bekor qilish (butunlay yopish). Bajarilgan bo'lsa - daromadni qaytaramiz.
 export async function cancelService(serviceId, reason = null) {
   const service = await Service.findOne({ _id: serviceId, ...notDeleted });
   if (!service) throw notFound('Xizmat topilmadi');
@@ -393,16 +378,83 @@ export async function cancelService(serviceId, reason = null) {
   await service.save();
   return service;
 }
+
+// "Bajarilmadi": vaqti keldi, lekin amalga oshmadi (mas. mashina buzildi). Bekor emas —
+// keyin sanasi tahrirlanib qayta rejalashtirilishi mumkin. Balansga ta'sir yo'q
+// (bajarilgan bo'lsa daromad qaytariladi), eslatmalar o'chiriladi.
+export async function markServiceNotDone(serviceId, reason = null) {
+  const service = await Service.findOne({ _id: serviceId, ...notDeleted });
+  if (!service) throw notFound('Xizmat topilmadi');
+
+  if (service.status === SERVICE_STATUS.DONE) {
+    await reverseIncome(service);
+  }
+  service.status = SERVICE_STATUS.NOT_DONE;
+  service.cancellationReason = reason || service.cancellationReason;
+  service.completedAt = null;
+  // Vaqti o'tgan ish — eslatma/tasdiq endi yuborilmaydi (sana tahrirlansa qayta hisoblanadi).
+  service.reminderSent = true;
+  service.startReminderSent = true;
+  service.confirmSent = true;
+  await service.save();
+  return service;
+}
+
+// Qayta "kutilmoqda"ga qaytarish (masalan bajarilmadi → sanasi o'zgartirilib qayta reja).
+export async function reopenService(serviceId) {
+  const service = await Service.findOne({ _id: serviceId, ...notDeleted });
+  if (!service) throw notFound('Xizmat topilmadi');
+
+  if (service.status === SERVICE_STATUS.DONE) {
+    await reverseIncome(service);
+  }
+  service.status = SERVICE_STATUS.PENDING;
+  service.completedAt = null;
+  // Kelajak sanasi bo'lsa eslatma/tasdiq jadvali qayta tiklanadi.
+  if (!service.isHistorical && service.serviceDateTime) {
+    await applyServiceSchedule(service);
+  }
+  await service.save();
+  return service;
+}
+
+// Holat dropdown uchun yagona kirish nuqtasi: 4 holatning istalgan biriga o'tkazadi,
+// daromad yozish/qaytarish mos servis funksiyasida bajariladi.
+export async function setServiceStatus(serviceId, status, { reason = null } = {}) {
+  switch (status) {
+    case SERVICE_STATUS.DONE:
+      return completeService(serviceId, { markPaid: true });
+    case SERVICE_STATUS.CANCELLED:
+      return cancelService(serviceId, reason);
+    case SERVICE_STATUS.NOT_DONE:
+      return markServiceNotDone(serviceId, reason);
+    case SERVICE_STATUS.PENDING:
+      return reopenService(serviceId);
+    default:
+      throw badRequest("Noto'g'ri holat");
+  }
+}
+
 // Mijozdan olingan pul balansni oshirmaydi: xizmat daromadi "bajarildi" paytida yozilgan.
 // Bu faqat eng yaqin to'lanmagan/qisman xizmatning paymentStatus qiymatini yangilaydi.
-export async function recordServicePayment({ clientId, amount, note = '' }) {
+// Mijoz endi telefon (bo'lmasa ism) bo'yicha topiladi — alohida Client yozuvi yo'q.
+export async function recordServicePayment({ phone = '', name = '', amount, note = '' }) {
   const paid = parseMoneyAmount(amount, "To'lov summasi noto'g'ri");
   if (paid <= 0) throw badRequest("To'lov summasi noto'g'ri");
 
+  const normalized = normalizePhone(phone);
+  const identity = normalized && /^\+998\d{9}$/.test(normalized)
+    ? { clientPhone: normalized }
+    : name
+      ? { clientName: new RegExp(`^${String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+      : null;
+  if (!identity) throw badRequest('Mijoz ismi yoki telefoni kerak');
+
   const service = await Service.findOne({
-    clientId,
+    ...identity,
     ...notDeleted,
-    status: { $ne: SERVICE_STATUS.CANCELLED },
+    status: { $nin: NO_INCOME_STATUSES },
+    price: { $gt: 0 },
     $expr: { $lt: [{ $ifNull: ['$paidAmount', 0] }, '$price'] },
   }).sort({ status: 1, serviceDateTime: -1 });
 
@@ -414,6 +466,37 @@ export async function recordServicePayment({ clientId, amount, note = '' }) {
   await service.save();
 
   return { service, amountApplied: paid };
+}
+
+// Mijozning O'Z ma'lumotini (ism/telefon) o'zgartirish — endi alohida yozuv yo'q,
+// shu identifikatsiyaga tegishli BARCHA aktiv qatorlarda yangilanadi.
+export async function updateClientInfo({ phone = '', name = '' }, data = {}) {
+  const normalized = normalizePhone(phone);
+  const filter = normalized && /^\+998\d{9}$/.test(normalized)
+    ? { clientPhone: normalized }
+    : name
+      ? { clientName: new RegExp(`^${String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+      : null;
+  if (!filter) throw badRequest('Mijoz ismi yoki telefoni kerak');
+
+  const update = {};
+  if (data.name !== undefined && String(data.name).trim()) update.clientName = String(data.name).trim();
+  if (data.phone !== undefined) {
+    const newPhone = normalizePhone(data.phone);
+    if (!newPhone || !/^\+998\d{9}$/.test(newPhone)) throw badRequest("Telefon raqami noto'g'ri");
+    update.clientPhone = newPhone;
+  }
+  if (!Object.keys(update).length) throw badRequest("O'zgartiriladigan maydon yo'q");
+
+  const sample = await Service.findOne({ ...filter, ...notDeleted }).sort({ createdAt: -1 }).lean();
+  if (!sample) throw notFound('Mijoz topilmadi');
+
+  const res = await Service.updateMany({ ...filter, ...notDeleted }, update);
+  return {
+    name: update.clientName || sample.clientName || '',
+    phone: update.clientPhone || sample.clientPhone || '',
+    updatedRows: res.modifiedCount || 0,
+  };
 }
 // Xizmatni tahrirlash. Bajarilgan xizmat narxi o'zgarsa, daromad qayta hisoblanadi.
 
@@ -432,19 +515,8 @@ export async function editService(serviceId, data) {
       throw badRequest("Telefon raqami noto'g'ri");
     }
     service.clientPhone = normalized;
-    // Xizmat mijozsiz saqlangan bo'lsa (telefon keyin aytildi) — endi mijozga bog'laymiz.
-    if (!service.clientId) {
-      const client = await findOrCreateClient({
-        name: data.clientName || service.clientName,
-        phone: normalized,
-        location: service.location?.address || '',
-        mapUrl: service.location?.mapUrl || null,
-        coordinates: service.location?.coordinates || null,
-      });
-      service.clientId = client._id;
-      if (!service.clientName) service.clientName = client.name;
-    }
   }
+  if (data.isPartner !== undefined) service.isPartner = !!data.isPartner;
   if (data.location !== undefined) service.location = normalizeLocation(data.location);
   if (data.serviceDateTime !== undefined) {
     service.serviceDateTime = parseRequiredDate(data.serviceDateTime, "Xizmat sanasi noto'g'ri");
@@ -481,40 +553,38 @@ export async function editService(serviceId, data) {
 
   // Sana yoki tarixiy holat o'zgarsa — eslatma/tasdiq jadvalini qayta hisoblaymiz
   // (eskisi bekor bo'lib, yangisi ishlaydi). Faqat kutilayotgan va sanasi bor xizmat uchun.
+  // Hamkor standartini alohida sinxronlash SHART EMAS: standart doim eng oxirgi
+  // qatordan o'qiladi, tahrir esa qatorda o'zi turibdi.
   if (scheduleDirty && service.status === SERVICE_STATUS.PENDING && service.serviceDateTime) {
     await applyServiceSchedule(service);
   }
 
   await service.save();
-
-  // Hamkor mijozning ENG SO'NGGI tashrifi tahrirlansa — yangi narx/manzil standartga ham
-  // yoziladi (post-save "narxi 350 ming" tuzatishi ham standartni yangilashi kerak, spec #3).
-  // Eski (tarixdagi) tashrif tahriri standartga TEGMAYDI.
-  if (service.clientId && (data.price !== undefined || data.location !== undefined)) {
-    await maybeSyncPartnerDefaultsFromEdit(service, data).catch((err) =>
-      console.error('Hamkor standartini yangilashda xato:', err.message)
-    );
-  }
   return service;
-}
-
-async function maybeSyncPartnerDefaultsFromEdit(service, data) {
-  const client = await Client.findOne({ _id: service.clientId, ...notDeleted }).select('isPartner').lean();
-  if (!client?.isPartner) return;
-  const latest = await Service.findOne({ clientId: service.clientId, ...notDeleted })
-    .sort({ serviceDateTime: -1, createdAt: -1 })
-    .select('_id')
-    .lean();
-  if (!latest || String(latest._id) !== String(service._id)) return;
-  await syncPartnerDefaultsFromVisit(service.clientId, {
-    price: data.price !== undefined && service.price > 0 ? service.price : null,
-    location: data.location !== undefined && service.location?.address ? service.location : null,
-  });
 }
 
 export async function rescheduleService(serviceId, newDateTime) {
   if (!newDateTime) throw new Error('Yangi vaqt kerak');
   return editService(serviceId, { serviceDateTime: newDateTime });
+}
+
+// Keyin yuborilgan lokatsiya pinini MAVJUD qatorga biriktirish ("bu manzil qaysi
+// xizmatga tegishli?" oqimi). Qatorda manzil MATNI allaqachon bo'lsa — o'sha nom
+// saqlanib qoladi; bo'lmasa pin'dan olingan (reverse-geocoded) nom yoziladi.
+// mapUrl (Yandex Maps havolasi) va koordinatalar har doim yangilanadi — Mini App'da
+// va bot javobida manzil TUGMA bo'lib ochiladi.
+export async function attachLocationToService(serviceId, { address = '', mapUrl = null, coordinates = null } = {}) {
+  const service = await Service.findOne({ _id: serviceId, ...notDeleted });
+  if (!service) throw notFound('Xizmat topilmadi');
+  const keptAddress =
+    String(service.location?.address || '').trim() || String(address || '').trim() || 'Lokatsiya (xaritada)';
+  service.location = {
+    address: keptAddress,
+    mapUrl: mapUrl || service.location?.mapUrl || null,
+    coordinates: coordinates || service.location?.coordinates || null,
+  };
+  await service.save();
+  return service;
 }
 
 // Bajarilgan xizmat daromadini qaytarish (bekor qilish/o'chirishda).
@@ -535,10 +605,10 @@ async function reverseIncome(service) {
   service.incomeTransactionId = null;
 }
 
-// Xizmatlar ro'yxati - filtrlar bilan (Kanban/List uchun).
+// Xizmatlar ro'yxati - filtrlar bilan (jadval/List uchun). Qidiruv FAQAT shu jadval
+// ichida ishlaydi: ism/telefon/manzil/izoh, raqamli so'rovda esa summa (narx) bo'yicha ham.
 export async function listServices({
   status = null,
-  clientId = null,
   dateFrom = null,
   dateTo = null,
   search = '',
@@ -547,7 +617,6 @@ export async function listServices({
 } = {}) {
   const filter = { ...notDeleted };
   if (status) filter.status = status;
-  if (clientId) filter.clientId = clientId;
   if (dateFrom || dateTo) {
     filter.serviceDateTime = {};
     if (dateFrom) filter.serviceDateTime.$gte = parseRequiredDate(dateFrom, "Boshlanish sanasi noto'g'ri");
@@ -556,6 +625,11 @@ export async function listServices({
   if (search) {
     const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     filter.$or = [{ clientName: rx }, { clientPhone: rx }, { 'location.address': rx }, { notes: rx }];
+    // Raqamli so'rov ("150000" yoki "150 000") — SUMMA (narx) bo'yicha ham qidiradi.
+    const numeric = Number(String(search).replace(/[\s']/g, ''));
+    if (Number.isFinite(numeric) && numeric > 0 && /^[\d\s']+$/.test(String(search).trim())) {
+      filter.$or.push({ price: numeric });
+    }
   }
   const pageNumber = Math.max(1, parseInt(page, 10) || 0);
   const limitNumber = Math.min(Math.max(parseInt(limit, 10) || 0, 1), 500);

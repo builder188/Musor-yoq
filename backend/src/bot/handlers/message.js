@@ -1,10 +1,9 @@
 // Route Telegram messages: text / voice / image / location -> Gemini -> agent.
 import Conversation from '../../models/Conversation.js';
-import Client from '../../models/Client.js';
 import Service, { SERVICE_STATUS } from '../../models/Service.js';
 import { extractNotebookRecords, transcribeAudio, understandText } from '../../ai/gemini.js';
-import { runAgent, applyConfirmedEdit, editSavedEntry, cancelSavedEntry, classifyPostSaveMessage, confirmPendingUsefulItemMatch, handleMultiSavedText, handleFineAmountReply } from '../../ai/agent.js';
-import { editService, completeService, cancelService } from '../../services/serviceService.js';
+import { runAgent, applyConfirmedEdit, editSavedEntry, cancelSavedEntry, classifyPostSaveMessage, confirmPendingUsefulItemMatch, handleMultiSavedText, handleFineAmountReply, resumeReturningEntry } from '../../ai/agent.js';
+import { editService, completeService, cancelService, markServiceNotDone } from '../../services/serviceService.js';
 import { mergeFields, nextMissing, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
 import {
@@ -22,6 +21,7 @@ import {
 import { formatMoney } from '../../utils/money.js';
 import { parseHumanDateTime } from '../../utils/dates.js';
 import { normalizeLocationData, reverseGeocode } from '../location.js';
+import { startLocationBind, routeLocationBindAnswer } from '../locationBind.js';
 import { interpretYesNo, interpretSavedReply, interpretConfirmAction, matchClarifyOption } from '../answers.js';
 import {
   IMAGE_LIMIT_BYPASS_REPLY,
@@ -323,6 +323,16 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
   if (conv.pendingIntent === 'FINE_AMOUNT') {
     return routeFineAmount(ctx, conv, text);
   }
+  // Lokatsiya qatorga bog'lanmoqda: "qaysi xizmatga?" savoliga matn/ovoz javobi
+  // (ism / telefon / qator raqami / "yangi").
+  if (conv.pendingIntent === 'LOCATION_BIND') {
+    await routeLocationBindAnswer(ctx, conv, text);
+    return;
+  }
+  // Qaytgan mijoz taklifi ("shu ma'lumotlarni ishlataymi?") — matn/ovoz bilan ha/yo'q.
+  if (conv.pendingIntent === 'RETURNING_CONFIRM') {
+    return routeReturningConfirm(ctx, conv, text);
+  }
   if (conv.pendingIntent === 'IMAGE_RECORD_CONFIRM') {
     return routeImageConfirmation(ctx, conv, text);
   }
@@ -355,6 +365,25 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
 
   const understanding = await understandText(text, priorHistory);
   await routeUnderstanding(ctx, understanding, text, sourceMeta);
+}
+
+// Qaytgan mijoz taklifi javobi: "ha" — oxirgi ism/manzil/narx ishlatiladi; "yo'q" —
+// foydalanuvchi o'zi aytadi (entry oqimi odatiy savollar bilan davom etadi).
+async function routeReturningConfirm(ctx, conv, text) {
+  const answer = interpretYesNo(text);
+  if (answer === null) {
+    await ctx.reply("Oldingi ma'lumotlarni ishlataymi, oka? 'ha' yoki 'yo'q' deng.");
+    return;
+  }
+  try {
+    const res = await resumeReturningEntry({ conversation: conv, accept: answer === 'yes' });
+    await syncSessionFromConversation(ctx, conv);
+    await sendAgentResult(ctx, res);
+  } catch (err) {
+    await conv.reset();
+    clearAllSessionState(ctx);
+    await ctx.reply('Xatolik: ' + err.message);
+  }
 }
 
 // Jarima summasi javobi (matn yoki ovoz transkripsiyasi) — to'lovni yozadi.
@@ -580,10 +609,15 @@ async function routeEditConfirmation(ctx, conv, text) {
   await ctx.reply("O'zgartiraymi, oka? 'ha' yoki 'yo\'q' deb ayting.", { reply_markup: editConfirmKeyboard() });
 }
 
-// LOCATION_QUESTION ("Bu manzil yangi xizmat uchunmi?") — [Ha][Yo'q] tugmasiga matn/ovoz javobi.
-// location_service_yes / location_service_no callbacklari bilan bir xil natija.
+// LOCATION_QUESTION (legacy: "Bu manzil yangi xizmat uchunmi?") — [Ha][Yo'q] tugmasiga
+// matn/ovoz javobi. Ha/yo'q bo'lmagan javob endi BOG'LASH identifikatori deb qaraladi
+// ("Sardor" / "+99890..." / "3-qator") — foydalanuvchi tugmani kutmasdan ham bog'lay oladi.
 async function routeLocationQuestion(ctx, conv, text) {
   const answer = interpretYesNo(text);
+  if (answer === null && conv.collected?.location) {
+    await routeLocationBindAnswer(ctx, conv, text);
+    return;
+  }
   if (answer === 'no') {
     await conv.reset();
     clearAllSessionState(ctx);
@@ -640,30 +674,26 @@ async function routeClarifyChoice(ctx, conv, text) {
 
 // CLIENT_DISAMBIGUATION — bir xil ismli mijozlardan birini matn/ovoz bilan tanlash
 // (tartib raqami "birinchi" yoki ism bo'yicha). pick_client_ callback bilan bir xil natija.
+// Nomzodlar ({name, phone}) conversation'da saqlangan — alohida Client kolleksiyasi yo'q.
 async function routeClientDisambiguation(ctx, conv, text) {
-  const ids = Array.isArray(conv.collected?.candidateIds) ? conv.collected.candidateIds : [];
+  const candidates = Array.isArray(conv.collected?.candidates) ? conv.collected.candidates : [];
   const intent = conv.collected?.disambIntent;
-  if (!ids.length || !intent) {
+  if (!candidates.length || !intent) {
     await conv.reset();
     return false;
   }
-  const found = await Client.find({ _id: { $in: ids }, isDeleted: { $ne: true } });
-  const ordered = ids.map((id) => found.find((c) => String(c._id) === String(id))).filter(Boolean);
-  if (!ordered.length) {
-    await conv.reset();
-    return false;
-  }
-  const match = matchClarifyOption(text, ordered.map((c, i) => ({ label: c.name || '', idx: i })));
+  const match = matchClarifyOption(text, candidates.map((c, i) => ({ label: c.name || '', idx: i })));
   if (!match) {
     await conv.reset();
     return false;
   }
-  const client = ordered[match.idx];
+  const client = candidates[match.idx];
   const fields = {
     ...(conv.collected?.disambFields || {}),
-    targetPhone: client.phone,
-    clientPhone: client.phone,
-    targetIdentifier: client.phone,
+    targetPhone: client.phone || undefined,
+    clientPhone: client.phone || undefined,
+    targetClientName: client.name || undefined,
+    targetIdentifier: client.phone || client.name,
   };
   await conv.reset();
   const res = await runAgent({
@@ -713,6 +743,16 @@ async function routeServiceConfirm(ctx, conv, action) {
       await conv.save();
       await ctx.reply(
         `Zo'r oka, ${updated.clientName} xizmatini bajarildi deb belgiladim ✅\nDaromad: ${formatMoney(updated.price)}`
+      );
+      return true;
+    }
+    if (action === 'not_done') {
+      const updated = await markServiceNotDone(service._id);
+      conv.lastConfirmServiceId = null;
+      conv.lastConfirmAt = null;
+      await conv.save();
+      await ctx.reply(
+        `Mayli oka, ${updated.clientName} xizmati bajarilmadi deb belgilandi. Balansga hech narsa yozilmadi — keyin vaqtini o'zgartirib qayta rejalashtirsangiz bo'ladi.`
       );
       return true;
     }
@@ -815,18 +855,13 @@ async function routeLocationRename(ctx, conv, text) {
     return;
   }
 
-  conv.pendingIntent = 'LOCATION_QUESTION';
-  conv.collected = { location };
-  conv.awaitingField = null;
-  conv.markModified('collected');
-  await conv.save();
-  ctx.session.intent = 'LOCATION_QUESTION';
+  // Faol kirish oqimi yo'q — manzil MAVJUD qatorga bog'lanadi ("qaysi xizmatga?").
+  ctx.session.intent = 'LOCATION_BIND';
   ctx.session.collectedData = { location };
-  ctx.session.pendingField = null;
-  ctx.session.awaitingConfirmation = true;
-  await ctx.reply(`Manzilni oldim oka: ${customName}\n\nBu manzil yangi xizmat uchunmi?`, {
-    reply_markup: locationQuestionKeyboard(),
-  });
+  ctx.session.pendingField = 'bindTarget';
+  ctx.session.awaitingConfirmation = false;
+  await ctx.reply(`Manzilni oldim oka: ${customName}`);
+  await startLocationBind(ctx, conv, location);
 }
 
 async function sendAgentResult(ctx, res) {

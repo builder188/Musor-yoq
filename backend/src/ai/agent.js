@@ -28,8 +28,10 @@ import {
   createService,
   completeService,
   cancelService,
+  markServiceNotDone,
   recordServicePayment,
   editService,
+  updateClientInfo,
   rescheduleService,
 } from '../services/serviceService.js';
 import {
@@ -42,7 +44,6 @@ import {
 import { createDebtReminder, updateDebtReminder, deleteReminder } from '../services/reminderEntryService.js';
 import { createFine, payFine, findPayableFine, FINE_TEXT } from '../services/fineService.js';
 import { softDeleteServiceCascade } from '../services/deleteService.js';
-import { listClients, updateClient } from '../services/clientService.js';
 import { formatKg } from '../services/materialService.js';
 import {
   createUsefulItem,
@@ -55,8 +56,8 @@ import {
   revertItemGiveaway,
   softDeleteUsefulItem,
 } from '../services/usefulItemService.js';
-import { searchServices, findServiceForUpdate, findClient, findClientsByName } from '../services/searchService.js';
-import { findPartnerByName, upsertPartnerContract, revertPartnerContract } from '../services/partnerService.js';
+import { searchServices, findServiceForUpdate, findClientIdentity, findClientsByName } from '../services/searchService.js';
+import { findPartnerByName, upsertPartnerContract, findLatestServiceByIdentity } from '../services/partnerService.js';
 import { getUsdToUzsRate } from '../services/exchangeRateService.js';
 import { answerReadQuery } from './queries.js';
 import { TX_TYPES } from '../models/Transaction.js';
@@ -69,6 +70,7 @@ import {
   paymentMethodKeyboard,
   clientPickKeyboard,
   clarifyKeyboard,
+  returningClientKeyboard,
   savedSummaryText,
   multiSavedSummaryText,
   savedEntryKeyboard,
@@ -695,6 +697,14 @@ async function startEntry({ conversation, intent, fields, rawText, mode, sourceM
   trackEntryCurrency(intent, collected, undefined, fields, rawText);
   collected = await applyPartnerVisitDefaults(intent, collected);
 
+  // QAYTGAN MIJOZ: aytilgan telefon mavjud qatorga mos kelsa — oxirgi ism/manzil/narxni
+  // TAKLIF qilamiz (tasdiqlasa ishlatiladi, xohlasa o'zi aytadi). Hamma ma'lumotni
+  // qaytadan aytish shart emas.
+  if (!stopRequested(fields, rawText)) {
+    const returning = await maybeOfferReturningClient({ conversation, intent, collected, rawText, mode });
+    if (returning) return returning;
+  }
+
   // Birinchi xabardayoq "boshqa so'rama" desa — bor ma'lumot bilan darhol saqlaymiz.
   if (stopRequested(fields, rawText)) {
     if (!hasMinimumIdentity(intent, collected)) {
@@ -718,6 +728,82 @@ async function startEntry({ conversation, intent, fields, rawText, mode, sourceM
   const soft = await maybeAskSoft({ conversation, intent, collected, mode });
   if (soft) return soft;
   return finalizeEntry({ conversation, intent, collected, rawText, mode });
+}
+
+// ── Qaytgan mijozni avtomatik tanish ─────────────────────────────────────────
+// Telefon raqami biror mavjud qatorga (istalgan jadval — faol yoki arxiv) mos kelsa,
+// o'sha odamning OXIRGI ma'lum ismi/manzili/narxi taklif sifatida ko'rsatiladi.
+// Hamkor tashrifi bundan mustasno (u standartlarni allaqachon oladi).
+async function maybeOfferReturningClient({ conversation, intent, collected, rawText, mode }) {
+  if (intent !== 'SERVICE_ENTRY' || mode !== 'bot' || !conversation) return null;
+  if (collected._partnerVisit || collected._returningChecked) return null;
+  const phone = collected.clientPhone;
+  if (!(typeof phone === 'string' && /^\+998\d{9}$/.test(phone))) return null;
+
+  collected._returningChecked = true;
+  let latest = null;
+  try {
+    latest = await findLatestServiceByIdentity({ phone });
+  } catch (err) {
+    console.warn('Qaytgan mijoz qidiruvida xato:', err.message);
+    return null;
+  }
+  if (!latest) return null;
+
+  const offer = {};
+  if (!collected.clientName && latest.clientName) offer.clientName = latest.clientName;
+  if (!hasValue('price', collected) && latest.price > 0) offer.price = latest.price;
+  const hasLocation =
+    collected.location && (typeof collected.location === 'string' ? collected.location.trim() : collected.location.address);
+  if (!hasLocation && latest.location?.address) {
+    offer.location = {
+      address: latest.location.address,
+      mapUrl: latest.location.mapUrl || null,
+      coordinates: latest.location.coordinates || null,
+    };
+  }
+  if (!Object.keys(offer).length) return null;
+
+  conversation.pendingIntent = 'RETURNING_CONFIRM';
+  conversation.collected = { entryIntent: intent, entry: collected, offer, rawText };
+  conversation.awaitingField = 'returningChoice';
+  conversation.markModified('collected');
+  await conversation.save();
+
+  const lines = ['♻️ Bu raqam tanish oka! Oldingi yozuvlardan:'];
+  if (offer.clientName) lines.push(`👤 ${offer.clientName}`);
+  if (offer.location) lines.push(`📍 ${offer.location.address}`);
+  if (offer.price) lines.push(`💰 ${formatMoney(offer.price)}`);
+  lines.push("Shu ma'lumotlarni ishlataymi?");
+  return { text: lines.join('\n'), keyboard: returningClientKeyboard() };
+}
+
+// "Ha/Yo'q" javobidan keyin entry oqimini davom ettiradi (tasdiqda taklif maydonlari
+// yetishmagan joylarga to'ldiriladi; rad etsa foydalanuvchi o'zi aytadi).
+export async function resumeReturningEntry({ conversation, accept }) {
+  const pending = conversation?.collected || {};
+  if (conversation?.pendingIntent !== 'RETURNING_CONFIRM' || !pending.entry) {
+    throw new Error('Davom ettiriladigan yozuv topilmadi');
+  }
+  const intent = pending.entryIntent || 'SERVICE_ENTRY';
+  let collected = { ...pending.entry, _returningChecked: true };
+  if (accept && pending.offer) {
+    collected = mergeFields(collected, pending.offer);
+  }
+  const rawText = pending.rawText || '';
+
+  const missing = entryNextMissing(intent, collected);
+  if (missing) {
+    conversation.pendingIntent = intent;
+    conversation.collected = collected;
+    conversation.awaitingField = missing;
+    conversation.markModified('collected');
+    await conversation.save();
+    return askField(missing, intent);
+  }
+  const soft = await maybeAskSoft({ conversation, intent, collected, mode: 'bot' });
+  if (soft) return soft;
+  return finalizeEntry({ conversation, intent, collected, rawText, mode: 'bot' });
 }
 
 // ── Hamkor (shartnomaviy) mijoz tashrifi ─────────────────────────────────────
@@ -891,13 +977,10 @@ function savedRefFromResult(intent, toolResult) {
     case 'SERVICE_ENTRY':
       return toolResult.id ? { type: 'service', serviceId: String(toolResult.id) } : null;
     case 'PARTNER_CONTRACT':
-      return toolResult.client?._id
-        ? {
-            type: 'partner',
-            clientId: String(toolResult.client._id),
-            created: !!toolResult.created,
-            prev: toolResult.prev || null,
-          }
+      // Shartnoma endi Xizmatlar jadvalidagi qator — bekor qilinsa qator o'chiriladi
+      // (avvalgi eng oxirgi qator standart bo'lib qoladi).
+      return toolResult.service?.id
+        ? { type: 'partner', serviceId: String(toolResult.service.id) }
         : null;
     case 'EXPENSE_ENTRY':
     case 'INCOME_ENTRY':
@@ -1367,16 +1450,17 @@ export async function handleMultiSavedText({ conversation, text }) {
 // yuboriladi — bo'sh qolganlari yozuvda ham bo'sh qoladi (majburlanmaydi).
 async function applySavedEntryUpdate(intent, saved, fields, prevFields = {}) {
   if (intent === 'PARTNER_CONTRACT') {
-    // Saqlangan shartnoma tahriri: hamkorning standart qiymatlari yangilanadi.
+    // Saqlangan shartnoma tahriri: shartnoma QATORI (eng oxirgi qator = standart) yangilanadi.
     const data = { isPartner: true };
-    if (fields.clientName && fields.clientName !== prevFields.clientName) data.name = fields.clientName;
-    if (hasValue('clientPhone', fields)) data.phone = fields.clientPhone;
-    if (hasValue('price', fields)) data.partnerPrice = fields.price;
+    if (fields.clientName && fields.clientName !== prevFields.clientName) data.clientName = fields.clientName;
+    if (hasValue('clientPhone', fields)) data.clientPhone = fields.clientPhone;
+    if (hasValue('price', fields)) data.price = fields.price;
     const address = fields.location?.address || fields.location;
     if (address && address !== (prevFields.location?.address || prevFields.location)) {
-      data.partnerLocation = fields.location;
+      data.location = fields.location;
     }
-    await updateClient(saved.clientId, data);
+    if (fields.notes !== undefined && fields.notes !== prevFields.notes) data.notes = fields.notes;
+    await editService(saved.serviceId, data);
     return;
   }
   if (intent === 'SERVICE_ENTRY') {
@@ -1487,8 +1571,8 @@ async function undoSavedEntry(saved) {
       await softDeleteServiceCascade(saved.serviceId);
       return;
     case 'partner':
-      // Yangi yaratilgan hamkor o'chiriladi; mavjud mijoz oldingi holatiga qaytariladi.
-      await revertPartnerContract(saved);
+      // Shartnoma qatori o'chiriladi — avvalgi eng oxirgi qator (eski standart) o'zi qaytadi.
+      await softDeleteServiceCascade(saved.serviceId);
       return;
     case 'transaction':
       await softDeleteTransaction(saved.transactionId);
@@ -1611,8 +1695,9 @@ async function handlePaymentUpdate({ fields, rawText, conversation, mode }) {
 }
 
 // Bir xil ismli mijozlar bo'lsa, jimgina birinchisini olмay, tanlash so'raydi.
-// Telefon berilgan bo'lsa (noyob) — aniqlik shart emas. Tanlov conversation'da
-// saqlanadi; foydalanuvchi tugmani bossa, amal o'sha mijoz bilan davom etadi.
+// Telefon berilgan bo'lsa (noyob) — aniqlik shart emas. Nomzodlar endi xizmat
+// qatorlaridan (telefon bo'yicha guruhlangan farqli identifikatsiyalar) olinadi va
+// conversation'da saqlanadi; tugma bosilsa amal o'sha mijoz bilan davom etadi.
 async function maybeDisambiguate({ fields, conversation, intent }) {
   const phone = fields.targetPhone || fields.clientPhone;
   if (phone) {
@@ -1631,7 +1716,7 @@ async function maybeDisambiguate({ fields, conversation, intent }) {
     conversation.collected = {
       disambIntent: intent,
       disambFields: fields,
-      candidateIds: candidates.map((c) => String(c._id)),
+      candidates,
     };
     conversation.awaitingField = 'chooseClient';
     conversation.markModified('collected');
@@ -1703,7 +1788,7 @@ async function handleClientEdit({ fields, rawText, conversation, mode }) {
   if (disambiguation) return disambiguation;
 
   const phone = normalizePhone(identifier);
-  const client = await findClient({ name: phone === identifier ? '' : identifier, phone });
+  const client = await findClientIdentity({ name: phone === identifier ? '' : identifier, phone });
   if (!client) return { text: "Mijozni topolmadim oka. Ismi yoki telefonini aniqroq ayting." };
 
   let value = fields.newValue;
@@ -1715,7 +1800,8 @@ async function handleClientEdit({ fields, rawText, conversation, mode }) {
 
   if (conversation) {
     conversation.pendingIntent = 'EDIT_CONFIRM';
-    conversation.collected = { editType: 'client', targetId: String(client._id), data };
+    // Identifikatsiya (telefon/ism) saqlanadi — tasdiqda BARCHA mos qatorlar yangilanadi.
+    conversation.collected = { editType: 'client', identity: { name: client.name, phone: client.phone }, data };
     conversation.awaitingField = 'confirmEdit';
     conversation.markModified('collected');
     await conversation.save();
@@ -1724,7 +1810,7 @@ async function handleClientEdit({ fields, rawText, conversation, mode }) {
   const label = fieldKey === 'phone' ? 'telefon raqamini' : 'ismini';
   const display = fieldKey === 'phone' ? formatPhone(value) || value : value;
   return {
-    text: `Oka, ${client.name} mijozning ${label} ${display} ga o'zgartiraymi?`,
+    text: `Oka, ${client.name} mijozning ${label} ${display} ga o'zgartiraymi? (barcha qatorlarida yangilanadi)`,
     keyboard: editConfirmKeyboard(),
   };
 }
@@ -1754,14 +1840,15 @@ function buildServiceEditData(fieldKey, rawValue) {
 }
 
 // Tasdiqdan keyin (callback) tahrirni ijro etadi.
-export async function applyConfirmedEdit({ editType, targetId, data }) {
+export async function applyConfirmedEdit({ editType, targetId, identity, data }) {
   if (editType === 'service') {
     const service = await editService(targetId, data);
     return { editType, service: serializeService(service) };
   }
   if (editType === 'client') {
-    const client = await updateClient(targetId, data);
-    return { editType, client: serializeDoc(client) };
+    // Mijoz ma'lumoti barcha mos xizmat qatorlarida yangilanadi (alohida yozuv yo'q).
+    const client = await updateClientInfo(identity || {}, data);
+    return { editType, client };
   }
   throw new Error('Noma\'lum tahrir turi');
 }
@@ -1834,8 +1921,8 @@ async function executeAgentTool(name, args) {
       return serializeService(await createService(args));
 
     case 'upsert_partner_contract': {
-      const { client, created, prev } = await upsertPartnerContract(args);
-      return { client: serializeDoc(client), created, prev };
+      const { service, created } = await upsertPartnerContract(args);
+      return { service: serializeService(service), created };
     }
 
     case 'update_service_status':
@@ -1902,6 +1989,10 @@ async function updateServiceStatus(args) {
   if (args.status === SERVICE_STATUS.CANCELLED || args.status === 'cancelled') {
     return serializeService(await cancelService(service._id));
   }
+  // "Bajarilmadi" — bormadi/amalga oshmadi (balansga yozilmaydi, keyin qayta rejalash mumkin).
+  if (args.status === SERVICE_STATUS.NOT_DONE || args.status === 'not_done') {
+    return serializeService(await markServiceNotDone(service._id, args.reason || null));
+  }
   return serializeService(await completeService(service._id, { markPaid: true }));
 }
 
@@ -1944,7 +2035,7 @@ async function editAgentService(args) {
 async function editAgentClient(args) {
   const identifier = args.clientIdentifier || '';
   const phone = normalizePhone(identifier);
-  const client = await findClient({ name: phone === identifier ? '' : identifier, phone });
+  const client = await findClientIdentity({ name: phone === identifier ? '' : identifier, phone });
   if (!client) throw new Error("Mijozni topolmadim oka.");
   const fieldKey = CLIENT_EDIT_FIELD[String(args.field || '').toLowerCase()];
   if (!fieldKey) throw new Error("Qaysi maydonni oka? Ism yoki telefon.");
@@ -1953,7 +2044,8 @@ async function editAgentClient(args) {
     value = normalizePhone(value);
     if (!value) throw new Error("Telefon raqami noto'g'ri oka.");
   }
-  return serializeDoc(await updateClient(client._id, { [fieldKey]: value }));
+  // Barcha mos xizmat qatorlarida yangilanadi (alohida mijoz yozuvi yo'q).
+  return updateClientInfo({ name: client.name, phone: client.phone }, { [fieldKey]: value });
 }
 
 async function getServicesByIdentifier(args) {
@@ -2046,19 +2138,20 @@ async function createAgentTransaction(args) {
 async function recordAgentPayment(args) {
   const identifier = args.clientIdentifier || '';
   const phone = normalizePhone(identifier);
-  const client = await findClient({
+  const client = await findClientIdentity({
     name: phone === identifier ? '' : identifier,
     phone,
   });
   if (!client) throw new Error("Mijozni topolmadim oka. Ismini yoki telefonini aniqroq ayting.");
 
   const result = await recordServicePayment({
-    clientId: client._id,
+    phone: client.phone,
+    name: client.name,
     amount: args.amount,
     note: args.note || '',
   });
   return {
-    client: serializeDoc(client),
+    client,
     service: serializeService(result.service),
     amountApplied: result.amountApplied,
   };
@@ -2119,15 +2212,15 @@ function asArray(value) {
 async function searchAgentData(args) {
   const query = args.query || '';
   const filters = args.filters || {};
+  // Qidiruv FAQAT Xizmatlar jadvali (+ moliya yozuvlari) ichida — alohida mijoz ro'yxati yo'q.
   const services = asArray(await searchServices({
     text: query,
     dateFrom: filters.dateFrom || null,
     dateTo: filters.dateTo || null,
     limit: 20,
   }));
-  // listClients/listTransactions sahifa bilan {items} obyekti, sahifasiz massiv qaytarishi
-  // mumkin — bu yerda hammasini massivga keltiramiz, aks holda .filter/.slice "is not a function".
-  const clients = asArray(await listClients({ search: query }));
+  // listTransactions sahifa bilan {items} obyekti, sahifasiz massiv qaytarishi mumkin —
+  // bu yerda hammasini massivga keltiramiz, aks holda .filter/.slice "is not a function".
   const transactions = asArray(await listTransactions({ period: 'all', limit: 50 }));
   const q = query.trim().toLowerCase();
   const filteredServices = filters.status
@@ -2143,7 +2236,6 @@ async function searchAgentData(args) {
 
   return {
     services: filteredServices.slice(0, 20).map(serializeService),
-    clients: clients.slice(0, 20).map(serializeDoc),
     transactions: filteredTransactions.slice(0, 20).map(serializeDoc),
   };
 }
@@ -2400,6 +2492,7 @@ function serializeService(service) {
     id: s._id,
     clientName: s.clientName,
     clientPhone: s.clientPhone,
+    isPartner: !!s.isPartner,
     location: s.location,
     serviceDateTime: s.serviceDateTime,
     price: s.price,
@@ -2441,21 +2534,25 @@ function fallbackResponse(toolName, result) {
     case 'create_service':
       return serviceSummary(result);
     case 'upsert_partner_contract': {
-      const client = result.client || {};
+      const partnerRow = result.service || {};
       const lines = [
-        `🤝 Bo'ldi oka, ${client.name || 'hamkor'} bilan hamkorlik ${result.created ? 'boshlandi' : 'yangilandi'} ✅`,
+        `🤝 Bo'ldi oka, ${partnerRow.clientName || 'hamkor'} bilan hamkorlik yozildi ✅ (Xizmatlar jadvalida)`,
       ];
-      if (client.partnerPrice > 0) lines.push(`💰 Standart narx: ${formatMoney(client.partnerPrice)}`);
-      if (client.partnerLocation?.address) lines.push(`📍 Standart manzil: ${client.partnerLocation.address}`);
-      lines.push(`Endi "${client.name || 'hamkor'}ga bordim" desangiz — darhol yozib qo'yaman.`);
+      if (partnerRow.price > 0) lines.push(`💰 Standart narx: ${formatMoney(partnerRow.price)}`);
+      if (partnerRow.location?.address) lines.push(`📍 Standart manzil: ${partnerRow.location.address}`);
+      lines.push(`Endi "${partnerRow.clientName || 'hamkor'}ga bordim" desangiz — darhol yozib qo'yaman.`);
       return lines.join('\n');
     }
     case 'update_service_status':
     case 'complete_service':
     case 'cancel_service':
-      return result.status === SERVICE_STATUS.DONE
-        ? `Boldi oka, ${result.clientName} xizmatini bajarildi deb belgiladim ✅`
-        : `Boldi oka, ${result.clientName} xizmatini bekor qildim.`;
+      if (result.status === SERVICE_STATUS.DONE) {
+        return `Boldi oka, ${result.clientName} xizmatini bajarildi deb belgiladim ✅`;
+      }
+      if (result.status === SERVICE_STATUS.NOT_DONE) {
+        return `Mayli oka, ${result.clientName} xizmati bajarilmadi deb belgilandi. Balansga hech narsa yozilmadi — keyin vaqtini o'zgartirib qayta rejalashtirsangiz bo'ladi.`;
+      }
+      return `Boldi oka, ${result.clientName} xizmatini bekor qildim.`;
     case 'reschedule_service':
       return `Boldi oka, ${result.clientName} xizmatini ${formatDateTime(result.serviceDateTime)} ga ko'chirdim ✅`;
     case 'edit_service':
@@ -2612,7 +2709,7 @@ function serviceSummary(service) {
 }
 
 function searchSummary(result) {
-  const count = (result.services?.length || 0) + (result.clients?.length || 0) + (result.transactions?.length || 0);
+  const count = (result.services?.length || 0) + (result.transactions?.length || 0);
   if (!count) return "Oka, bunga mos hech narsa topolmadim.";
   const serviceLines = (result.services || [])
     .slice(0, 10)

@@ -290,12 +290,25 @@ export async function getCategoryOverview() {
     ]),
   ]);
 
+  // Ko'p-jadval (sheets): saqlangan kategoriya hujjatlari qaysi jadvalga tegishli —
+  // Mini App tab bo'yicha filtrlashi uchun har qatorga sheetId qo'shamiz.
+  // Saqlanmagan (default/tranzaksiyadan kelgan) qatorlar sheetId=null — FAOL tabda ko'rinadi.
+  const [storedMaterials, storedIncomes, storedExpenses] = await Promise.all([
+    MaterialCategory.find(notDeleted).select('normalizedName sheetId').lean(),
+    IncomeCategory.find(notDeleted).select('normalizedName sheetId').lean(),
+    ExpenseCategory.find(notDeleted).select('normalizedName sheetId').lean(),
+  ]);
+  const materialSheetByKey = new Map(storedMaterials.map((c) => [c.normalizedName, c.sheetId ? String(c.sheetId) : null]));
+  const incomeSheetByKey = new Map(storedIncomes.map((c) => [c.normalizedName, c.sheetId ? String(c.sheetId) : null]));
+  const expenseSheetByKey = new Map(storedExpenses.map((c) => [c.normalizedName, c.sheetId ? String(c.sheetId) : null]));
+
   const statByKey = new Map(stats.map((s) => [materialKey(s.material), s]));
   const materials = names.map((name) => {
     const s = statByKey.get(materialKey(name));
     return {
       name,
       kind: 'material',
+      sheetId: materialSheetByKey.get(materialKey(name)) || null,
       count: s?.count || 0,
       total: s?.total || 0,
       totalKg: s?.totalKg || 0,
@@ -320,7 +333,14 @@ export async function getCategoryOverview() {
   }
   const expenses = expenseCats.map((c) => {
     const s = expStatByKey.get(expenseKey(c.name)) || { count: 0, total: 0 };
-    return { name: c.name, value: c.value, kind: 'expense', count: s.count, total: s.total };
+    return {
+      name: c.name,
+      value: c.value,
+      kind: 'expense',
+      sheetId: expenseSheetByKey.get(expenseKey(c.name)) || null,
+      count: s.count,
+      total: s.total,
+    };
   });
 
   const incStatByKey = new Map();
@@ -331,7 +351,14 @@ export async function getCategoryOverview() {
   }
   const incomes = incomeCats.map((c) => {
     const s = incStatByKey.get(expenseKey(c.name)) || { count: 0, total: 0 };
-    return { name: c.name, value: c.value, kind: 'income', count: s.count, total: s.total };
+    return {
+      name: c.name,
+      value: c.value,
+      kind: 'income',
+      sheetId: incomeSheetByKey.get(expenseKey(c.name)) || null,
+      count: s.count,
+      total: s.total,
+    };
   });
 
   // "Boshqa kirim-chiqimlar": toifasiz kirim + chiqim yig'indisi.

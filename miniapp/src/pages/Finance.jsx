@@ -10,6 +10,7 @@ import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal.jsx';
 import SheetTable from '../components/SheetTable.jsx';
+import SheetTabs, { rowMatchesSheet, activeSheetIdOf } from '../components/SheetTabs.jsx';
 import LoadError from '../components/LoadError.jsx';
 
 const PERIODS = ['today', 'month', 'year', 'all'];
@@ -32,20 +33,39 @@ export default function Finance() {
   // Jadval filtrlari: kirim — turi bo'yicha, chiqim — kategoriya bo'yicha.
   const [incomeFilter, setIncomeFilter] = useState('all');
   const [expenseFilter, setExpenseFilter] = useState('all');
+  // Ko'p-jadval (sheets): kirim va chiqim jadvallarining o'z tab'lari.
+  const [incomeSheets, setIncomeSheets] = useState([]);
+  const [expenseSheets, setExpenseSheets] = useState([]);
+  const [selectedIncomeSheet, setSelectedIncomeSheet] = useState(null);
+  const [selectedExpenseSheet, setSelectedExpenseSheet] = useState(null);
+
+  const loadSheets = async () => {
+    try {
+      const [inc, exp] = await Promise.all([api.get('/sheets?scope=income'), api.get('/sheets?scope=expense')]);
+      const incList = Array.isArray(inc?.sheets) ? inc.sheets : [];
+      const expList = Array.isArray(exp?.sheets) ? exp.sheets : [];
+      setIncomeSheets(incList);
+      setExpenseSheets(expList);
+      setSelectedIncomeSheet((prev) => (prev && incList.some((s) => s._id === prev) ? prev : activeSheetIdOf(incList)));
+      setSelectedExpenseSheet((prev) => (prev && expList.some((s) => s._id === prev) ? prev : activeSheetIdOf(expList)));
+    } catch {
+      setIncomeSheets([]);
+      setExpenseSheets([]);
+    }
+  };
 
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [s, c, tx, mat, src, items, services, clients] = await Promise.all([
+      const [s, c, tx, mat, src, items, services] = await Promise.all([
         api.get(`/finance/summary?period=${period}`),
         api.get('/finance/chart'),
         api.get(`/finance/transactions?period=${period}`),
         api.get(`/finance/materials?period=${period}`),
         api.get(`/finance/income-sources?period=${period}`),
         api.get('/items?status=available'),
-        // Hamkorlik tashrifini aniqlash uchun: tx.serviceId -> service.clientId -> client.isPartner.
+        // Hamkorlik tashrifini aniqlash uchun: tx.serviceId -> service.isPartner (qatorning o'zida).
         api.get('/services'),
-        api.get('/clients'),
       ]);
       setSummary(s);
       setChart(c);
@@ -53,7 +73,7 @@ export default function Finance() {
       setMaterials(Array.isArray(mat) ? mat : []);
       setIncomeSources(src && Array.isArray(src.sources) ? src : null);
       setStockItems(Array.isArray(items) ? items : []);
-      setPartnerServiceIds(buildPartnerServiceIds(asArray(services), asArray(clients)));
+      setPartnerServiceIds(buildPartnerServiceIds(asArray(services)));
       setLoadError(false);
     } catch {
       // Yuklash xatosi bo'sh ro'yxatga aylanmasin — aniq banner (yozuvlar bazada turibdi).
@@ -68,6 +88,7 @@ export default function Finance() {
     } finally {
       if (!silent) setLoading(false);
     }
+    loadSheets();
   };
 
   useEffect(() => {
@@ -78,12 +99,16 @@ export default function Finance() {
   const bars = makeBars(chart, lang);
 
   // BARCHA kirim turlari bitta jadvalda — "turi" (__srcType) ustuni bilan farqlanadi.
+  // Sheet tab'i faqat KO'RINISHNI filtrlaydi (balans/hisobotlar barcha jadvallardan).
+  const activeIncomeSheet = activeSheetIdOf(incomeSheets);
+  const activeExpenseSheet = activeSheetIdOf(expenseSheets);
   const incomes = useMemo(
     () =>
       transactions
         .filter((tx) => tx.type === 'income')
+        .filter((tx) => !selectedIncomeSheet || rowMatchesSheet(tx.sheetId, selectedIncomeSheet, activeIncomeSheet))
         .map((tx) => ({ ...tx, __srcType: incomeSrcType(tx, partnerServiceIds) })),
-    [transactions, partnerServiceIds]
+    [transactions, partnerServiceIds, selectedIncomeSheet, activeIncomeSheet]
   );
   const filteredIncomes = useMemo(
     () => (incomeFilter === 'all' ? incomes : incomes.filter((tx) => tx.__srcType === incomeFilter)),
@@ -91,7 +116,13 @@ export default function Finance() {
   );
   const incomeTotal = useMemo(() => filteredIncomes.reduce((sum, tx) => sum + (tx.amount || 0), 0), [filteredIncomes]);
 
-  const expenses = useMemo(() => transactions.filter((tx) => tx.type === 'expense'), [transactions]);
+  const expenses = useMemo(
+    () =>
+      transactions
+        .filter((tx) => tx.type === 'expense')
+        .filter((tx) => !selectedExpenseSheet || rowMatchesSheet(tx.sheetId, selectedExpenseSheet, activeExpenseSheet)),
+    [transactions, selectedExpenseSheet, activeExpenseSheet]
+  );
   // Kategoriya filtri variantlari — yuklangan yozuvlardagi mavjud kategoriyalardan.
   const expenseCategories = useMemo(() => {
     const seen = new Map();
@@ -158,6 +189,14 @@ export default function Finance() {
           {stockItems.length > 0 && <StockItemsCard items={stockItems} t={t} />}
 
           <div className="section-title">↑ {t('finance.income')}</div>
+          <SheetTabs
+            scope="income"
+            sheets={incomeSheets}
+            selected={selectedIncomeSheet}
+            onSelect={setSelectedIncomeSheet}
+            onChanged={() => load(true)}
+            t={t}
+          />
           {/* Turi filtri + joriy filtr bo'yicha jami. Davr filtri — yuqoridagi segment. */}
           <div className="sheet-filterbar">
             <span className="sheet-funnel" aria-hidden="true">▼</span>
@@ -179,6 +218,7 @@ export default function Finance() {
           <TransactionsSheet
             id="finance-income"
             type="income"
+            allowDraft={selectedIncomeSheet === activeIncomeSheet}
             rows={filteredIncomes}
             leadColumns={[
               {
@@ -198,6 +238,14 @@ export default function Finance() {
           />
 
           <div className="section-title">↓ {t('finance.expense')}</div>
+          <SheetTabs
+            scope="expense"
+            sheets={expenseSheets}
+            selected={selectedExpenseSheet}
+            onSelect={setSelectedExpenseSheet}
+            onChanged={() => load(true)}
+            t={t}
+          />
           {/* Kategoriya filtri + joriy filtr bo'yicha jami. */}
           <div className="sheet-filterbar">
             <span className="sheet-funnel" aria-hidden="true">▼</span>
@@ -219,6 +267,7 @@ export default function Finance() {
           <TransactionsSheet
             id="finance-expense"
             type="expense"
+            allowDraft={selectedExpenseSheet === activeExpenseSheet}
             rows={filteredExpenses}
             t={t}
             lang={lang}
@@ -248,7 +297,7 @@ export default function Finance() {
 // Kirim yoki Chiqim jadvali. Yangi qator o'sha turdagi tranzaksiya sifatida saqlanadi
 // (tur jadvalning o'zi bilan belgilangan — keyin o'zgartirish shart emas).
 // leadColumns — jadval boshiga qo'shiladigan qo'shimcha ustunlar (masalan kirimda "Turi").
-function TransactionsSheet({ id, type, rows, leadColumns = [], t, lang, onChanged, onDelete }) {
+function TransactionsSheet({ id, type, rows, leadColumns = [], allowDraft = true, t, lang, onChanged, onDelete }) {
   const columns = useMemo(
     () => [
       ...leadColumns,
@@ -324,7 +373,8 @@ function TransactionsSheet({ id, type, rows, leadColumns = [], t, lang, onChange
       rows={rows}
       rowKey={(r) => r._id}
       onChanged={onChanged}
-      draft={draft}
+      // Yangi qator faqat FAOL jadval tab'ida (server yangi yozuvni faol jadvalga yozadi).
+      draft={allowDraft ? draft : null}
       onDelete={onDelete}
       emptyText={t('common.noData')}
       t={t}
@@ -586,13 +636,9 @@ function asArray(value) {
 }
 
 // Hamkor mijozlarning xizmat IDlari — kirim tranzaksiyasini "Hamkorlik" deb belgilash uchun.
-function buildPartnerServiceIds(services, clients) {
-  const partnerClientIds = new Set(clients.filter((c) => c.isPartner).map((c) => String(c._id)));
-  return new Set(
-    services
-      .filter((s) => s.clientId && partnerClientIds.has(String(s.clientId)))
-      .map((s) => String(s._id))
-  );
+// isPartner belgisi endi xizmat qatorining o'zida (alohida mijozlar ro'yxati yo'q).
+function buildPartnerServiceIds(services) {
+  return new Set(services.filter((s) => s.isPartner).map((s) => String(s._id)));
 }
 
 // Kirim turi: xizmat / material / buyum / qo'lda kirim / hamkorlik tashrifi.

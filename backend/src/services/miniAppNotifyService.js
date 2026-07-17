@@ -1,6 +1,11 @@
 // Mini App write notifications: short Telegram messages for manual create/edit/delete.
 // Route handlers pass the old/new docs; this service formats only added/changed/deleted fields.
+//
+// BATCHING: xabarlar endi REAL-TIME yuborilmaydi — foydalanuvchi jadvalda ketma-ket
+// ko'p katak tahrirlaganda har biriga alohida xabar bormasin (server/Telegram yuki).
+// O'zgarishlar bir necha daqiqa to'planib, BITTA umumlashtirilgan xabar bo'lib ketadi.
 import { notifyOwner } from '../bot/notify.js';
+import { currentUserId } from '../db/tenantScope.js';
 import { formatMoney } from '../utils/money.js';
 import { formatDateTime } from '../utils/dates.js';
 
@@ -54,6 +59,7 @@ function dateTime(value) {
 const STATUS_LABEL = {
   kutilmoqda: 'Kutilmoqda',
   bajarildi: 'Bajarildi',
+  bajarilmadi: 'Bajarilmadi',
   bekor_qilindi: 'Bekor qilindi',
   tolanmagan: "To'lanmagan",
   tolangan: "To'langan",
@@ -204,7 +210,83 @@ function fieldLines(rows) {
   return rows.map((row) => `- ${row.label}: ${row.value}`);
 }
 
+// ── Batching ────────────────────────────────────────────────────────────────
+// Har foydalanuvchi uchun bufer: birinchi o'zgarishdan keyin BATCH_WINDOW_MS kutiladi,
+// oynada yig'ilgan hamma o'zgarish bitta xabar bo'lib ketadi. Bufer juda katta bo'lib
+// ketsa (MAX_BUFFER) — kutmasdan darhol yuboriladi.
+const BATCH_WINDOW_MS = 2 * 60 * 1000;
+const MAX_BUFFER = 25;
+// Telegram xabar chegarasi 4096 — zaxira bilan bo'lamiz.
+const MAX_MESSAGE_CHARS = 3500;
+const buffers = new Map(); // telegramUserId -> { lines: [], timer }
+
+function flushUser(uid) {
+  const buffer = buffers.get(uid);
+  buffers.delete(uid);
+  if (!buffer) return;
+  if (buffer.timer) clearTimeout(buffer.timer);
+  const lines = buffer.lines.filter(Boolean);
+  if (!lines.length) return;
+
+  const texts = [];
+  if (lines.length === 1) {
+    texts.push(lines[0]);
+  } else {
+    // Umumlashtirilgan bitta xabar; juda uzun bo'lsa bo'laklarga bo'linadi.
+    let current = `📱 Mini App'da so'nggi daqiqalarda ${lines.length} ta o'zgarish bo'ldi oka:`;
+    for (const line of lines) {
+      const piece = `\n\n${line}`;
+      if (current.length + piece.length > MAX_MESSAGE_CHARS) {
+        texts.push(current);
+        current = line;
+      } else {
+        current += piece;
+      }
+    }
+    if (current) texts.push(current);
+  }
+  for (const text of texts) {
+    notifyOwner(text, { explicitTelegramId: uid }).catch(() => {});
+  }
+}
+
+function queueForUser(uid, text) {
+  let buffer = buffers.get(uid);
+  if (!buffer) {
+    buffer = { lines: [], timer: null };
+    buffers.set(uid, buffer);
+  }
+  buffer.lines.push(text);
+  if (buffer.lines.length >= MAX_BUFFER) {
+    flushUser(uid);
+    return;
+  }
+  if (!buffer.timer) {
+    buffer.timer = setTimeout(() => flushUser(uid), BATCH_WINDOW_MS);
+    // Timer processni tirik ushlab turmasin (graceful shutdown uchun).
+    buffer.timer.unref?.();
+  }
+}
+
+// Yumshoq to'xtashda (SIGTERM) kutayotgan xabarlar yo'qolmasin — index.js chaqiradi.
+export function flushMiniAppNotifications() {
+  for (const uid of [...buffers.keys()]) flushUser(uid);
+}
+
 function send(text) {
+  if (!text) return text;
+  const uid = String(currentUserId() || '').trim();
+  // Kontekst topilmasa — batching o'rniga to'g'ridan yuborishga urinamiz (eski xatti-harakat).
+  if (!uid) {
+    notifyOwner(text).catch(() => {});
+    return text;
+  }
+  queueForUser(uid, text);
+  return text;
+}
+
+// Muhim/yirik hodisa (masalan ommaviy o'chirish) — kutmasdan darhol yuboriladi.
+function sendNow(text) {
   if (text) notifyOwner(text).catch(() => {});
   return text;
 }
@@ -264,7 +346,8 @@ export function buildMiniAppBulkDeleteMessage(target, result = {}) {
 }
 
 export function notifyMiniAppBulkDelete(target, result = {}) {
-  return send(buildMiniAppBulkDeleteMessage(target, result));
+  // Ommaviy o'chirish — muhim hodisa: batching'siz darhol yuboriladi.
+  return sendNow(buildMiniAppBulkDeleteMessage(target, result));
 }
 
 export default {
