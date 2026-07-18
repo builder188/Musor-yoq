@@ -1,5 +1,10 @@
 # SESSION_HANDOFF.md
 
+## 2026-07-17 (3) Lokatsiya/qaytgan-mijoz oqimlari sayqallandi + doimiy bot-flows testi
+- **3 tuzatish:** (1) pin nomi matnda "ha" deb tasdiqlansa ham endi bog'lash savoli chiqadi (tugma bilan bir xil); (2) qaytgan-mijoz taklifi endi telefon slot-filling O'RTASIDA aytilganda ham ishlaydi (continueEntry'da ham tekshiriladi — asosiy oqim shu edi); (3) taklif savoliga ha/yo'q o'rniga ma'lumot aytilsa ("manzili X, 300 ming") qayta so'ralmaydi — entry holati tiklanib xabar NLU oqimiga beriladi. Bog'lashda qator topilmasa holat saqlanadi (boshqa identifikator aytish mumkin).
+- **Yangi doimiy test:** `npm run test:bot-flows` (scripts/bot-flows-test.mjs, in-memory) — qaytgan mijoz (start + o'rtada + rad), lokatsiya bog'lash (nom saqlash, Yandex URL tugma, bo'sh manzilga pin nomi, ko'p moslik tanlovi) — 21/21.
+- Barcha suite'lar: write-read 81/81, small-talk 67/67, bot-flows 21/21.
+
 ## 2026-07-17 (2) Sheets + lokatsiya-bog'lash + batching + qaytgan mijoz
 - **Sheets:** Xizmatlar/Kirim/Chiqim/Kategoriyalar sahifalarida tab'lar; 30 qator → avto-arxiv + yangi faol jadval (bot xabar beradi); ➕ cheklovsiz yangi jadval (nomlanadi, yangisi faol); arxiv ham to'liq tahrirlanadi; QIDIRUV/HISOBOTLAR sheetga qaramaydi (hech narsa yashirilmaydi). Yangi qator stamping — model hook'larida; startup migratsiya `sheets_v1` legacy qatorlarni 30 taliklarga taqsimlaydi.
 - **Lokatsiya → qator:** kirish oqimidan tashqari pin: "qaysi xizmatga tegishli?" — ism/tel/qator-raqami (matn/ovoz), ko'p moslik tugmalar; mavjud manzil NOMI saqlanadi, Yandex Maps URL TUGMA bo'lib biriktiriladi (`location.mapUrl`).

@@ -947,6 +947,13 @@ async function continueEntry({ conversation, understanding, rawText, mode }) {
   // Mijoz ismi endi kelgan bo'lsa — hamkorlik standartlarini shu yerda qo'llaymiz.
   collected = await applyPartnerVisitDefaults(intent, collected);
 
+  // QAYTGAN MIJOZ: telefon ko'pincha slot-filling O'RTASIDA aytiladi ("telefoni nechi?"
+  // savoliga javob) — shu paytda ham mavjud qatorga mos kelsa taklif ko'rsatamiz.
+  if (!stopped) {
+    const returning = await maybeOfferReturningClient({ conversation, intent, collected, rawText, mode });
+    if (returning) return returning;
+  }
+
   if (stopped) {
     if (!hasMinimumIdentity(intent, collected)) {
       return askMinimumIdentity({ conversation, intent, collected });

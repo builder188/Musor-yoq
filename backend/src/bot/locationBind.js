@@ -85,6 +85,20 @@ export async function routeLocationBindAnswer(ctx, conv, text) {
   }
   const clean = String(text || '').trim();
 
+  // Bog'lashda qator topilmay qolsa (masalan shu orada o'chirilgan) — holat saqlanadi,
+  // foydalanuvchi boshqa identifikator aytishi mumkin.
+  const tryBind = async (serviceId) => {
+    try {
+      await bindLocationToService(ctx, conv, serviceId);
+    } catch (err) {
+      await ctx.reply(
+        `Bu xizmatga bog'lay olmadim oka (${err.message}). Boshqa ism/telefon/qator raqamini ayting yoki "yangi" deng.`,
+        { reply_markup: locationBindKeyboard() }
+      );
+    }
+    return true;
+  };
+
   // "Yangi (xizmat)" — mavjud qatorga emas, yangi yozuvga.
   if (/^(yangi|🆕)/i.test(clean)) {
     await startServiceFromBindLocation(ctx, conv);
@@ -95,10 +109,7 @@ export async function routeLocationBindAnswer(ctx, conv, text) {
   const stored = Array.isArray(conv.collected?.bindCandidates) ? conv.collected.bindCandidates : [];
   if (stored.length) {
     const match = matchClarifyOption(clean, stored.map((c, i) => ({ label: c.label, idx: i })));
-    if (match) {
-      await bindLocationToService(ctx, conv, stored[match.idx].id);
-      return true;
-    }
+    if (match) return tryBind(stored[match.idx].id);
   }
 
   // Qator raqami ("3", "3-qator") — FAOL Xizmatlar jadvalidagi tartib (createdAt bo'yicha).
@@ -112,8 +123,7 @@ export async function routeLocationBindAnswer(ctx, conv, text) {
       );
       return true;
     }
-    await bindLocationToService(ctx, conv, String(row._id));
-    return true;
+    return tryBind(String(row._id));
   }
 
   // Erkin identifikator: ism / telefon / manzil bo'lagi (mavjud moslashuvchan qidiruv).
@@ -126,8 +136,7 @@ export async function routeLocationBindAnswer(ctx, conv, text) {
     return true;
   }
   if (candidates.length === 1) {
-    await bindLocationToService(ctx, conv, String(candidates[0]._id));
-    return true;
+    return tryBind(String(candidates[0]._id));
   }
 
   // Bir nechta moslik — tugmali aniqlashtirish (nomzodlar conversation'da saqlanadi).

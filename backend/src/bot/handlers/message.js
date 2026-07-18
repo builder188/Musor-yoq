@@ -8,7 +8,6 @@ import { mergeFields, nextMissing, isEntryIntent, QUESTIONS } from '../flow.js';
 import { downloadFile } from '../bot.js';
 import {
   reminderInfoLine,
-  locationQuestionKeyboard,
   locationReviewKeyboard,
   paymentMethodKeyboard,
   saveKeyboard,
@@ -369,14 +368,26 @@ async function handleTextInput(ctx, text, sourceMeta = null) {
 
 // Qaytgan mijoz taklifi javobi: "ha" — oxirgi ism/manzil/narx ishlatiladi; "yo'q" —
 // foydalanuvchi o'zi aytadi (entry oqimi odatiy savollar bilan davom etadi).
+// Ha/yo'q bo'lmagan javob ("manzili Chilonzor, 300 ming") — foydalanuvchi ma'lumotni
+// O'ZI aytdi: takrorlab so'ramaymiz, entry holatini tiklab xabarni odatiy NLU oqimiga
+// beramiz (aytilgan qiymatlar ustun, taklif qayta ko'rsatilmaydi).
 async function routeReturningConfirm(ctx, conv, text) {
   const answer = interpretYesNo(text);
-  if (answer === null) {
-    await ctx.reply("Oldingi ma'lumotlarni ishlataymi, oka? 'ha' yoki 'yo'q' deng.");
-    return;
-  }
   try {
-    const res = await resumeReturningEntry({ conversation: conv, accept: answer === 'yes' });
+    if (answer !== null) {
+      const res = await resumeReturningEntry({ conversation: conv, accept: answer === 'yes' });
+      await syncSessionFromConversation(ctx, conv);
+      await sendAgentResult(ctx, res);
+      return;
+    }
+    const pending = conv.collected || {};
+    conv.pendingIntent = pending.entryIntent || 'SERVICE_ENTRY';
+    conv.collected = { ...(pending.entry || {}), _returningChecked: true };
+    conv.awaitingField = null;
+    conv.markModified('collected');
+    await conv.save();
+    const understanding = await understandText(text, []);
+    const res = await runAgent({ understanding, rawText: text, conversation: conv });
     await syncSessionFromConversation(ctx, conv);
     await sendAgentResult(ctx, res);
   } catch (err) {
@@ -624,30 +635,16 @@ async function routeLocationQuestion(ctx, conv, text) {
     await ctx.reply("Mayli oka, joylashuvni qo'ydim ✅");
     return;
   }
-  if (answer === 'yes') {
-    const location = conv.collected?.location;
-    if (!location) {
-      await conv.reset();
-      clearAllSessionState(ctx);
-      await ctx.reply('Joylashuvni topolmadim oka.');
-      return;
-    }
-    const missing = nextMissing('SERVICE_ENTRY', { location });
-    conv.pendingIntent = 'SERVICE_ENTRY';
-    conv.collected = { location };
-    conv.awaitingField = missing;
-    conv.markModified('collected');
-    await conv.save();
-    await syncSessionFromConversation(ctx, conv);
-    await ctx.reply(
-      QUESTIONS[missing],
-      missing === 'paymentMethod' ? { reply_markup: paymentMethodKeyboard() } : undefined
-    );
+  // "Ha" = manzil nomi tasdiqlandi ("Shu nom bilan saqlaymizmi?") — endi tugma bosilgandagi
+  // (loc_confirm) kabi BOG'LASH savoliga o'tamiz: "Bu manzil qaysi xizmatga tegishli?"
+  const location = conv.collected?.location;
+  if (!location) {
+    await conv.reset();
+    clearAllSessionState(ctx);
+    await ctx.reply('Joylashuvni topolmadim oka.');
     return;
   }
-  await ctx.reply("Bu manzil yangi xizmat uchunmi, oka? 'ha' yoki 'yo\'q' deb ayting.", {
-    reply_markup: locationQuestionKeyboard(),
-  });
+  await startLocationBind(ctx, conv, location);
 }
 
 // CLARIFY — tugmalardan birini matn/ovoz bilan tanlash (clarify_N callback bilan bir xil).

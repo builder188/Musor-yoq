@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test:write-read": "node scripts/write-read-test.mjs",
-    "test:small-talk": "node scripts/small-talk-test.mjs"
+    "test:small-talk": "node scripts/small-talk-test.mjs",
+    "test:bot-flows": "node scripts/bot-flows-test.mjs"
   },
   "engines": {
     "node": ">=18"
