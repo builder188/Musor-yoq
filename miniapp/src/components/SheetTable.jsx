@@ -97,6 +97,7 @@ export default function SheetTable({
   onRowOpen = null, // (row) => void — o'qish-uchun katak/qator raqami bosilganda (tafsilot)
   actions = null, // (row) => JSX — qo'shimcha amal tugmalari
   rowDetail = null, // (row) => JSX|null — yoyiladigan tafsilot (ovoz va h.k.)
+  highlightRowKey = null, // rowKey — bosh sahifadan kelib, o'sha qatorni yorug'lantirib ko'rsatadi
   emptyText = '',
   t = (k) => k,
 }) {
@@ -109,6 +110,14 @@ export default function SheetTable({
   const [draftValues, setDraftValues] = useState(null);
   const [draftBusy, setDraftBusy] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const highlightRef = useRef(null);
+
+  // Tashqaridan (bosh sahifadan) yorug'lantirish so'ralgan qatorni ko'rinishga surib chiqaramiz.
+  useEffect(() => {
+    if (highlightRowKey && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlightRowKey, rows]);
 
   // Tashqi signal (masalan, bosh sahifadagi "Yangi mijoz") — draft qatorni ochadi.
   useEffect(() => {
@@ -251,9 +260,13 @@ export default function SheetTable({
               const rid = rowKey(row);
               const detail = rowDetail ? rowDetail(row) : null;
               const expanded = expandedId === rid && detail;
+              const highlighted = highlightRowKey != null && String(rid) === String(highlightRowKey);
               return (
                 <Fragment key={rid}>
-                  <tr className={busyKey?.startsWith(`${rid}:`) ? 'sheet-busy' : ''}>
+                  <tr
+                    ref={highlighted ? highlightRef : null}
+                    className={`${busyKey?.startsWith(`${rid}:`) ? 'sheet-busy' : ''}${highlighted ? ' sheet-row-highlight' : ''}`}
+                  >
                     <td
                       className={`sheet-rownum${onRowOpen ? ' openable' : ''}`}
                       onClick={() => onRowOpen?.(row)}

@@ -1,6 +1,6 @@
 import Transaction, { TX_TYPES, MATERIAL_CATEGORY, USEFUL_ITEM_CATEGORY } from '../models/Transaction.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
-import { periodRange } from '../utils/dates.js';
+import { periodRange, startOfMonth, endOfMonth, endOfDay } from '../utils/dates.js';
 import { resolveMaterialName, buildMaterialDescription } from './materialService.js';
 import { ensureMaterialCategory, ensureExpenseCategory, ensureIncomeCategory } from './categoryService.js';
 import { normalizeExpenseCategory, normalizeIncomeCategory } from '../bot/flow.js';
@@ -120,6 +120,76 @@ export async function getSummary(period = 'all') {
     if (row._id === TX_TYPES.EXPENSE) expense += row.total;
   }
   return { period, income, expense, totalIncome: income, totalExpense: expense, balance: income - expense, from, to };
+}
+
+// Berilgan oraliqdagi kirim/chiqim jamlari (bir aggregatsiya).
+async function sumByTypeInRange(from, to) {
+  const rows = await Transaction.aggregate([
+    { $match: { ...notDeleted, date: { $gte: from, $lte: to } } },
+    { $group: { _id: '$type', total: { $sum: '$amount' } } },
+  ]);
+  let income = 0;
+  let expense = 0;
+  for (const row of rows) {
+    if (row._id === TX_TYPES.INCOME) income += row.total;
+    if (row._id === TX_TYPES.EXPENSE) expense += row.total;
+  }
+  return { income, expense };
+}
+
+// Ikki davr summasidan "sur'at" (foiz farqi) obyektini quradi. Avvalgi davr 0 bo'lsa foiz
+// yo'q (null = "yangi", solishtirishga asos yo'q); ikkalasi ham 0 bo'lsa 0%.
+function paceOf(current, previous) {
+  const cur = Math.round(Number(current) || 0);
+  const prev = Math.round(Number(previous) || 0);
+  const pct = prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null;
+  return { current: cur, previous: prev, pct };
+}
+
+// Bosh sahifadagi 3 ta katak ("Xizmat | Xarajat | Daromad") uchun sur'at ma'lumoti.
+// Xizmat: shu oyning BARCHA xizmatlari soni + narx jami. Xarajat/Daromad: ADOLATLI
+// taqqoslash — joriy oyning boshidan BUGUNGACHA vs o'tgan oyning boshidan XUDDI SHU
+// kun raqamigacha (to'liq oy bilan emas, teng "sur'at" bilan). Foiz shu ikki oraliqdan.
+export async function getDashboardPace() {
+  const now = new Date();
+  const day = now.getDate();
+
+  // Joriy oy (butun) — xizmat kartasi butun oyni ko'rsatadi.
+  const monthFrom = startOfMonth(now);
+  const monthTo = endOfMonth(now);
+
+  // Bu oyning boshidan bugungacha (MTD).
+  const mtdFrom = startOfMonth(now);
+  const mtdTo = endOfDay(now);
+
+  // O'tgan oyning boshidan XUDDI SHU kun raqamigacha (kun oyning oxiridan oshsa qisqartiriladi).
+  const prevBase = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevFrom = startOfMonth(prevBase);
+  const prevLastDay = new Date(prevBase.getFullYear(), prevBase.getMonth() + 1, 0).getDate();
+  const prevDay = Math.min(day, prevLastDay);
+  const prevTo = endOfDay(new Date(prevBase.getFullYear(), prevBase.getMonth(), prevDay));
+
+  const [cur, prev, svcRows] = await Promise.all([
+    sumByTypeInRange(mtdFrom, mtdTo),
+    sumByTypeInRange(prevFrom, prevTo),
+    Service.aggregate([
+      { $match: { ...notDeleted, serviceDateTime: { $gte: monthFrom, $lte: monthTo } } },
+      {
+        $group: {
+          _id: null,
+          count: { $sum: 1 },
+          total: { $sum: { $cond: [{ $gt: ['$price', 0] }, '$price', 0] } },
+        },
+      },
+    ]),
+  ]);
+
+  const svc = svcRows[0] || { count: 0, total: 0 };
+  return {
+    service: { count: svc.count || 0, total: svc.total || 0 },
+    expense: paceOf(cur.expense, prev.expense),
+    income: paceOf(cur.income, prev.income),
+  };
 }
 
 // Boyitilgan balans hisoboti (standartlashtirilgan shablon uchun): kirim/chiqim/balans

@@ -1,7 +1,8 @@
 // Bosh sahifa — DASHBOARD (jadval EMAS): kun/vaqt, CBU kursi, umumiy balans,
-// "hozir kimga borish kerak" kartasi, bugungi xizmatlar (holat yorliqlari bilan),
-// shu oy kirim/chiqim, to'lanmagan jarima ogohlantirishi va qidiruv.
-// Qidiruv FAQAT Xizmatlar jadvali ichida (ism/tel/manzil/summa) — alohida mijozlar bo'limi yo'q.
+// "hozir kimga borish kerak" kartasi (bosilsa Xizmatlar jadvalidagi qatorga o'tib
+// yorug'lantiradi), xizmat qidiruvi (barcha ustunlar bo'yicha, natija bosilsa jadvalga
+// o'tadi), "Yangi xizmat qo'shish" tugmasi, bugungi BARCHA xizmatlar (holat yorliqlari
+// bilan) va uchta katak: Xizmat | Xarajat | Daromad (bu oy + foiz sur'ati).
 import { useEffect, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
@@ -11,8 +12,8 @@ import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
 import LoadError from '../components/LoadError.jsx';
 
-// Eslatma: AI chat paneli OLIB TASHLANDI — u backend'da yozuv amallarini tasdiqsiz
-// bajara olardi. Tabiiy-til muloqot faqat botda; bu yerda deterministik qidiruv qoladi.
+// Eslatma: bu yerdagi AI chat OLIB TASHLANGAN edi (u tasdiqsiz TAHRIR/O'CHIRISH qila
+// olardi). Endi Xizmatlar sahifasida CHEKLANGAN AI bor — u FAQAT yangi qator qo'shadi.
 export default function Home({ goToTab }) {
   const { t, lang } = useApp();
   const [stats, setStats] = useState(null);
@@ -61,7 +62,7 @@ export default function Home({ goToTab }) {
       return;
     }
 
-    // Qidiruv faqat Xizmatlar jadvalida: ism / telefon / manzil / izoh / summa.
+    // Qidiruv Xizmatlar jadvalining BARCHA ustunlarida: ism / telefon / manzil / izoh / summa.
     const timer = setTimeout(() => {
       setSearching(true);
       api
@@ -75,11 +76,17 @@ export default function Home({ goToTab }) {
     return () => clearTimeout(timer);
   }, [search]);
 
+  // Qatorni Xizmatlar jadvalida ochib, yorug'lantirib ko'rsatadi (qidirmasdan, to'g'ridan-to'g'ri).
+  const openInServices = (service) => {
+    if (!service?._id) return;
+    goToTab?.('services', { focusServiceId: service._id, nonce: Date.now() });
+  };
+
   return (
     <div>
       {statsError && <LoadError onRetry={loadStats} />}
 
-      {/* 1) Sana va vaqt (jonli) + 2) dollar kursi */}
+      {/* 1) Sana va vaqt (jonli) + dollar kursi */}
       <div className="greeting">
         <div>
           <div className="greet-date">
@@ -93,7 +100,7 @@ export default function Home({ goToTab }) {
         </button>
       </div>
 
-      {/* 3) Joriy balans — katta raqam (BARCHA VAQT bo'yicha) */}
+      {/* 2) Joriy balans — katta raqam (BARCHA VAQT bo'yicha) */}
       <div className="balance-hero">
         <div className="bh-label">{t('finance.balanceNow')}</div>
         <div className={`bh-amount ${Number(stats?.balance ?? 0) < 0 ? 'negative' : ''}`}>
@@ -101,10 +108,10 @@ export default function Home({ goToTab }) {
         </div>
       </div>
 
-      {/* 4) Hozir kimga borish kerak? — so'rovsiz, darhol */}
-      <NextClientCard nextClient={stats?.nextClient} loading={loadingStats} onOpen={setSelectedService} />
+      {/* 3) Hozir kimga borish kerak? — bosilsa jadvaldagi qatorga o'tib yorug'lantiradi */}
+      <NextClientCard nextClient={stats?.nextClient} loading={loadingStats} onOpen={openInServices} />
 
-      {/* 7) To'lanmagan jarima — faqat bor bo'lsa ko'rinadi */}
+      {/* To'lanmagan jarima — faqat bor bo'lsa ko'rinadi */}
       {stats?.unpaidFines?.count > 0 && (
         <div className="fine-alert" onClick={() => goToTab?.('reminders')}>
           ⚠️ {t('reminders.fineUnpaid')}: {stats.unpaidFines.count} {t('home.countSuffix')}
@@ -112,7 +119,7 @@ export default function Home({ goToTab }) {
         </div>
       )}
 
-      {/* 8) Qidiruv — ism/telefon/manzil/summa bo'yicha, FAQAT Xizmatlar jadvali ichida */}
+      {/* 4) Xizmat qidiruvi — barcha ustunlar bo'yicha */}
       <div className="search">
         <span className="search-icon">🔍</span>
         <input
@@ -122,16 +129,20 @@ export default function Home({ goToTab }) {
         />
       </div>
 
-      <button className="btn btn-primary btn-block add-client-cta" onClick={() => goToTab?.('services')}>
+      {/* 5) Yangi xizmat qo'shish — Xizmatlar jadvaliga o'tib bo'sh qatorni ochadi */}
+      <button
+        className="btn btn-primary btn-block add-client-cta"
+        onClick={() => goToTab?.('services', { openDraft: true, nonce: Date.now() })}
+      >
         <span className="cta-plus">+</span>
         {t('home.addServiceBig')}
       </button>
 
-      <SearchResults services={results} searching={searching} onOpenService={setSelectedService} />
+      <SearchResults services={results} searching={searching} onOpenService={openInServices} />
 
       {!search.trim() && (
         <>
-          {/* 5) Bugungi BARCHA xizmatlar — holat yorliqlari bilan */}
+          {/* 6) Bugungi BARCHA xizmatlar — holat yorliqlari bilan */}
           <TodayServices
             items={stats?.todayServices || []}
             loading={loadingStats}
@@ -140,8 +151,8 @@ export default function Home({ goToTab }) {
             onComplete={completeTodayService}
           />
 
-          {/* 6) Bu oyning moliyaviy xulosasi: kirim va chiqim ALOHIDA */}
-          <MonthSummary summary={stats?.monthSummary} t={t} />
+          {/* 7) Uchta katak: Xizmat | Xarajat | Daromad (bu oy + foiz sur'ati) */}
+          <PaceBoxes pace={stats?.pace} loading={loadingStats} goToTab={goToTab} t={t} />
         </>
       )}
 
@@ -163,7 +174,7 @@ function useNow() {
 // "Hozir kimga borish kerak?" — backend getNextClient (bugungi kutilayotgan xizmatlardan
 // vaqtga eng yaqini). Bo'lmasa — bugungi ishlar tugagan.
 function NextClientCard({ nextClient, loading, onOpen }) {
-  const { t, lang } = useApp();
+  const { t } = useApp();
   if (loading) return null;
   if (!nextClient) {
     return (
@@ -189,6 +200,7 @@ function NextClientCard({ nextClient, loading, onOpen }) {
               </>
             ) : null}
           </div>
+          {nextClient.clientPhone && <div className="job-sub">{formatPhone(nextClient.clientPhone)}</div>}
           {nextClient.price > 0 && <div className="job-price">{formatMoney(nextClient.price)}</div>}
         </div>
         <span className="chevron">›</span>
@@ -197,31 +209,55 @@ function NextClientCard({ nextClient, loading, onOpen }) {
   );
 }
 
-// Bu oy: kirim (yashil, barcha manbalar jami) va chiqim (qizil) alohida.
-function MonthSummary({ summary, t }) {
-  const income = Number(summary?.income ?? summary?.totalIncome ?? 0);
-  const expense = Number(summary?.expense ?? summary?.totalExpense ?? 0);
+// Bu oy: uchta katak — Xizmat (soni+summasi), Xarajat va Daromad (summa + o'tgan oyning
+// shu kunigacha bo'lgan qismiga nisbatan FOIZ sur'ati). Har biri tegishli jadvalga o'tadi.
+function PaceBoxes({ pace, loading, goToTab, t }) {
+  const service = pace?.service || { count: 0, total: 0 };
+  const expense = pace?.expense || { current: 0, pct: null };
+  const income = pace?.income || { current: 0, pct: null };
+  const dash = loading ? '…' : null;
+
   return (
-    <div style={{ marginTop: 14 }}>
+    <div style={{ marginTop: 16 }}>
       <div className="section-head">
-        <div className="sec-title">{t('home.monthSummary')}</div>
+        <div className="sec-title">{t('home.monthOverview')}</div>
+        <div className="sec-link" style={{ color: 'var(--text-faint)', fontWeight: 500 }}>{t('home.vsPrev')}</div>
       </div>
-      <div className="io-row">
-        <div className="io-card">
-          <div className="io-head">
-            <div className="io-badge in">↑</div>
-            <span className="io-label">{t('finance.income')}</span>
-          </div>
-          <div className="io-value in">+{formatNumber(income)}</div>
-        </div>
-        <div className="io-card">
-          <div className="io-head">
-            <div className="io-badge out">↓</div>
-            <span className="io-label">{t('finance.expense')}</span>
-          </div>
-          <div className="io-value out">−{formatNumber(expense)}</div>
-        </div>
+      <div className="pace-row">
+        <button className="pace-box" onClick={() => goToTab?.('services', { nonce: Date.now() })}>
+          <div className="pace-label">🧹 {t('home.paceService')}</div>
+          <div className="pace-value">{dash ?? formatNumber(service.total)}</div>
+          <div className="pace-sub">{service.count} {t('home.countSuffix')}</div>
+        </button>
+
+        <button className="pace-box" onClick={() => goToTab?.('finance', { view: 'expense', nonce: Date.now() })}>
+          <div className="pace-label">💸 {t('home.paceExpense')}</div>
+          <div className="pace-value out">{dash ?? formatNumber(expense.current)}</div>
+          <PctBadge pct={expense.pct} goodWhenUp={false} loading={loading} t={t} />
+        </button>
+
+        <button className="pace-box" onClick={() => goToTab?.('finance', { view: 'income', nonce: Date.now() })}>
+          <div className="pace-label">💰 {t('home.paceIncome')}</div>
+          <div className="pace-value in">{dash ?? formatNumber(income.current)}</div>
+          <PctBadge pct={income.pct} goodWhenUp loading={loading} t={t} />
+        </button>
       </div>
+    </div>
+  );
+}
+
+// Foiz sur'ati belgisi: o'sish/kamayish yaxshimi (kirimda o'sish yaxshi, xarajatda aksincha)
+// — shunga qarab yashil/qizil. O'tgan oyda hech narsa bo'lmasa foiz yo'q ("yangi").
+function PctBadge({ pct, goodWhenUp, loading, t }) {
+  if (loading) return <div className="pace-sub">…</div>;
+  if (pct === null || pct === undefined) return <div className="pace-sub muted">{t('home.paceNew')}</div>;
+  const flat = pct === 0;
+  const up = pct > 0;
+  const cls = flat ? 'flat' : up === goodWhenUp ? 'good' : 'bad';
+  const arrow = flat ? '→' : up ? '↑' : '↓';
+  return (
+    <div className={`pace-pct ${cls}`}>
+      {arrow} {Math.abs(pct)}%
     </div>
   );
 }
@@ -254,7 +290,9 @@ function RateChip() {
   );
 }
 
-// Qidiruv natijalari — Xizmatlar jadvalidan topilgan qatorlar.
+// Qidiruv natijalari — Xizmatlar jadvalidan topilgan qatorlar. Har bir moslikning asosiy
+// ma'lumotlari (ism, tel, sana, manzil, summa) TO'G'RIDAN-TO'G'RI ko'rinib turadi; bosilsa
+// jadvaldagi o'sha qatorga o'tib yorug'lantiriladi.
 function SearchResults({ services, searching, onOpenService }) {
   const { t, lang } = useApp();
   if (searching) return <Spinner />;
@@ -273,10 +311,10 @@ function SearchResults({ services, searching, onOpenService }) {
               {t(`status.${service.status || 'kutilmoqda'}`)}
             </span>
           </div>
-          <div className="sub">{formatPhone(service.clientPhone) || service.clientPhone || ''}</div>
+          {service.clientPhone && <div className="sub">{formatPhone(service.clientPhone) || service.clientPhone}</div>}
           <div className="sub">
             {service.serviceDateTime ? formatDateTime(service.serviceDateTime, lang) : ''}
-            {service.location?.address ? ` · ${service.location.address}` : ''}
+            {service.location?.address ? `${service.serviceDateTime ? ' · ' : ''}${service.location.address}` : ''}
           </div>
           {service.price > 0 && <div className="sub">{formatMoney(service.price)}</div>}
         </div>
@@ -318,8 +356,8 @@ function TodayServices({ items, loading, busyId, onOpenService, onComplete }) {
   );
 }
 
-// Bugungi xizmat kartasi: HAR BIRIDA aniq rangli holat yorlig'i; kutilayotganida
-// tezkor "bajarildi" tugmasi ham qoladi.
+// Bugungi xizmat kartasi: HAR BIRIDA aniq rangli holat yorlig'i; ism, tel, summa, manzil,
+// vaqt ko'rsatiladi. Kutilayotganida tezkor "bajarildi" tugmasi ham qoladi.
 function TodayServiceCard({ service, busy, onOpen, onComplete }) {
   const { t } = useApp();
   const isDone = service.status === 'bajarildi';
@@ -351,6 +389,7 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
               </>
             ) : null}
           </div>
+          {service.clientPhone && <div className="job-sub">{formatPhone(service.clientPhone)}</div>}
           <div className="job-price">{formatMoney(service.price)}</div>
         </div>
         {isDone ? (

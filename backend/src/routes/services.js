@@ -15,6 +15,10 @@ import {
 import { softDeleteOne } from '../services/deleteService.js';
 import { requireDeleteCode } from '../middleware/deleteCode.js';
 import { notifyMiniAppCreated, notifyMiniAppUpdated, notifyMiniAppDeleted } from '../services/miniAppNotifyService.js';
+import { extractServiceEntry, transcribeAudio } from '../ai/gemini.js';
+import { correctServiceDateTime } from '../utils/dates.js';
+import { getUsdToUzsRate } from '../services/exchangeRateService.js';
+import { convertUsdToUzs } from '../utils/money.js';
 import env from '../config/env.js';
 import Service from '../models/Service.js';
 
@@ -80,6 +84,68 @@ router.post(
     const service = await createService(req.body);
     notifyMiniAppCreated('service', service, { input: req.body });
     res.status(201).json(service);
+  })
+);
+
+// POST /api/services/ai — CHEKLANGAN AI: ovoz/matndan FAQAT bitta YANGI xizmat qatori qo'shadi.
+// XAVFSIZLIK: bu endpoint faqat createService chaqiradi — mavjud yozuvni tahrirlash, holatini
+// o'zgartirish yoki o'chirish imkoni umuman YO'Q (avval olib tashlangan "yozuvchi" AI chatdan
+// farqli). AI faqat maydonlarni ajratadi; noto'g'ri tushunsa ham eng yomon holat — noto'g'ri
+// yangi qator (tahrir/o'chirish emas). body: { text } yoki { audio(base64), mimeType }.
+router.post(
+  '/ai',
+  asyncHandler(async (req, res) => {
+    let text = String(req.body?.text || '').trim();
+    let transcription = null;
+    // Ovoz (Mini App'da yozilgan) — avval o'zbekchaga transkripsiya qilamiz.
+    if (!text && req.body?.audio) {
+      try {
+        const buffer = Buffer.from(String(req.body.audio), 'base64');
+        if (buffer.length > 0) {
+          text = String(await transcribeAudio(buffer, req.body.mimeType || 'audio/ogg') || '').trim();
+          transcription = text;
+        }
+      } catch (err) {
+        return res.status(422).json({ ok: false, error: "Ovozni o'qib bo'lmadi, qaytadan urinib ko'ring." });
+      }
+    }
+    if (!text) return res.status(400).json({ ok: false, error: "Xabar bo'sh — nima yozishimni ayting oka." });
+
+    const fields = await extractServiceEntry(text);
+
+    // Sana/vaqt mintaqa xatosini to'g'irlash ("soat 11" -> 16:00 emas, 11:00).
+    if (fields.serviceDateTime) {
+      fields.serviceDateTime = correctServiceDateTime(fields.serviceDateTime, text);
+    }
+    // Dollarda aytilgan narxni bugungi kurs bo'yicha so'mga aylantiramiz (asl qiymatni saqlab).
+    if (fields.currency === 'USD' && typeof fields.price === 'number' && fields.price > 0) {
+      const rate = await getUsdToUzsRate();
+      if (rate) {
+        const uzs = convertUsdToUzs(fields.price, rate);
+        if (uzs) {
+          fields.originalAmount = fields.price;
+          fields.originalCurrency = 'USD';
+          fields.exchangeRateUsed = rate;
+          fields.price = uzs;
+        }
+      }
+    }
+    delete fields.currency; // createService valyutani kutmaydi
+
+    // Identifikatsiya (ism YOKI to'g'ri telefon) shart — aks holda nima saqlanishi noaniq.
+    const validPhone = fields.clientPhone && /^\+998\d{9}$/.test(fields.clientPhone);
+    if (!fields.clientName && !validPhone) {
+      return res.json({
+        ok: false,
+        needIdentity: true,
+        transcription,
+        message: "Yangi qator qo'shish uchun kamida mijoz ismi yoki telefon raqami kerak oka.",
+      });
+    }
+
+    const service = await createService(fields);
+    notifyMiniAppCreated('service', service, { input: fields });
+    res.status(201).json({ ok: true, service, transcription });
   })
 );
 

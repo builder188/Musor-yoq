@@ -9,6 +9,7 @@ import {
   buildAnswerPrompt,
   buildClassificationPrompt,
   buildImagePrompt,
+  buildServiceExtractionPrompt,
 } from './prompts.js';
 import {
   HIGH_LEVEL_INTENTS,
@@ -853,6 +854,16 @@ export async function transcribeAudio(audioBuffer, mime = 'audio/ogg') {
   return res.response.text().trim().replace(/^["']|["']$/g, '');
 }
 
+// CHEKLANGAN AJRATMA (Mini App AI paneli): matndan FAQAT bitta yangi xizmat qatorining
+// maydonlarini ajratadi. Hech qanday intent/qidiruv/tahrir yo'q — chaqiruvchi route faqat
+// createService bilan yangi qator qo'shadi (xavfsizlik: tahrir/o'chirish imkoni yo'q).
+// SERVICE_ENTRY normalizatsiyasidan o'tkazadi (telefon/narx/sana/valyuta bir xil qoidalar).
+export async function extractServiceEntry(text) {
+  const res = await generate(jsonModel, buildServiceExtractionPrompt(String(text || '')));
+  const parsed = safeParseJson(res.response.text());
+  return normalizeExtractedFields('SERVICE_ENTRY', parsed && typeof parsed === 'object' ? parsed : {});
+}
+
 // STEP 1: IMAGE input OCR. Returns notebook records only; does not save them.
 export async function extractNotebookRecords(imageBuffer, mime = 'image/jpeg', caption = '') {
   const res = await generate(jsonModel, [
@@ -1135,6 +1146,7 @@ export default {
   transcribeAudio,
   geminiTranscribeAudio,
   extractNotebookRecords,
+  extractServiceEntry,
   geminiOCR,
   classifyIntent,
   chooseAgentTool,

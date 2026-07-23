@@ -2,13 +2,13 @@
 import { useApp } from '../store/AppContext.jsx';
 import { useNavigationView } from './useNavigationView.js';
 
-export default function Modal({ title, onClose, children }) {
+export default function Modal({ title, onClose, children, className = '' }) {
   const { t } = useApp();
   const goBack = useNavigationView(title, onClose);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal ${className}`.trim()} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <button className="modal-back" type="button" onClick={goBack} aria-label={t('common.back')}>
             <span aria-hidden="true">&larr;</span>

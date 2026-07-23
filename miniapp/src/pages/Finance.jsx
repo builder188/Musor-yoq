@@ -2,7 +2,7 @@
 // umumiy jadval (spreadsheet) ko'rinishida. Tahrirlar PUT /transactions/:id orqali —
 // biznes qoidalar backendda (xizmatga bog'langan daromad summasi o'zgartirilmaydi,
 // kategoriya avtomatik yaratiladi/kanonlashadi, bot xabar oladi).
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { formatMoney, formatDateTime, formatMonthName, formatMonthYear, toInputDateTime } from '../utils/format.js';
@@ -16,9 +16,12 @@ import LoadError from '../components/LoadError.jsx';
 const PERIODS = ['today', 'month', 'year', 'all'];
 const INCOME_TYPES = ['xizmat', 'material', 'buyum', 'qolda', 'hamkorlik'];
 
-export default function Finance() {
+export default function Finance({ nav = null }) {
   const { t, lang } = useApp();
   const [period, setPeriod] = useState('month');
+  // Bosh sahifadagi "Xarajat"/"Daromad" kataklaridan kelib, tegishli jadval bo'limiga suriladi.
+  const incomeRef = useRef(null);
+  const expenseRef = useRef(null);
   const [summary, setSummary] = useState(null);
   const [chart, setChart] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -95,6 +98,13 @@ export default function Finance() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period]);
+
+  // Kirim yoki Chiqim bo'limiga surish (bosh sahifadagi katak bosilganda).
+  useEffect(() => {
+    if (!nav?.view || loading) return;
+    const target = nav.view === 'income' ? incomeRef.current : nav.view === 'expense' ? expenseRef.current : null;
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [nav, loading]);
 
   const bars = makeBars(chart, lang);
 
@@ -188,7 +198,7 @@ export default function Finance() {
 
           {stockItems.length > 0 && <StockItemsCard items={stockItems} t={t} />}
 
-          <div className="section-title">↑ {t('finance.income')}</div>
+          <div className="section-title" ref={incomeRef}>↑ {t('finance.income')}</div>
           <SheetTabs
             scope="income"
             sheets={incomeSheets}
@@ -237,7 +247,7 @@ export default function Finance() {
             onDelete={setDeleting}
           />
 
-          <div className="section-title">↓ {t('finance.expense')}</div>
+          <div className="section-title" ref={expenseRef}>↓ {t('finance.expense')}</div>
           <SheetTabs
             scope="expense"
             sheets={expenseSheets}

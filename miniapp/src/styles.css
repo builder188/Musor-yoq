@@ -2116,3 +2116,173 @@ textarea.input {
   margin-bottom: 12px;
   cursor: pointer;
 }
+
+/* ===== Bosh sahifa: uchta katak (Xizmat | Xarajat | Daromad) ===== */
+.pace-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.pace-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  padding: 13px 12px;
+  cursor: pointer;
+  min-width: 0;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.pace-box:active {
+  transform: scale(0.98);
+  border-color: var(--border-input);
+}
+.pace-label {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.pace-value {
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.pace-value.in {
+  color: var(--accent);
+}
+.pace-value.out {
+  color: var(--danger);
+}
+.pace-sub {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.pace-pct {
+  font-weight: 700;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.pace-pct.good {
+  color: var(--accent);
+}
+.pace-pct.bad {
+  color: var(--danger);
+}
+.pace-pct.flat {
+  color: var(--text-faint);
+}
+
+/* Xizmatlar jadvalida bosh sahifadan kelib yorug'lantirilgan qator (qisqa "flash") */
+.sheet-row-highlight > td {
+  animation: rowFlash 2.6s ease-out;
+}
+@keyframes rowFlash {
+  0%,
+  35% {
+    background: var(--accent-soft);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 3px 0 0 transparent;
+  }
+}
+
+/* ===== Xizmatlar: CHEKLANGAN AI paneli (faqat yangi qator qo'shadi) ===== */
+.ai-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border-input);
+  background: var(--card);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13.5px;
+  border-radius: var(--r-pill);
+  padding: 8px 13px;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  flex: none;
+}
+.ai-add-btn:active {
+  transform: scale(0.97);
+}
+.ai-only-note {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+.ai-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.ai-input-row .input {
+  flex: 1;
+  min-width: 0;
+}
+.ai-mic,
+.ai-send {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  flex: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+}
+.ai-mic {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.ai-mic.recording {
+  background: var(--danger);
+  color: #fff;
+  animation: micPulse 1s infinite;
+}
+@keyframes micPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.ai-send {
+  background: var(--accent);
+  color: #fff;
+  padding: 0;
+}
+.ai-send:disabled {
+  opacity: 0.5;
+}
+.ai-messages {
+  max-height: 46vh;
+  overflow-y: auto;
+}

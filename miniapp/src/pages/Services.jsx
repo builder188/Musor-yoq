@@ -4,7 +4,7 @@
 //  - holat dropdown -> complete/cancel endpointlari (daromad yoziladi/qaytariladi)
 //  - to'lov holati dropdown -> paidAmount orqali (paymentStatus backend'da hisoblanadi)
 // Server tomonda notifyMiniAppUpdated bot xabarini yuboradi.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
 import { formatMoney, formatDateTime, formatMonthYear, toInputDateTime } from '../utils/format.js';
@@ -17,7 +17,7 @@ import SheetTable from '../components/SheetTable.jsx';
 import SheetTabs, { rowMatchesSheet, activeSheetIdOf } from '../components/SheetTabs.jsx';
 import LoadError from '../components/LoadError.jsx';
 
-export default function Services() {
+export default function Services({ nav = null }) {
   const { t, lang } = useApp();
   // Funnel filtri: barchasi (standart) / bugungi / kelajakdagi / tarixdagi / oy bo'yicha.
   const [filter, setFilter] = useState('all');
@@ -30,6 +30,11 @@ export default function Services() {
   const [detail, setDetail] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [partialFor, setPartialFor] = useState(null);
+  // Bosh sahifadan yo'naltirish: yorug'lantiriladigan qator, "+" (qo'lda qator) va AI panel.
+  const [highlightId, setHighlightId] = useState(null);
+  const [draftSignal, setDraftSignal] = useState(0);
+  const [aiOpen, setAiOpen] = useState(false);
+  const aiSavedRef = useRef(null);
 
   const loadSheets = async () => {
     try {
@@ -64,10 +69,42 @@ export default function Services() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Bosh sahifadan kelgan yo'naltirish parametrlarini o'qiymiz (har o'tishda yangi obyekt).
+  useEffect(() => {
+    if (!nav) return;
+    if (nav.focusServiceId) setHighlightId(String(nav.focusServiceId));
+    if (nav.openDraft) setDraftSignal((n) => n + 1);
+    if (nav.openAiChat) setAiOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav]);
+
   const months = useMemo(() => buildLast12Months(lang), [lang]);
   // Avval tanlangan jadval (tab), keyin sana funnel filtri. Tab faqat KO'RINISH —
   // qidiruv/hisobotlar barcha jadvallarni qamraydi.
   const activeSheetId = activeSheetIdOf(sheets);
+
+  // Yorug'lantiriladigan qatorni KO'RINADIGAN qilamiz: filtrni "Barchasi"ga qo'yamiz va
+  // uni saqlagan jadval tab'ini tanlaymiz (aks holda funnel/tab uni yashirib qo'yishi mumkin).
+  // So'ng SheetTable qatorni ekranga surib, qisqa vaqt yorug'lantiradi.
+  useEffect(() => {
+    if (!highlightId || !services.length) return;
+    const row = services.find((s) => String(s._id) === String(highlightId));
+    if (!row) return;
+    setFilter('all');
+    const target = row.sheetId ? String(row.sheetId) : activeSheetId;
+    if (target) setSelectedSheet(target);
+    const timer = setTimeout(() => setHighlightId(null), 2800);
+    return () => clearTimeout(timer);
+  }, [highlightId, services, activeSheetId]);
+
+  const closeAi = () => {
+    setAiOpen(false);
+    // AI panel yopilganda so'nggi qo'shilgan qatorni yorug'lantirib ko'rsatamiz.
+    if (aiSavedRef.current) {
+      setHighlightId(String(aiSavedRef.current));
+      aiSavedRef.current = null;
+    }
+  };
   const sheetRows = useMemo(
     () => (selectedSheet ? services.filter((s) => rowMatchesSheet(s.sheetId, selectedSheet, activeSheetId)) : services),
     [services, selectedSheet, activeSheetId]
@@ -211,7 +248,13 @@ export default function Services() {
   return (
     <div>
       {loadError && <LoadError onRetry={() => load()} />}
-      <h1 className="page-title">{t('services.title')}</h1>
+      <div className="row-between" style={{ marginBottom: 4 }}>
+        <h1 className="page-title" style={{ margin: 0 }}>{t('services.title')}</h1>
+        {/* AI bilan yangi qator qo'shish — FAQAT qo'shadi (tahrir/o'chirish yo'q). */}
+        <button className="ai-add-btn" onClick={() => setAiOpen(true)} aria-label={t('services.aiAdd')}>
+          🎤 {t('services.aiAdd')}
+        </button>
+      </div>
 
       {/* Jadval tab'lari (faol + arxiv) — arxiv ham to'liq tahrirlanadi. */}
       <SheetTabs
@@ -267,6 +310,8 @@ export default function Services() {
           // Yangi qator faqat FAOL jadvalda qo'shiladi (server yangi yozuvni faol jadvalga yozadi);
           // arxiv tab'da mavjud kataklar baribir to'liq tahrirlanadi.
           draft={selectedSheet === activeSheetId ? draft : null}
+          draftSignal={draftSignal}
+          highlightRowKey={highlightId}
           onDelete={setDeleting}
           actions={(row) => (
             <button type="button" aria-label={t('services.detail')} onClick={() => setDetail(row)}>
@@ -311,8 +356,186 @@ export default function Services() {
           }}
         />
       )}
+
+      {aiOpen && (
+        <ServiceAiChat
+          onClose={closeAi}
+          onSaved={(service) => {
+            aiSavedRef.current = service?._id || null;
+            load(true);
+          }}
+          t={t}
+        />
+      )}
     </div>
   );
+}
+
+// CHEKLANGAN AI paneli: ovoz yoki matn orqali FAQAT yangi xizmat qatori qo'shadi.
+// XAVFSIZLIK: server /services/ai endpointi faqat createService chaqiradi — bu panel
+// mavjud yozuvni tahrirlash/o'chirishga qodir EMAS. Mobil uchun sodda: yozib yuborasiz
+// yoki mikrofonni bosib gapirasiz — AI o'qib, jadval oxiriga yangi qator sifatida qo'shadi.
+function ServiceAiChat({ onClose, onSaved, t }) {
+  const [messages, setMessages] = useState([
+    { role: 'bot', text: t('services.aiIntro') },
+  ]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const listRef = useRef(null);
+  const mediaRef = useRef(null);
+  const chunksRef = useRef([]);
+
+  const canRecord =
+    typeof navigator !== 'undefined' &&
+    navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === 'function' &&
+    typeof window !== 'undefined' &&
+    typeof window.MediaRecorder !== 'undefined';
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, sending]);
+
+  const push = (role, text) => setMessages((prev) => [...prev, { role, text }]);
+
+  const handleResult = (res) => {
+    if (res?.transcription) push('user', res.transcription);
+    if (res?.ok && res.service) {
+      const s = res.service;
+      const parts = [`✅ ${t('services.aiSaved')}: ${s.clientName || t('common.notFilled')}`];
+      if (s.price > 0) parts.push(formatMoney(s.price));
+      push('bot', parts.join(' · '));
+      onSaved?.(s);
+    } else if (res?.needIdentity) {
+      push('bot', res.message || t('services.aiNeedIdentity'));
+    } else {
+      push('bot', res?.error || res?.message || t('common.error'));
+    }
+  };
+
+  const sendText = async () => {
+    const text = input.trim();
+    if (!text || sending) return;
+    setInput('');
+    push('user', text);
+    setSending(true);
+    try {
+      const res = await api.post('/services/ai', { text });
+      handleResult(res);
+    } catch (e) {
+      push('bot', e.message || t('common.error'));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendAudio = async (blob) => {
+    setSending(true);
+    push('user', '🎤 …');
+    try {
+      const base64 = await blobToBase64(blob);
+      const res = await api.post('/services/ai', { audio: base64, mimeType: blob.type || 'audio/webm' });
+      // "🎤 …" o'rniga transkripsiya (yoki oddiy belgi) qoladi — handleResult transcription'ni qo'shadi.
+      setMessages((prev) => prev.filter((m) => m.text !== '🎤 …'));
+      handleResult(res);
+    } catch (e) {
+      setMessages((prev) => prev.filter((m) => m.text !== '🎤 …'));
+      push('bot', e.message || t('common.error'));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const startRec = async () => {
+    if (!canRecord || sending) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size) chunksRef.current.push(e.data);
+      };
+      mr.onstop = () => {
+        stream.getTracks().forEach((tr) => tr.stop());
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
+        if (blob.size) sendAudio(blob);
+      };
+      mediaRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch {
+      push('bot', t('services.aiMicError'));
+    }
+  };
+
+  const stopRec = () => {
+    try {
+      mediaRef.current?.stop();
+    } catch {
+      /* allaqachon to'xtagan */
+    }
+    setRecording(false);
+  };
+
+  return (
+    <Modal title={`🎤 ${t('services.aiAdd')}`} onClose={onClose} className="ai-chat">
+      <div className="ai-only-note">{t('services.aiOnlyAdd')}</div>
+      <div className="ai-messages" ref={listRef}>
+        {messages.map((m, i) => (
+          <div key={i} className={`ai-bubble ${m.role}`}>{m.text}</div>
+        ))}
+        {sending && (
+          <div className="ai-bubble bot">
+            <span className="thinking"><span /><span /><span /></span>
+          </div>
+        )}
+      </div>
+      <div className="ai-input-row">
+        <input
+          className="input"
+          value={input}
+          placeholder={t('services.aiPlaceholder')}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && sendText()}
+          disabled={sending || recording}
+        />
+        {canRecord && (
+          <button
+            type="button"
+            className={`ai-mic ${recording ? 'recording' : ''}`}
+            onClick={recording ? stopRec : startRec}
+            disabled={sending}
+            aria-label={recording ? t('services.aiStopRec') : t('services.aiRec')}
+          >
+            {recording ? '⏹' : '🎤'}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn-primary ai-send"
+          onClick={sendText}
+          disabled={sending || recording || !input.trim()}
+        >
+          ➤
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// Blob -> base64 (data URL prefiksisiz) — ovozni JSON orqali yuborish uchun.
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 function currentMonthValue() {

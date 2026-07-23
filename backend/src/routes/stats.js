@@ -4,7 +4,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import Service, { SERVICE_STATUS } from '../models/Service.js';
 import Reminder, { REMINDER_TYPE, REMINDER_STATUS } from '../models/Reminder.js';
 import { notDeleted } from '../models/softDelete.js';
-import { getSummary } from '../services/financeService.js';
+import { getSummary, getDashboardPace } from '../services/financeService.js';
 import { getNextClient } from '../services/serviceService.js';
 import { startOfDay, endOfDay } from '../utils/dates.js';
 
@@ -20,7 +20,7 @@ router.get(
     const from = startOfDay();
     const to = endOfDay();
 
-    const [todayServices, monthSummary, allSummary, nextClient, unpaidFineDocs] = await Promise.all([
+    const [todayServices, monthSummary, allSummary, pace, nextClient, unpaidFineDocs] = await Promise.all([
       Service.find({
         ...notDeleted,
         serviceDateTime: { $gte: from, $lte: to },
@@ -29,6 +29,8 @@ router.get(
         .lean(),
       getSummary('month'),
       getSummary('all'),
+      // 3 ta katak ("Xizmat | Xarajat | Daromad") uchun sur'at (foiz farqi) ma'lumoti.
+      getDashboardPace(),
       // Mavjud "eng yaqin mijoz" mantig'i: bugungi kutilayotgan xizmatlardan vaqtga eng yaqini.
       getNextClient(),
       // To'lanmagan jarima: to'lov tranzaksiyasiga bog'lanmagan, bekor qilinmagan fine yozuvlari
@@ -52,6 +54,8 @@ router.get(
       expectedIncome,
       todayServices,
       monthSummary,
+      // Bosh sahifadagi 3 ta katak: bu oy xizmatlar soni/summasi + xarajat/daromad sur'ati.
+      pace,
       // Umumiy (barcha vaqt) balans — bosh sahifadagi katta raqam.
       balance: allSummary.balance,
       nextClient,

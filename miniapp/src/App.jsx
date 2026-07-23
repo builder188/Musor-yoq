@@ -72,13 +72,18 @@ function usePersistentSidebar() {
 export default function App() {
   const { loaded, error, clearNavigation } = useApp();
   const [tab, setTab] = useState(initialTab);
+  // Tab bilan birga kelgan yo'naltirish parametrlari (masalan bosh sahifadan Xizmatlar
+  // jadvalidagi aniq qatorga o'tib, uni yorug'lantirib ko'rsatish uchun). Har o'tishda
+  // yangi obyekt (nonce bilan) — shu sabab bir xil qatorga qayta bosilsa ham qayta ishlaydi.
+  const [tabParams, setTabParams] = useState(null);
   const isDesktop = useResponsiveMode();
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentSidebar();
 
   const changeTab = useCallback(
-    (nextTab) => {
+    (nextTab, params = null) => {
       clearNavigation();
       setTab(nextTab);
+      setTabParams(params);
     },
     [clearNavigation]
   );
@@ -114,9 +119,9 @@ export default function App() {
             </div>
           )}
           {tab === 'home' && <Home goToTab={changeTab} />}
-          {tab === 'services' && <Services />}
+          {tab === 'services' && <Services nav={tabParams} />}
           {tab === 'categories' && <Categories />}
-          {tab === 'finance' && <Finance />}
+          {tab === 'finance' && <Finance nav={tabParams} />}
           {tab === 'reminders' && <Reminders />}
           {tab === 'reports' && <Reports />}
           {tab === 'settings' && <Settings />}

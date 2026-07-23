@@ -476,6 +476,45 @@ ${formatKnownCategories(knownCategories)}${formatHistory(history)}
 ${text}`;
 }
 
+// CHEKLANGAN "faqat yangi xizmat qo'shish" ajratmasi (Mini App AI paneli uchun).
+// MUHIM (xavfsizlik): bu prompt FAQAT bitta yangi xizmat qatorining maydonlarini ajratadi —
+// hech qanday tahrir/holat/o'chirish niyati yo'q. Server ham faqat createService chaqiradi.
+// Shuning uchun bu yerda hech qanday intent tanlash, qidiruv yoki boshqa amal talab qilinmaydi.
+export function buildServiceExtractionPrompt(text) {
+  const ctx = nowContext();
+  return `You extract the fields of ONE NEW trash-collection job (service) for "Musir Yo'q",
+a business run by one owner in Uzbekistan. The owner typed or dictated a short Uzbek
+message (Latin/Cyrillic, sometimes Russian). Return ONLY the visible fields of that one
+new job as JSON. You never edit, cancel, delete or look anything up — just read this one
+new job.
+
+CURRENT TIME (Asia/Tashkent): ${ctx.human}
+ISO: ${ctx.iso}
+
+Extract these fields (omit any that are not stated — never invent):
+- clientName: the client's name, base form. Strip Uzbek case endings ("Sardorga" -> "Sardor",
+  "Akmalnikiga" -> "Akmal", "Salat sexga" -> "Salat sex").
+- clientPhone: normalized to +998XXXXXXXXX ("90 123 45 67" -> "+998901234567").
+- location: the address/place as said (e.g. "Chilonzor 5-kvartal").
+- serviceDateTime: ISO 8601 in Asia/Tashkent (+05:00). "ertaga"=+1 day, "indinga"=+2 days,
+  "bugun"=today, "kecha"=-1 day. Keep the exact clock hour said ("soat 11" => T11:00:00+05:00,
+  never a UTC "Z" and never shift by 5). If a day is given but no time, use 09:00. If a past
+  day/past tense is used ("bordim", "olib chiqdim", "kecha"), also set isHistorical=true.
+- price: money for the job as a number. "400 ming" -> 400000, "1.5 mln" -> 1500000.
+- currency: "USD" if the amount is in dollars ("100$", "100 dollar", "usd"); still put the
+  number in price. Otherwise "UZS" or omit. (The server converts USD to som.)
+- paymentMethod: only "naqd" | "karta" | "otkazma" if clearly stated ("plastik" => karta,
+  "perevod"/"o'tkazma" => otkazma). Never guess it.
+- notes: any extra short detail said.
+- isHistorical: true if the job already happened (past tense / a past date).
+
+Return ONLY this JSON object (omit absent fields):
+{"clientName":"...","clientPhone":"+998...","location":"...","serviceDateTime":"ISO","price":0,"currency":"UZS","paymentMethod":"naqd","notes":"...","isHistorical":false}
+
+--- OWNER MESSAGE ---
+${text}`;
+}
+
 export function buildImagePrompt(caption = '') {
   const ctx = nowContext();
   return `This is a handwritten notebook of a trash collection business.
