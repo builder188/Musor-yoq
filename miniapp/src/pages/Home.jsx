@@ -3,10 +3,10 @@
 // yorug'lantiradi), xizmat qidiruvi (barcha ustunlar bo'yicha, natija bosilsa jadvalga
 // o'tadi), "Yangi xizmat qo'shish" tugmasi, bugungi BARCHA xizmatlar (holat yorliqlari
 // bilan) va uchta katak: Xizmat | Xarajat | Daromad (bu oy + foiz sur'ati).
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store/AppContext.jsx';
 import { api } from '../api/client.js';
-import { formatMoney, formatPhone, formatDateTime, formatTime, formatWeekdayDate } from '../utils/format.js';
+import { formatMoney, formatPhone, formatDate, formatDateTime, formatTime, formatWeekdayDate } from '../utils/format.js';
 import Spinner from '../components/Spinner.jsx';
 import ServiceDetailModal from '../components/ServiceDetailModal.jsx';
 import LocationDisplay from '../components/LocationDisplay.jsx';
@@ -24,6 +24,9 @@ export default function Home({ goToTab }) {
   const [searching, setSearching] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
   const [completingServiceId, setCompletingServiceId] = useState(null);
+  // Qidiruv uchun BARCHA xizmatlar bir marta yuklanadi (kesh) — so'ng ism/tel/manzil/
+  // summa/SANA/izoh bo'yicha mijoz tomonda filtrlaymiz (server regexi sanani qamramasdi).
+  const allServicesRef = useRef(null);
   const now = useNow();
 
   const loadStats = () => {
@@ -55,6 +58,15 @@ export default function Home({ goToTab }) {
     }
   };
 
+  // Qidiruv uchun barcha xizmatlarni bir marta yuklab keshlaydi (Xizmatlar sahifasi ham
+  // shunday to'liq yuklaydi). Keyingi barcha qidiruvlar shu keshdan mijoz tomonda ishlaydi.
+  const ensureAllServices = async () => {
+    if (allServicesRef.current) return allServicesRef.current;
+    const list = normalizeServices(await api.get('/services'));
+    allServicesRef.current = list;
+    return list;
+  };
+
   useEffect(() => {
     const q = search.trim();
     if (!q) {
@@ -62,19 +74,27 @@ export default function Home({ goToTab }) {
       return;
     }
 
-    // Qidiruv Xizmatlar jadvalining BARCHA ustunlarida: ism / telefon / manzil / izoh / summa.
-    const timer = setTimeout(() => {
+    let cancelled = false;
+    // Qidiruv Xizmatlar jadvalining BARCHA maydonlarida: ism / telefon / manzil / izoh /
+    // summa / SANA (ko'rinadigan formatlangan matn bo'yicha).
+    const timer = setTimeout(async () => {
       setSearching(true);
-      api
-        .get(`/services?search=${encodeURIComponent(q)}`)
-        .then(normalizeServices)
-        .then(setResults)
-        .catch(() => setResults([]))
-        .finally(() => setSearching(false));
-    }, 300);
+      try {
+        const list = await ensureAllServices();
+        if (cancelled) return;
+        setResults(list.filter((service) => matchesServiceQuery(service, q, lang)));
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
 
-    return () => clearTimeout(timer);
-  }, [search]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [search, lang]);
 
   // Qatorni Xizmatlar jadvalida ochib, yorug'lantirib ko'rsatadi (qidirmasdan, to'g'ridan-to'g'ri).
   const openInServices = (service) => {
@@ -407,6 +427,34 @@ function TodayServiceCard({ service, busy, onOpen, onComplete }) {
       </div>
     </div>
   );
+}
+
+// Xizmatni qidiruv so'roviga solishtiradi — BARCHA maydonlar bo'yicha, ko'rinadigan
+// formatlangan matn ustida: ism, telefon (xom + formatlangan), manzil, izoh, summa
+// (xom + "200 000 so'm" + bo'shliqsiz raqam) va SANA (formatlangan). Shu sabab
+// foydalanuvchi "23-iyul", "iyul", "200 000" yoki "+998 90" deb yozsa ham topiladi.
+function matchesServiceQuery(service, q, lang) {
+  const query = String(q || '').toLowerCase().trim();
+  if (!query) return true;
+
+  // Raqamli so'rov ("200 000" yoki "200000") — summa bilan bo'shliqsiz solishtiramiz.
+  const digits = query.replace(/[\s']/g, '');
+  if (/^\d+$/.test(digits) && service.price > 0 && String(service.price).includes(digits)) {
+    return true;
+  }
+
+  const haystack = [
+    service.clientName,
+    service.clientPhone,
+    formatPhone(service.clientPhone),
+    service.location?.address,
+    service.notes,
+    service.price > 0 ? String(service.price) : '',
+    service.price > 0 ? formatMoney(service.price) : '',
+    service.serviceDateTime ? formatDateTime(service.serviceDateTime, lang) : '',
+    service.serviceDateTime ? formatDate(service.serviceDateTime, lang) : '',
+  ];
+  return haystack.some((value) => String(value || '').toLowerCase().includes(query));
 }
 
 function normalizeServices(value) {
